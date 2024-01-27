@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+#Yolo
+ultralytics/
+
 # Distribution / packaging
 .Python
 build/
