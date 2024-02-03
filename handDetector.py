@@ -1,6 +1,6 @@
 import mediapipe as mp
 
-
+import math
 import cv2
 import numpy as np
 import uuid
@@ -90,6 +90,7 @@ with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5) a
                         cv2.line(image, center_image, furthest_node, (255, 0, 0), 2)
 
                     finger_name, finger_nodes = next(((f_name, f_nodes) for f_name, f_nodes in fingers.items() if furthest_node_index in f_nodes), (None, None))
+                    
                     if finger_name is not None:
                          # Calculate the finger average
                         avg_x = np.mean([hand_landmarks.landmark[idx].x for idx in finger_nodes])
@@ -102,10 +103,11 @@ with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5) a
                         direction = np.subtract(furthest_node, finger_average)
                         normalized_direction = direction / np.linalg.norm(direction)
                         perpindicular_line = np.array([-normalized_direction[1], normalized_direction[0]])
-                        
 
-                        extended_pointA = np.add(furthest_node, np.add(normalized_direction * 10, perpindicular_line)*1000).astype(int)  # make a point out by an arbitrary length
-                        extended_pointB = np.add(furthest_node, np.subtract(normalized_direction * 10, perpindicular_line)*1000).astype(int)  # make a point out by an arbitrary length
+                        angle_degrees = 10; 
+
+                        extended_pointA = np.add(furthest_node, np.add(normalized_direction * math.cos(math.radians(angle_degrees)), perpindicular_line * math.sin(math.radians(angle_degrees)))*1000).astype(int)  # make a point out by an arbitrary length
+                        extended_pointB = np.add(furthest_node, np.subtract(normalized_direction * math.cos(math.radians(angle_degrees)), perpindicular_line * math.sin(math.radians(angle_degrees)))*1000).astype(int)  # make a point out by an arbitrary length
                         
                         cv2.line(image, furthest_node, tuple(extended_pointA), (0, 0, 255), 2)
                         cv2.line(image, furthest_node, tuple(extended_pointB), (0, 0, 255), 2)
