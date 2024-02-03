@@ -99,10 +99,16 @@ with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5) a
                         # Draw a line from the finger average to the furthest node
                         cv2.line(image, finger_average, furthest_node, (0, 255, 0), 2)
                         
-                        direction = np.subtract(furthest_node, finger_average) 
+                        direction = np.subtract(furthest_node, finger_average)
                         normalized_direction = direction / np.linalg.norm(direction)
-                        extended_point = np.add(furthest_node, normalized_direction * 10000).astype(int)  # make a point out by an arbitrary length
-                        cv2.line(image, furthest_node, tuple(extended_point), (0, 0, 255), 2)
+                        perpindicular_line = np.array([-normalized_direction[1], normalized_direction[0]])
+                        
+
+                        extended_pointA = np.add(furthest_node, np.add(normalized_direction * 10, perpindicular_line)*1000).astype(int)  # make a point out by an arbitrary length
+                        extended_pointB = np.add(furthest_node, np.subtract(normalized_direction * 10, perpindicular_line)*1000).astype(int)  # make a point out by an arbitrary length
+                        
+                        cv2.line(image, furthest_node, tuple(extended_pointA), (0, 0, 255), 2)
+                        cv2.line(image, furthest_node, tuple(extended_pointB), (0, 0, 255), 2)
             
 
             for num, hand in enumerate(results.multi_hand_landmarks):
