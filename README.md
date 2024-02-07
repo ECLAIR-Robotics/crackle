@@ -11,3 +11,5 @@ Contextual Robotics Arm with Knowledge Learning and Exploration
 3. ```conda create -n eclair-crackle```
 4. create a new branch ```git checkout -b <your-name>/<feature-you-are-working-on>```
 5. ```conda activate eclair-crackle```
+6. ```conda install pip```
+7. ```pip install -r requirements.txt```
