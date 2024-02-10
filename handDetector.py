@@ -73,9 +73,25 @@ def calc_edge(frame, origin, vector):
      
 
 with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5) as hands: 
+    i = 0
     while cap.isOpened():
         ret, frame = cap.read()
-        
+        if i == 0:
+            
+            shapes = []
+            
+            for _ in range(20):
+                shape = []
+                x = random.randint(0, frame.shape[0])
+                y = random.randint(0, frame.shape[1])
+                shape.append((x, y))
+                y_changed = y + random.randint(25,100)
+                shape.append((x, y_changed))
+                x += random.randint(25,100)
+                shape.append((x,y_changed))
+                shape.append((x,y))
+                shapes.append(shape)
+            i += 1
         # BGR 2 RGB
         image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
@@ -103,11 +119,7 @@ with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5) a
             'Pinky': [20, 19, 18, 17]
         }
 
-        points = []
-        for _ in range(200):
-            x = random.randint(0, frame.shape[1])
-            y = random.randint(0, frame.shape[0])
-            points.append((x, y))
+        
         
         #array to be filled with the approximate center of the hand
         hand_centers = []
@@ -153,7 +165,6 @@ with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5) a
                         cur_index += 1
 
                     # Draw a line from the center to the furthest node
-                    
                     if furthest_node is not None:
                         cv2.line(image, center_image, furthest_node, (255, 0, 0), 2)
 
@@ -183,12 +194,25 @@ with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5) a
                         extended_pointB = np.add(furthest_node, cone_vectorB).astype(int)  # make a point out by an arbitrary length
                         sorted_points = sort_vertices_clockwise([furthest_node, extended_pointA, extended_pointB])
                         
-                        for i in range(len(points)):
-                            if (is_point_inside_polygon(sorted_points,points[i])):
-                                cv2.circle(image, points[i], 5, (0, 255, 0), -1)
+                        for i in range(len(shapes)):
+                            inside = False
+                            for j in range(len(shapes[i])):
+                                    if (is_point_inside_polygon(sorted_points,shapes[i][j])):
+                                        cv2.circle(image, shapes[i][j], 5, (0, 255, 0), -1)
+                                        inside = True
+                                    else:
+                                        cv2.circle(image, shapes[i][j], 5, (0, 0, 255), -1)
+                            if (inside):
+                                cv2.line(image, shapes[i][0], shapes[i][1], (0, 255, 0), 2)
+                                cv2.line(image, shapes[i][1], shapes[i][2], (0, 255, 0), 2)
+                                cv2.line(image, shapes[i][2], shapes[i][3], (0, 255, 0), 2)
+                                cv2.line(image, shapes[i][3], shapes[i][0], (0, 255, 0), 2)
                             else:
-                                cv2.circle(image, points[i], 5, (0, 0, 255), -1)
-
+                                cv2.line(image, shapes[i][0], shapes[i][1], (0, 0, 255), 2)
+                                cv2.line(image, shapes[i][1], shapes[i][2], (0, 0, 255), 2)
+                                cv2.line(image, shapes[i][2], shapes[i][3], (0, 0, 255), 2)
+                                cv2.line(image, shapes[i][3], shapes[i][0], (0, 0, 255), 2)
+                            
                         cv2.line(image, furthest_node, tuple(extended_pointA), (0, 0, 255), 2)
                         cv2.line(image, furthest_node, tuple(extended_pointB), (0, 0, 255), 2)
 
