@@ -1,5 +1,5 @@
 import mediapipe as mp
-
+import random
 import math
 import cv2
 import numpy as np
@@ -9,6 +9,68 @@ import os
 mp_drawing = mp.solutions.drawing_utils
 mp_hands = mp.solutions.hands
 cap = cv2.VideoCapture(0)
+
+def is_point_inside_polygon(polygon_points, test_point):
+    """
+    Determine if a point is inside a given polygon or not.
+    Polygon is a list of (x, y) pairs, and test_point is a single (x, y) pair.
+    """
+    n = len(polygon_points)
+    inside = False
+    
+    x, y = test_point
+    p1x, p1y = polygon_points[0]
+    
+    for i in range(1, n + 1):
+        p2x, p2y = polygon_points[i % n]
+        if y > min(p1y, p2y):
+            if y <= max(p1y, p2y):
+                if x <= max(p1x, p2x):
+                    if p1y != p2y:
+                        xints = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
+                    if p1x == p2x or x <= xints:
+                        inside = not inside
+        p1x, p1y = p2x, p2y
+    return inside
+
+def calculate_centroid(vertices):
+    x_sum = 0
+    y_sum = 0
+    for vertex in vertices:
+        x_sum += vertex[0]
+        y_sum += vertex[1]
+    return x_sum / len(vertices), y_sum / len(vertices)
+
+def sort_vertices_clockwise(vertices):
+    centroid = calculate_centroid(vertices)
+    
+    def sort_key(vertex):
+        return math.atan2(vertex[1] - centroid[1], vertex[0] - centroid[0])
+    
+    sorted_vertices = sorted(vertices, key=sort_key, reverse=True)  # Use reverse=False for counter-clockwise
+    return sorted_vertices
+
+def calc_edge(frame, origin, vector):
+    height = frame.shape[0]
+    width = frame.shape[1]
+    origin_height = origin[1]
+    origin_width = origin[0]
+    vector_width = vector[0]
+    vector_height = -vector[1]
+    
+    scalar_x = 0
+    scalar_y = 0
+    if (vector_width < 0): #moving to bottom left
+        scalar_x = origin_width / abs(vector_width)
+    else:
+        scalar_x = (width-origin_width) / abs(vector_width)
+    if (vector_height < 0): #moving to bottom left
+        scalar_y = origin_height / abs(vector_height)
+    else:
+        scalar_y = (height-origin_height) / abs(vector_height)    
+    return vector * max(scalar_x, scalar_y)
+
+     
 
 with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5) as hands: 
     while cap.isOpened():
@@ -41,6 +103,12 @@ with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5) a
             'Pinky': [20, 19, 18, 17]
         }
 
+        points = []
+        for _ in range(200):
+            x = random.randint(0, frame.shape[1])
+            y = random.randint(0, frame.shape[0])
+            points.append((x, y))
+        
         #array to be filled with the approximate center of the hand
         hand_centers = []
         
@@ -104,13 +172,27 @@ with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5) a
                         normalized_direction = direction / np.linalg.norm(direction)
                         perpindicular_line = np.array([-normalized_direction[1], normalized_direction[0]])
 
-                        angle_degrees = 10; 
+                        angle_degrees = 10 
 
-                        extended_pointA = np.add(furthest_node, np.add(normalized_direction * math.cos(math.radians(angle_degrees)), perpindicular_line * math.sin(math.radians(angle_degrees)))*1000).astype(int)  # make a point out by an arbitrary length
-                        extended_pointB = np.add(furthest_node, np.subtract(normalized_direction * math.cos(math.radians(angle_degrees)), perpindicular_line * math.sin(math.radians(angle_degrees)))*1000).astype(int)  # make a point out by an arbitrary length
+                        cone_vectorA = np.add(normalized_direction * math.cos(math.radians(angle_degrees)), perpindicular_line * math.sin(math.radians(angle_degrees)))*1000
+                        cone_vectorB = np.subtract(normalized_direction * math.cos(math.radians(angle_degrees)), perpindicular_line * math.sin(math.radians(angle_degrees)))*1000
+                        height = frame.shape[0]
+                        width = frame.shape[1]
+
+                        extended_pointA = np.add(furthest_node, cone_vectorA).astype(int)  # make a point out by an arbitrary length
+                        extended_pointB = np.add(furthest_node, cone_vectorB).astype(int)  # make a point out by an arbitrary length
+                        sorted_points = sort_vertices_clockwise([furthest_node, extended_pointA, extended_pointB])
                         
+                        for i in range(len(points)):
+                            if (is_point_inside_polygon(sorted_points,points[i])):
+                                cv2.circle(image, points[i], 5, (0, 255, 0), -1)
+                            else:
+                                cv2.circle(image, points[i], 5, (0, 0, 255), -1)
+
                         cv2.line(image, furthest_node, tuple(extended_pointA), (0, 0, 255), 2)
                         cv2.line(image, furthest_node, tuple(extended_pointB), (0, 0, 255), 2)
+
+
             
 
             for num, hand in enumerate(results.multi_hand_landmarks):
