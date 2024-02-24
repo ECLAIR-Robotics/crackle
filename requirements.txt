@@ -1,0 +1,8 @@
+numpy==1.26.3
+opencv-python==4.9.0.80
+pyntcore==2024.2.1.2
+robotpy-apriltag==2024.2.1.2
+robotpy-cscore==2024.2.1.2
+robotpy-wpimath==2024.2.1.2
+robotpy-wpinet==2024.2.1.2
+robotpy-wpiutil==2024.2.1.2
