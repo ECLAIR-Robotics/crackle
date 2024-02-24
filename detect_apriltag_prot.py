@@ -13,6 +13,10 @@ class AprilTags:
 WIDTH = 640
 HEIGHT = 480
 
+
+WIDTH_OUTPUT = 150
+HEIGHT_OUTPUT = 150
+
 cap = cv2.VideoCapture(0)
 tag = robotpy_apriltag.AprilTagDetector()
 tag.addFamily("tag36h11", 3)
@@ -34,7 +38,7 @@ while True:
 
             points = [(0, 0), (0, 0), (0, 0), (0, 0)]
             colors_list = [(0, 0, 255), (0, 255, 255), (255, 0, 0), (255, 255, 255)]
-            for j in range(4):
+            for j in range(len(points)):
                 points[j] = (int(i.getCorner(j).x), int(i.getCorner(j).y))   
             
             for j in range(4):
@@ -49,11 +53,14 @@ while True:
             # Calculate the width and height of the april tag to calculate homography
             width_AB = np.sqrt(((points[2][0] - points[3][0])**2) + ((points[2][1] - points[3][1])**2))
             width_CD = np.sqrt(((points[1][0] - points[0][0])**2) + ((points[1][1] - points[0][1])**2))
-            width = max(width_AB, width_CD)
+            # width = max(width_AB, width_CD)
+            width = WIDTH_OUTPUT
             
             height_BD = np.sqrt(((points[2][0] - points[1][0])**2) + ((points[2][1] - points[1][1])**2))
             height_AC = np.sqrt(((points[3][0] - points[0][0])**2) + ((points[3][1] - points[0][1])**2))
-            height = max(height_BD, height_AC)
+            
+            # height = max(height_BD, height_AC)
+            height = HEIGHT_OUTPUT
             input_pts = np.float32([points[3], points[0], points[1], points[2]])
             output_pts = np.float32([[0, 0],
                         [0, height - 1],
@@ -65,6 +72,7 @@ while True:
             
             cv2.line(frame, (x, 0), (x, HEIGHT), (0, 255, 0), thickness=2)
             cv2.line(frame, (0, y), (WIDTH, y), (0, 255, 0), thickness=2)
+    
 
     # Display the frame
     cv2.imshow("Camera Feed", frame)
