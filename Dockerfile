@@ -40,10 +40,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 
 # Set the working directory inside the container
-WORKDIR /root
+WORKDIR /app
 
 # Copy the entire project into the container
-COPY . /root
+COPY . /app
 
 # setup entrypoint
 COPY ./ros_entrypoint.sh /
