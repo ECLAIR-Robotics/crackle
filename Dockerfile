@@ -4,8 +4,10 @@ FROM ros:humble-ros-core-jammy
 
 # install packages
 RUN apt-get update && apt-get install -q -y --no-install-recommends \
+    wget\
     build-essential \
     git \
+    python3-pip\
     python3-colcon-common-extensions \
     python3-colcon-mixin \
     python3-rosdep \
@@ -20,6 +22,8 @@ ENV LANG C.UTF-8
 ENV LC_ALL C.UTF-8
 
 ENV ROS_DISTRO humble
+
+
 
 # bootstrap rosdep
 RUN rosdep init && \
