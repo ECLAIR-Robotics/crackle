@@ -8,90 +8,12 @@ import os
 
 mp_drawing = mp.solutions.drawing_utils
 mp_hands = mp.solutions.hands
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(0)     
 
-def is_point_inside_polygon(polygon_points, test_point):
-    """
-    Determine if a point is inside a given polygon or not.
-    Polygon is a list of (x, y) pairs, and test_point is a single (x, y) pair.
-    """
-    n = len(polygon_points)
-    inside = False
-    
-    x, y = test_point
-    p1x, p1y = polygon_points[0]
-    
-    for i in range(1, n + 1):
-        p2x, p2y = polygon_points[i % n]
-        if y > min(p1y, p2y):
-            if y <= max(p1y, p2y):
-                if x <= max(p1x, p2x):
-                    if p1y != p2y:
-                        xints = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x
-                    if p1x == p2x or x <= xints:
-                        inside = not inside
-        p1x, p1y = p2x, p2y
-    return inside
-
-def calculate_centroid(vertices):
-    x_sum = 0
-    y_sum = 0
-    for vertex in vertices:
-        x_sum += vertex[0]
-        y_sum += vertex[1]
-    return x_sum / len(vertices), y_sum / len(vertices)
-
-def sort_vertices_clockwise(vertices):
-    centroid = calculate_centroid(vertices)
-    
-    def sort_key(vertex):
-        return math.atan2(vertex[1] - centroid[1], vertex[0] - centroid[0])
-    
-    sorted_vertices = sorted(vertices, key=sort_key, reverse=True)  # Use reverse=False for counter-clockwise
-    return sorted_vertices
-
-def calc_edge(frame, origin, vector):
-    height = frame.shape[0]
-    width = frame.shape[1]
-    origin_height = origin[1]
-    origin_width = origin[0]
-    vector_width = vector[0]
-    vector_height = -vector[1]
-    
-    scalar_x = 0
-    scalar_y = 0
-    if (vector_width < 0): #moving to bottom left
-        scalar_x = origin_width / abs(vector_width)
-    else:
-        scalar_x = (width-origin_width) / abs(vector_width)
-    if (vector_height < 0): #moving to bottom left
-        scalar_y = origin_height / abs(vector_height)
-    else:
-        scalar_y = (height-origin_height) / abs(vector_height)    
-    return vector * max(scalar_x, scalar_y)
-
-     
-
-with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5) as hands: 
-    i = 0
+with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5, max_num_hands = 4) as hands: 
     while cap.isOpened():
         ret, frame = cap.read()
-        if i == 0:
-            
-            shapes = []
-            
-            for _ in range(20):
-                shape = []
-                x = random.randint(0, frame.shape[0])
-                y = random.randint(0, frame.shape[1])
-                shape.append((x, y))
-                y_changed = y + random.randint(25,100)
-                shape.append((x, y_changed))
-                x += random.randint(25,100)
-                shape.append((x,y_changed))
-                shape.append((x,y))
-                shapes.append(shape)
-            i += 1
+        
         # BGR 2 RGB
         image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
@@ -118,19 +40,20 @@ with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5) a
             'Ring': [16, 15, 14, 13],
             'Pinky': [20, 19, 18, 17]
         }
+        palm_nodes = (0,1,2,5,9,13,17)
+        
 
         
-        
-        #array to be filled with the approximate center of the hand
-        hand_centers = []
-        
-        # Rendering results
+        # fill hand_centers, draw hand
         if results.multi_hand_landmarks:
+            #array to be filled with the approximate center of the hand
+            hand_centers = []
             for hand_landmarks in results.multi_hand_landmarks:
+                
                 #nodes used to average 'center'
-                palm_nodes = (0,1,2,5,9,13,17)
-                selected_landmarks = np.array([(hand_landmarks.landmark[i].x, hand_landmarks.landmark[i].y) for i in palm_nodes])
-                center_x,center_y = np.mean(selected_landmarks, axis=0)
+
+                center_palm = np.mean(np.array([(hand_landmarks.landmark[i].x, hand_landmarks.landmark[i].y) for i in palm_nodes]), axis = 0)
+                center_x,center_y = center_palm
                 
                 wrist_x, wrist_y = hand_landmarks.landmark[0].x, hand_landmarks.landmark[0].y
                 wrist_weight = 10  # Adjust the weight as needed. Moves center closer to the wrist 
@@ -138,15 +61,19 @@ with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5) a
                 total_weight = wrist_weight + len(palm_nodes)
                 center_x = (wrist_x * wrist_weight + center_x * len(palm_nodes)) / total_weight
                 center_y = (wrist_y * wrist_weight + center_y * len(palm_nodes)) / total_weight
-
-                hand_centers.append((center_x, center_y))
+                hand_centers.append((int(center_x * image.shape[1]), int(center_y * image.shape[0])))
                 center_image = (int(center_x * image.shape[1]), int(center_y * image.shape[0]))
                 cv2.circle(image, center_image, 5, (0, 255, 0), -1)
+                mp_drawing.draw_landmarks(image, hand_landmarks, mp_hands.HAND_CONNECTIONS, 
+                                        mp_drawing.DrawingSpec(color=(121, 22, 76), thickness=2, circle_radius=4),
+                                        mp_drawing.DrawingSpec(color=(250, 44, 250), thickness=2, circle_radius=2),
+                                         )
+
+            #make cone and detect shapes
+            
             for hand_index, hand_landmarks in enumerate(results.multi_hand_landmarks):
                     # Retrieve the center for the current hand
-                    center_x, center_y = hand_centers[hand_index]
-                    center_image = (int(center_x * image.shape[1]), int(center_y * image.shape[0]))
-
+                    center_image = hand_centers[hand_index]
                     # Initialize variables to find the furthest node
                     furthest_distance = 0
                     furthest_node = None
@@ -187,43 +114,12 @@ with mp_hands.Hands(min_detection_confidence=0.8, min_tracking_confidence=0.5) a
 
                         cone_vectorA = np.add(normalized_direction * math.cos(math.radians(angle_degrees)), perpindicular_line * math.sin(math.radians(angle_degrees)))*1000
                         cone_vectorB = np.subtract(normalized_direction * math.cos(math.radians(angle_degrees)), perpindicular_line * math.sin(math.radians(angle_degrees)))*1000
-                        height = frame.shape[0]
-                        width = frame.shape[1]
 
-                        extended_pointA = np.add(furthest_node, cone_vectorA).astype(int)  # make a point out by an arbitrary length
-                        extended_pointB = np.add(furthest_node, cone_vectorB).astype(int)  # make a point out by an arbitrary length
-                        sorted_points = sort_vertices_clockwise([furthest_node, extended_pointA, extended_pointB])
-                        
-                        for i in range(len(shapes)):
-                            inside = False
-                            for j in range(len(shapes[i])):
-                                    if (is_point_inside_polygon(sorted_points,shapes[i][j])):
-                                        cv2.circle(image, shapes[i][j], 5, (0, 255, 0), -1)
-                                        inside = True
-                                    else:
-                                        cv2.circle(image, shapes[i][j], 5, (0, 0, 255), -1)
-                            if (inside):
-                                cv2.line(image, shapes[i][0], shapes[i][1], (0, 255, 0), 2)
-                                cv2.line(image, shapes[i][1], shapes[i][2], (0, 255, 0), 2)
-                                cv2.line(image, shapes[i][2], shapes[i][3], (0, 255, 0), 2)
-                                cv2.line(image, shapes[i][3], shapes[i][0], (0, 255, 0), 2)
-                            else:
-                                cv2.line(image, shapes[i][0], shapes[i][1], (0, 0, 255), 2)
-                                cv2.line(image, shapes[i][1], shapes[i][2], (0, 0, 255), 2)
-                                cv2.line(image, shapes[i][2], shapes[i][3], (0, 0, 255), 2)
-                                cv2.line(image, shapes[i][3], shapes[i][0], (0, 0, 255), 2)
-                            
-                        cv2.line(image, furthest_node, tuple(extended_pointA), (0, 0, 255), 2)
-                        cv2.line(image, furthest_node, tuple(extended_pointB), (0, 0, 255), 2)
+                        extended_point = np.add(furthest_node, cone_vectorA).astype(int)  # make a point out by an arbitrary length
+                        cv2.line(image, furthest_node, extended_point, (0, 0, 255), 2)
+                        extended_point = np.add(furthest_node, cone_vectorB).astype(int)  # make a point out by an arbitrary length
+                        cv2.line(image, furthest_node, extended_point, (0, 0, 255), 2)
 
-
-            
-
-            for num, hand in enumerate(results.multi_hand_landmarks):
-                mp_drawing.draw_landmarks(image, hand, mp_hands.HAND_CONNECTIONS, 
-                                        mp_drawing.DrawingSpec(color=(121, 22, 76), thickness=2, circle_radius=4),
-                                        mp_drawing.DrawingSpec(color=(250, 44, 250), thickness=2, circle_radius=2),
-                                         )
             
         
         cv2.imshow('Hand Tracking', image)
