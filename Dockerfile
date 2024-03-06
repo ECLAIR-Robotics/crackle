@@ -49,9 +49,6 @@ WORKDIR /app
 # Copy the entire project into the container
 COPY . /app
 
-# setup entrypoint
-COPY ./ros_entrypoint.sh /
-
 ENTRYPOINT ["/ros_entrypoint.sh"]
 
 CMD ["bash"]
