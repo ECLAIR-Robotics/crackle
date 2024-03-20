@@ -23,6 +23,14 @@ ENV LC_ALL C.UTF-8
 
 ENV ROS_DISTRO humble
 
+ENV VNC_PORT=5901 \
+    VNC_RESOLUTION=1024x640 \
+    DISPLAY=:1 \
+    TERM=xterm \
+    DEBIAN_FRONTEND=noninteractive \
+    HOME=/home/user \
+    PATH=/opt/TurboVNC/bin:$PATH \
+    SSH_PORT=22
 
 
 # bootstrap rosdep
@@ -40,8 +48,33 @@ RUN colcon mixin add default \
 # install ros2 packages
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-ros-core=0.10.0-1* \
+    x11vnc \
     && rm -rf /var/lib/apt/lists/*
 
+RUN apt-get install -y --no-install-recommends \
+        apt-utils \
+        ca-certificates \
+        locales \
+        net-tools \
+        sudo \
+        supervisor \
+        wget \
+        openssh-server
+
+RUN apt-get install -y --no-install-recommends \
+        dbus-x11 \
+        libexo-1-0 \
+        x11-apps \
+        x11-xserver-utils \
+        xauth \
+        xfce4 \
+        xfce4-terminal \
+        xterm
+ENV TVNC_WM=xfce4-session
+
+EXPOSE $VNC_PORT
+
+EXPOSE $SSH_PORT
 
 # Set the working directory inside the container
 WORKDIR /app

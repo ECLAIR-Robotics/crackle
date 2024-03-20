@@ -93,4 +93,3 @@ class AprilTage:
                         break
         
     
-            
