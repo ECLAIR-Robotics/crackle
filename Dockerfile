@@ -5,10 +5,13 @@ FROM ros:humble-ros-core-jammy
 # install packages
 RUN apt-get update && apt-get install -q -y --no-install-recommends \
     wget\
+    ffmpeg \
+    libsm6 \
+    libxext6 \
     build-essential \
     git \
     python3-pip\
-    python3-colcon-common-extensions \
+    python3-colcon-common-extensions  \
     python3-colcon-mixin \
     python3-rosdep \
     python3-vcstool \
@@ -23,11 +26,8 @@ ENV LC_ALL C.UTF-8
 
 ENV ROS_DISTRO humble
 
-ENV VNC_PORT=5901 \
-    VNC_RESOLUTION=1024x640 \
-    DISPLAY=:1 \
+ENV VNC_RESOLUTION=1024x640 \
     TERM=xterm \
-    DEBIAN_FRONTEND=noninteractive \
     HOME=/home/user \
     PATH=/opt/TurboVNC/bin:$PATH \
     SSH_PORT=22
@@ -49,32 +49,15 @@ RUN colcon mixin add default \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ros-humble-ros-core=0.10.0-1* \
     x11vnc \
+    ros-humble-turtlesim \
     && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get install -y --no-install-recommends \
-        apt-utils \
-        ca-certificates \
-        locales \
-        net-tools \
-        sudo \
-        supervisor \
-        wget \
-        openssh-server
-
-RUN apt-get install -y --no-install-recommends \
-        dbus-x11 \
-        libexo-1-0 \
-        x11-apps \
-        x11-xserver-utils \
-        xauth \
-        xfce4 \
-        xfce4-terminal \
-        xterm
-ENV TVNC_WM=xfce4-session
-
-EXPOSE $VNC_PORT
-
-EXPOSE $SSH_PORT
+RUN apt-get update && apt-get install -y \
+      x11-apps \
+      && rm -rf /usr/share/doc/* && \
+      rm -rf /usr/share/info/* && \
+      rm -rf /tmp/* && \
+      rm -rf /var/tmp/*
 
 # Set the working directory inside the container
 WORKDIR /app

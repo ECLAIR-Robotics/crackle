@@ -1,2 +1,2 @@
 docker:
-	- docker run -it --rm --expose 5920 --device=/dev/video0 --privileged -v  C:\eclair_projects\crackle:/app crackle:humble
+	- docker run -it --rm -e DISPLAY=10.146.175.1:0 --privileged -v  C:\eclair_projects\crackle:/app crackle:humble

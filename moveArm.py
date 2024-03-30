@@ -8,7 +8,6 @@ arm.set_mode(0)
 arm.connect()
 
     # Move to the specified coordinates
-arm.set_position(150, 0, 90)
-
+# arm.set_position(180, 50, 154, roll=4.3, pitch=180, yaw=0, wait=True, speed=50, mvacc=1000, relative=False, is_radian=False)
+print(arm.get_gripper_position())
     # Disconnect from the arm
-arm.disconnect()
