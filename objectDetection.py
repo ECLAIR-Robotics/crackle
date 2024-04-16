@@ -1,30 +1,26 @@
-import cv2
+from ultralytics import YOLO
+import time
 
-#enabling default WebCam
-cap = cv2.VideoCapture(0)
+# Load the pre-trained model
+model = YOLO('yolov8n-seg.pt')
 
-cap.set(3, 640)
-cap.set(4, 480)
+# Initialize the source, could be an image, video file, directory, or webcam
+source = 0  # For webcam
 
-#importing cascade detection classifier
-faceCascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+# Performance Metrics Initialization
+start_time = time.time()
 
-while True:
-    #read in video frame
-    success, img = cap.read()
+roi_coords = (100, 100, 300, 300)
 
-    #convert to grayscale
-    imgGray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+# Run inference and display results
+results = model(source=source, show=True, conf=0.4, save=True)
 
-    # Getting corners around the face
-    faces = faceCascade.detectMultiScale(imgGray, 1.3, 5)  # 1.3 = scale factor, 5 = minimum neighbor
-    # drawing bounding box around face
-    for (x, y, w, h) in faces:
-        img = cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 3)
+# Calculate and display the inference time
+end_time = time.time()
+print(f"Inference time: {end_time - start_time:.2f} seconds")
 
-    cv2.imshow('face_detect', img)
-    if cv2.waitKey(10) & 0xFF == ord('q'):
-        break
-cap.release()
-cv2.destroyWindow('face_detect')
-
+# Accessing and printing specific metrics like precision or recall if needed
+# This assumes model has been validated and these metrics are available
+if hasattr(results, 'metrics'):
+    print(f"Precision: {results.metrics.precision}")
+    print(f"Recall: {results.metrics.recall}")
