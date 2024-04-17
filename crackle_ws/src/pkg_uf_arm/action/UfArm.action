@@ -1,7 +1,11 @@
-geometry_msgs/Pose_Message goal_pose
+# Request
+geometry_msgs/Pose goal_pose
 ---
+# Return
+geometry_msgs/Pose final_pose
 bool success
 string message
 ---
-geometry_msgs/Pose_Message current_pose
-actionlib_msgs/GoalStaus status
+# Feedback
+geometry_msgs/Pose current_pose
+actionlib_msgs/GoalStatus status

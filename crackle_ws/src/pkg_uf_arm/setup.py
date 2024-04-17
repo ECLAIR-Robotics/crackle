@@ -10,6 +10,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name + "/action", ['action/UfArm.action']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -21,7 +22,8 @@ setup(
     entry_points={
         'console_scripts': [
             'uf_arm = pkg_uf_arm.uf_arm:main',
-            'test_node=pkg_uf_arm.test_node:main'
+            'test_node=pkg_uf_arm.test_node:main',
+            'arm_action_server=pkg_uf_arm.arm_action_server:main'
         ],
     },
 )
