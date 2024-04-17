@@ -1,3 +1,5 @@
+import photo
+
 def main():
     print('Hi from pkg_photo.')
 
