@@ -34,7 +34,7 @@ class MinimalPublisher(Node):
 
     def timer_callback(self):
         msg = Float64MultiArray()
-        msg.data = '?'
+        msg.data = detect_apriltag.april_tag_detector.WIDTH #"WIDTH" just to test
         # msg.data = 'Hello World: %d' % self.i
         self.publisher_.publish(msg)
         self.get_logger().info('Publishing: "%s"' % msg.data)
