@@ -25,8 +25,8 @@ while True:
             bounding_boxes.append((b, model.names[int(c)]))
             annotator.box_label(b, model.names[int(c)])
             # Now `bounding_boxes` contains all the bounding boxes and their classes
-            print(bounding_boxes)
-
+            
+        print(bounding_boxes)
 
     img = annotator.result()  
     cv2.imshow('YOLO V8 Detection', img)

@@ -1,13 +1,12 @@
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
-import ast  # Import ast module to safely evaluate strings containing Python literals
+from vision_msgs.msg import Detection2DArray
 
 class DetectionResultsSubscriber(Node):
     def __init__(self):
         super().__init__('detection_results_subscriber')
         self.subscription = self.create_subscription(
-            String,
+            Detection2DArray,
             'detection_results',
             self.listener_callback,
             10
@@ -15,9 +14,12 @@ class DetectionResultsSubscriber(Node):
         self.subscription  # prevent unused variable warning
 
     def listener_callback(self, msg):
-        # Safely evaluate the string literal received
-        detection_data = ast.literal_eval(msg.data)
-        self.get_logger().info('Received Detection Data: %s' % detection_data)
+        for detection in msg.detections:
+            bbox = detection.bbox
+            self.get_logger().info(
+                f'Received Detection - Center: ({bbox.center.x:.2f}, {bbox.center.y:.2f}), '
+                f'Size: ({bbox.size_x:.2f}, {bbox.size_y:.2f})'
+            )
 
 def main(args=None):
     rclpy.init(args=args)
