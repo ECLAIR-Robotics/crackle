@@ -1,34 +1,38 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
-
+import cv2
 from ultralytics import YOLO  # Assuming you are using YOLO from Ultralytics
-import time
 
 class ObjectDetectionNode(Node):
     def __init__(self):
-        
         super().__init__('object_detection_node')
         self.publisher_ = self.create_publisher(String, 'detection_results', 10)
         self.model = YOLO('yolov8n.pt')  # Load the model
         self.timer = self.create_timer(0.1, self.run_detection)  # Adjust timer as needed
+        self.cap = cv2.VideoCapture(0)  # Initialize webcam
+        self.cap.set(3, 640)  # Set width
+        self.cap.set(4, 480)  # Set height
 
     def run_detection(self):
-        start_time = time.time()
-        # Run the model with JSON output enabled
-        results = self.model(source=0, conf=0.4, save=True, export='json')
-        end_time = time.time()
+        ret, img = self.cap.read()
+        if ret:
+            results = self.model.predict(img)
+            bounding_boxes = []
+            for r in results:
+                for box in r.boxes:
+                    b = box.xyxy[0].tolist()  # get box coordinates
+                    c = box.cls
+                    bounding_boxes.append((b, self.model.names[int(c)]))
+            print(bounding_boxes)
+            # Convert bounding box details into a string to publish
+            bbox_str = str(bounding_boxes)
+            self.publisher_.publish(String(data=bbox_str))
+        else:
+            self.get_logger().error('Failed to capture frame from camera')
 
-        # The results are now a JSON string, which includes bounding boxes, classes, and scores
-        self.publisher_.publish(String(data=results.json()))
-
-        print(f"Inference time: {end_time - start_time:.2f} seconds")
-
-        if hasattr(results, 'metrics'):
-            print(f"Precision: {results.metrics.precision}")
-            print(f"Recall: {results.metrics.recall}")
-
-
+    def __del__(self):
+        self.cap.release()
 
 def main(args=None):
     rclpy.init(args=args)
@@ -39,7 +43,3 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
-
-
-
-

@@ -1,26 +1,40 @@
 from ultralytics import YOLO
-import time
+import cv2
+from ultralytics.utils.plotting import Annotator
 
-# Load the pre-trained model
-model = YOLO('yolov8n-seg.pt')
+model = YOLO('yolov8n.pt')
+cap = cv2.VideoCapture(0)
+cap.set(3, 640)
+cap.set(4, 480)
 
-# Initialize the source, could be an image, video file, directory, or webcam
-source = 0  # For webcam
+# Initialize a list to store bounding boxes
+bounding_boxes = []
 
-# Performance Metrics Initialization
-start_time = time.time()
+while True:
+    _, img = cap.read()
+    results = model.predict(img)
 
-roi_coords = (100, 100, 300, 300)
+    for r in results:
+        annotator = Annotator(img)
+        boxes = r.boxes
 
-# Run inference and display results
-results = model(source=source, show=True, conf=0.4, save=True)
+        for box in boxes:
+            b = box.xyxy[0]  # get box coordinates
+            c = box.cls
+            # Append bounding box coordinates and class to the list
+            bounding_boxes.append((b, model.names[int(c)]))
+            annotator.box_label(b, model.names[int(c)])
+            # Now `bounding_boxes` contains all the bounding boxes and their classes
+            print(bounding_boxes)
 
-# Calculate and display the inference time
-end_time = time.time()
-print(f"Inference time: {end_time - start_time:.2f} seconds")
 
-# Accessing and printing specific metrics like precision or recall if needed
-# This assumes model has been validated and these metrics are available
-if hasattr(results, 'metrics'):
-    print(f"Precision: {results.metrics.precision}")
-    print(f"Recall: {results.metrics.recall}")
+    img = annotator.result()  
+    cv2.imshow('YOLO V8 Detection', img)
+
+    if cv2.waitKey(1) & 0xFF == ord(' '):
+        break
+
+    
+
+cap.release()
+cv2.destroyAllWindows()

@@ -1,7 +1,7 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
-import json  # Import JSON module to parse JSON strings
+import ast  # Import ast module to safely evaluate strings containing Python literals
 
 class DetectionResultsSubscriber(Node):
     def __init__(self):
@@ -15,9 +15,9 @@ class DetectionResultsSubscriber(Node):
         self.subscription  # prevent unused variable warning
 
     def listener_callback(self, msg):
-        # Parse the JSON data received
-        detection_data = json.loads(msg.data)
-        self.get_logger().info(f'Received Detection Data: {detection_data}')
+        # Safely evaluate the string literal received
+        detection_data = ast.literal_eval(msg.data)
+        self.get_logger().info('Received Detection Data: %s' % detection_data)
 
 def main(args=None):
     rclpy.init(args=args)
