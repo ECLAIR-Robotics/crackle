@@ -62,13 +62,17 @@ while True:
             # height = max(height_BD, height_AC)
             height = HEIGHT_OUTPUT
             input_pts = np.float32([points[3], points[0], points[1], points[2]])
-            output_pts = np.float32([[0, 0],
-                        [0, height - 1],
-                        [width - 1, height - 1],
-                        [width - 1, 0]])
+            # output_pts = np.float32([list(points[3]),
+            #             list((points[0][0], points[0][1] + 10)),
+            #             list((points[1][0] + 10, points[1][1] +10)),
+            #             list((points[2][0] + 10, points[2][1]))])
+            output_pts = np.float32([list(points[3]),
+                        list((points[3][0], points[3][1] + 100)),
+                        list((points[3][0] + 100, points[3][1] +100)),
+                        list((points[3][0] + 100, points[3][1]))])
             M = cv2.getPerspectiveTransform(input_pts, output_pts)
             print("M: ", M)
-            warped_img = cv2.warpPerspective(frame, M, (int(width), int(height)), flags=cv2.INTER_LINEAR)
+            warped_img = cv2.warpPerspective(frame, M, (640, 480), flags=cv2.INTER_LINEAR)
             
             cv2.line(frame, (x, 0), (x, HEIGHT), (0, 255, 0), thickness=2)
             cv2.line(frame, (0, y), (WIDTH, y), (0, 255, 0), thickness=2)
