@@ -15,7 +15,7 @@ class MinimalPublisher(Node):
     def __init__(self):
         super().__init__('minimal_publisher')
         self.publisher_ = self.create_publisher(Float64MultiArray, '/topic', 10) # keep Float64 for now, later it will be changed though
-        timer_period = 0.5  # seconds
+        timer_period = 0.5  # in seconds
         self.timer = self.create_timer(timer_period, self.timer_callback)
         self.i = 0
 
