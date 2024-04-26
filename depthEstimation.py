@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 
 # Download the MiDaS
 midas = torch.hub.load('intel-isl/MiDaS', 'MiDaS_small')
-midas.to('cpu')
+midas.to('cuda')
 midas.eval()
 
 # Input transformational pipeline
@@ -20,7 +20,7 @@ while cap.isOpened():
 
     # Transform input for midas
     img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    imgbatch = transform(img).to('cpu')
+    imgbatch = transform(img).to('cuda')
 
     # Make a prediction
     with torch.no_grad():
