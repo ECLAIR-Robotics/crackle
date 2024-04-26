@@ -8,7 +8,11 @@ import detect_apriltag
 def main():
     print('Hi from pkg_photo.')
     april_tag_detector = detect_apriltag.AprilTags()
-    print(april_tag_detector.WIDTH)
+    print('Test (Width): ', april_tag_detector.M2Info)
+    
+    # while True:
+    april_tag_detector.getHomography()
+    # print('M: ', april_tag_detector.MInfo)
 
 
 if __name__ == '__main__':

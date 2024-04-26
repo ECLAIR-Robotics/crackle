@@ -14,6 +14,9 @@ class AprilTags:
         self.tag = robotpy_apriltag.AprilTagDetector()
         self.tag.addFamily("tag36h11", 3)
 
+        self.MInfo = 0 # New variable for the crackle_ws
+        self.M2Info = 0 # New variable for the crackle_ws
+
     def getHomography(self):
         WIDTH_OUTPUT = 640
         HEIGHT_OUTPUT = 480
@@ -130,15 +133,18 @@ class AprilTags:
                         obj3d[i] = [a[i], b[i], 0]
                     
                     # obj_points = np.float32([(285, 125, 0), (275, 125, 0), (285, 135, 0), (275, 135, 0)])
-                    ret, camera_mat, distortion, rotation_vecs, translation_vecs = cv2.calibrateCamera([obj3d], input_pts, (640, 480), None, None)
-                    print("Error in projection : \n", ret) 
-                    print("\nCamera matrix : \n", camera_mat) 
-                    print("\nDistortion coefficients : \n", distortion) 
-                    print("\nRotation vector : \n", rotation_vecs) 
-                    print("\nTranslation vector : \n", translation_vecs)
+                    #REMOVED this, Tanay added it later
+                    # ret, camera_mat, distortion, rotation_vecs, translation_vecs = cv2.calibrateCamera([obj3d], input_pts, (640, 480), None, None)
+                    # print("Error in projection : \n", ret) 
+                    # print("\nCamera matrix : \n", camera_mat) 
+                    # print("\nDistortion coefficients : \n", distortion) 
+                    # print("\nRotation vector : \n", rotation_vecs) 
+                    # print("\nTranslation vector : \n", translation_vecs)
                     
                     M = cv2.getPerspectiveTransform(input_pts, output_pts)
+                    self.MInfo = M
                     M2 = cv2.getPerspectiveTransform(scaled_input_pts, output_pts)
+                    self.M2Info = M2
                     
                     print("M2: ", M2)
                     
