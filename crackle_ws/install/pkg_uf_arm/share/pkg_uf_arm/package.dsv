@@ -1,0 +1,3 @@
+source;share/pkg_uf_arm/hook/pythonpath.ps1
+source;share/pkg_uf_arm/hook/pythonpath.dsv
+source;share/pkg_uf_arm/hook/pythonpath.sh

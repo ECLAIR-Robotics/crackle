@@ -4,6 +4,7 @@ FROM ros:humble-ros-core-jammy
 
 # install packages
 RUN apt-get update && apt-get install -q -y --no-install-recommends \
+    ffmpeg libsm6 libxext6  -y\
     wget\
     ffmpeg \
     libsm6 \
