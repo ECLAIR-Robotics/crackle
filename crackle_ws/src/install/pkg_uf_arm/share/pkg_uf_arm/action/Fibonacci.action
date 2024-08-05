@@ -1,7 +1,0 @@
-string msg
----
-bool success
-string message
----
-geometry_msgs/Pose_Message current_pose
-actionlib_msgs/GoalStaus status
