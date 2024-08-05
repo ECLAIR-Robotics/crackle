@@ -1,0 +1,1 @@
+control_toolbox:controller_manager:gazebo_plugins:gazebo_ros:gazebo_ros2_control:launch:launch_ros:rclcpp:robot_state_publisher:xarm_controller:xarm_description

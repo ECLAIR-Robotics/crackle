@@ -1,0 +1,1 @@
+/home/tanay/crackle_ws/src/crackle/build/xarm_msgs/rosidl_generator_c/xarm_msgs/msg/detail/cio_state__struct.h

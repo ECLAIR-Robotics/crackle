@@ -1,0 +1,6 @@
+source;share/crackle_vision/hook/pythonpath.ps1
+source;share/crackle_vision/hook/pythonpath.dsv
+source;share/crackle_vision/hook/pythonpath.sh
+source;share/crackle_vision/hook/ament_prefix_path.ps1
+source;share/crackle_vision/hook/ament_prefix_path.dsv
+source;share/crackle_vision/hook/ament_prefix_path.sh

@@ -1,0 +1,1 @@
+/home/tanay/crackle_ws/src/crackle/build/xarm_planner/ament_cmake_environment_hooks/local_setup.sh
