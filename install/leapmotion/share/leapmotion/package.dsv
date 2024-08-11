@@ -1,8 +1,0 @@
-source;share/leapmotion/hook/cmake_prefix_path.ps1
-source;share/leapmotion/hook/cmake_prefix_path.dsv
-source;share/leapmotion/hook/cmake_prefix_path.sh
-source;share/leapmotion/local_setup.bash
-source;share/leapmotion/local_setup.dsv
-source;share/leapmotion/local_setup.ps1
-source;share/leapmotion/local_setup.sh
-source;share/leapmotion/local_setup.zsh

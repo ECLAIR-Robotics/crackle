@@ -1,27 +1,36 @@
 from setuptools import find_packages, setup
 
-package_name = 'crackle_vision'
+package_name = "crackle_vision"
 
 setup(
     name=package_name,
-    version='0.0.0',
-    packages=find_packages(exclude=['test']),
+    version="0.0.0",
+    packages=find_packages(exclude=["test"]),
     data_files=[
-        ('share/ament_index/resource_index/packages',
-            ['resource/' + package_name]),
-        ('share/' + package_name, ['package.xml']),
+        ("share/ament_index/resource_index/packages", ["resource/" + package_name]),
+        ("share/" + package_name, ["package.xml"]),
     ],
-    install_requires=['setuptools', 'ultralytics', 'std_msgs', 'sensor_msgs', 'rclpy', 'cv_bridge', 'torch', 'numpy'],
+    install_requires=[
+        "setuptools",
+        "ultralytics",
+        "std_msgs",
+        "sensor_msgs",
+        "rclpy",
+        "cv_bridge",
+        "torch",
+        "numpy",
+        "crackle_interfaces",
+    ],
     zip_safe=True,
-    maintainer='tanay',
-    maintainer_email='tanay.garg@utexas.edu',
-    description='TODO: Package description',
-    license='Apache-2.0',
-    tests_require=['pytest'],
+    maintainer="tanay",
+    maintainer_email="tanay.garg@utexas.edu",
+    description="TODO: Package description",
+    license="Apache-2.0",
+    tests_require=["pytest"],
     entry_points={
-        'console_scripts': [
-            'yolo_segment_node = crackle_vision.yolo_segment_node:main',
-            'camera_publisher_node = crackle_vision.camera_publisher:main',
+        "console_scripts": [
+            "yolo_segment_node = crackle_vision.yolo_segment_node:main",
+            "camera_publisher_node = crackle_vision.camera_publisher:main",
         ],
     },
 )

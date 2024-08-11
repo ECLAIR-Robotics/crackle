@@ -1,0 +1,23 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from xarm_msgs/srv/GetInt16List.srv
+// generated code does not contain a copyright notice
+
+
+module xarm_msgs {
+  module srv {
+    @verbatim (language="comment", text=
+      "This format is suitable for the following services" "\n"
+      "  - get_err_warn_code" "\n"
+      "  - get_linear_track_sco")
+    struct GetInt16List_Request {
+      uint8 structure_needs_at_least_one_member;
+    };
+    struct GetInt16List_Response {
+      int16 ret;
+
+      string message;
+
+      sequence<int16> datas;
+    };
+  };
+};

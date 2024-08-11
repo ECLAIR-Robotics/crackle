@@ -1,0 +1,49 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from xarm_msgs/srv/GetSetModbusData.srv
+// generated code does not contain a copyright notice
+
+
+module xarm_msgs {
+  module srv {
+    @verbatim (language="comment", text=
+      "This format is suitable for the following services" "\n"
+      "  - getset_tgpio_modbus_data")
+    struct GetSetModbusData_Request {
+      @verbatim (language="comment", text=
+        "modbus data to send")
+      sequence<uint8> modbus_data;
+
+      @verbatim (language="comment", text=
+        "Specify the length of modbus data bytes to be sent, the default(less than or equal to 0) is the size of modbus_data")
+      @default (value=0)
+      int16 modbus_length;
+
+      @verbatim (language="comment", text=
+        "Specify the anticipated maximum respond data length in bytes")
+      int16 ret_length;
+
+      @verbatim (language="comment", text=
+        "host id, 9: END RS485, 10: Controller RS485")
+      @default (value=9)
+      uint8 host_id;
+
+      @verbatim (language="comment", text=
+        "whether to choose transparent transmission")
+      @default (value=FALSE)
+      boolean is_transparent_transmission;
+
+      @verbatim (language="comment", text=
+        "whether to use port 503 for communication" "\n"
+        "if it is true, it will connect to 503 port for communication when it is used for the first time, which is generally only useful for transparent transmission")
+      @default (value=FALSE)
+      boolean use_503_port;
+    };
+    struct GetSetModbusData_Response {
+      int16 ret;
+
+      string message;
+
+      sequence<uint8> ret_data;
+    };
+  };
+};

@@ -1,1 +1,0 @@
-/home/tanay/crackle_ws/src/crackle/build/xarm_api/ament_cmake_core/xarm_apiConfig-version.cmake

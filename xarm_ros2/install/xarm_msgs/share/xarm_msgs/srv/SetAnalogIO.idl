@@ -1,0 +1,31 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from xarm_msgs/srv/SetAnalogIO.srv
+// generated code does not contain a copyright notice
+
+
+module xarm_msgs {
+  module srv {
+    @verbatim (language="comment", text=
+      "This format is suitable for the following services" "\n"
+      "  - set_cgpio_analog" "\n"
+      "  - set_cgpio_analog_with_xyz")
+    struct SetAnalogIO_Request {
+      @verbatim (language="comment", text=
+        "set_cgpio_analog/set_cgpio_analog_with_xyz")
+      int16 ionum;
+
+      float value;
+
+      @verbatim (language="comment", text=
+        "set_cgpio_analog_with_xyz")
+      sequence<float> xyz;
+
+      float tol_r;
+    };
+    struct SetAnalogIO_Response {
+      int16 ret;
+
+      string message;
+    };
+  };
+};

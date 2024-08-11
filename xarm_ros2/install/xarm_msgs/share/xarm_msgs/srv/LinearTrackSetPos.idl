@@ -1,0 +1,32 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from xarm_msgs/srv/LinearTrackSetPos.srv
+// generated code does not contain a copyright notice
+
+
+module xarm_msgs {
+  module srv {
+    @verbatim (language="comment", text=
+      "This format is suitable for the following services" "\n"
+      "  - set_linear_track_pos")
+    struct LinearTrackSetPos_Request {
+      int16 pos;
+
+      @default (value=0)
+      int16 speed;
+
+      @default (value=TRUE)
+      boolean wait;
+
+      @default (value=100.0)
+      float timeout;
+
+      @default (value=TRUE)
+      boolean auto_enable;
+    };
+    struct LinearTrackSetPos_Response {
+      int16 ret;
+
+      string message;
+    };
+  };
+};

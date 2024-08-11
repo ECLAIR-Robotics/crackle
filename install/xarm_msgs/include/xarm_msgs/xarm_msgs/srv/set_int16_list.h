@@ -1,1 +1,0 @@
-/home/tanay/crackle_ws/src/crackle/build/xarm_msgs/rosidl_generator_c/xarm_msgs/srv/set_int16_list.h

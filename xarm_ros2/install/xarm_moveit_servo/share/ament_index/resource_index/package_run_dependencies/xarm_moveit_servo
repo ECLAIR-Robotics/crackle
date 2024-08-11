@@ -1,0 +1,1 @@
+rclcpp;rclcpp_components;control_msgs;geometry_msgs;moveit_msgs;moveit_ros_planning_interface;sensor_msgs;std_msgs;std_srvs;xarm_description;xarm_controller;xarm_moveit_config;rviz2;launch;launch_ros;joy;moveit_servo;tf2_ros;robot_state_publisher;controller_manager;ament_lint_auto;ament_lint_common

@@ -1,0 +1,12 @@
+# This format is suitable for the following services
+#   - set_pause_time
+#   - set_tcp_jerk
+#   - set_tcp_maxacc
+#   - set_joint_jerk
+#   - set_joint_maxacc
+#   - set_gripper_speed
+#   - set_reduced_max_tcp_speed
+#   - set_reduced_max_joint_speed
+
+float32 data
+

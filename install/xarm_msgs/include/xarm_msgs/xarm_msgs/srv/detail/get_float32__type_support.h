@@ -1,1 +1,0 @@
-/home/tanay/crackle_ws/src/crackle/build/xarm_msgs/rosidl_generator_c/xarm_msgs/srv/detail/get_float32__type_support.h

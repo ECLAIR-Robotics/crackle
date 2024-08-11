@@ -1,0 +1,22 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from xarm_msgs/srv/GetInt32ByType.srv
+// generated code does not contain a copyright notice
+
+
+module xarm_msgs {
+  module srv {
+    @verbatim (language="comment", text=
+      "This format is suitable for the following services" "\n"
+      "  - get_checkset_default_baud")
+    struct GetInt32ByType_Request {
+      int16 type;
+    };
+    struct GetInt32ByType_Response {
+      int16 ret;
+
+      string message;
+
+      int32 data;
+    };
+  };
+};

@@ -1,0 +1,38 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from xarm_msgs/srv/GetInt16.srv
+// generated code does not contain a copyright notice
+
+
+module xarm_msgs {
+  module srv {
+    @verbatim (language="comment", text=
+      "This format is suitable for the following services" "\n"
+      "  - get_state" "\n"
+      "  - get_cmdnum" "\n"
+      "  - get_vacuum_gripper" "\n"
+      "  - get_gripper_err_code" "\n"
+      "  - get_bio_gripper_status" "\n"
+      "  - get_bio_gripper_error" "\n"
+      "  - get_reduced_mode" "\n"
+      "  - get_report_tau_or_i" "\n"
+      "  - ft_sensor_app_get" "\n"
+      "  - get_ft_sensor_error" "\n"
+      "  - get_trajectory_rw_status" "\n"
+      "  - get_linear_track_pos" "\n"
+      "  - get_linear_track_status" "\n"
+      "  - get_linear_track_error" "\n"
+      "  - get_linear_track_is_enabled" "\n"
+      "  - get_linear_track_on_zero" "\n"
+      "  - get_linear_track_sci")
+    struct GetInt16_Request {
+      uint8 structure_needs_at_least_one_member;
+    };
+    struct GetInt16_Response {
+      int16 ret;
+
+      string message;
+
+      int16 data;
+    };
+  };
+};

@@ -1,0 +1,1 @@
+hardware_interface;pluginlib;rclcpp;rclcpp_action;rclcpp_lifecycle;std_msgs;sensor_msgs;controller_manager_msgs;xarm_description;xarm_msgs;xarm_api;robot_state_publisher;joint_state_publisher;controller_manager;rviz2;xacro;urdf;launch;launch_ros;ament_lint_auto;ament_lint_common

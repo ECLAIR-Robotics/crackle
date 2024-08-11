@@ -6,6 +6,7 @@ from cv_bridge import CvBridge
 import cv2
 import numpy as np
 from std_msgs.msg import String
+from crackle_interfaces.msg import YoloInferences, YoloSegment
 
 
 class YoloSegmentNode(Node):
@@ -19,7 +20,7 @@ class YoloSegmentNode(Node):
         )
         self.publisher = self.create_publisher(Image, "yolo_segmented_image", 10)
         self.classes_publisher = self.create_publisher(
-            String, "yolo_segmented_classes", 10
+            YoloInferences, "yolo_segmented_classes", 10
         )
         self.get_logger().info("YoloSegmentNode initialized.")
 
@@ -27,31 +28,32 @@ class YoloSegmentNode(Node):
         cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
         results = self.model(cv_image)
         # Create an empty image to combine the segmented masks
-        combined_mask = np.zeros_like(cv_image)
         result = results[0]
+        if result is None:
+            return None
+        # all classes that can be outputted by the yolo model
+        if result.masks is None:
+            return None
+        segments = result.masks.cpu().xy
+        if segments is None:
+            return
+        list_yolo_segments = []
+        for segment in segments:
+            yolo_segment = YoloSegment()
+            yolo_segment.segment = segment.flatten().tolist()
+            list_yolo_segments.append(yolo_segment)
+        yolo_inference = YoloInferences()
+        result_boxes_classes = result.boxes.cpu().numpy().cls
+        classes_inferred = [result.names[i] for i in result_boxes_classes]
+        yolo_inference.classes = classes_inferred
+        yolo_inference.segments = list_yolo_segments
+        self.classes_publisher.publish(yolo_inference)
+        # print("Probabilities(Test): ", result.boxes.cpu().numpy())
         vis_frame = result.plot()
-        # # Iterate over each segment mask
-        # for i, result in enumerate(results):
-        #     # Copy tensor to CPU
-        #     mask = result.masks.data[0].numpy()
-
-        #     # Convert mask to color image
-        #     mask_image = (mask * 255).astype("uint8")
-        #     mask_color = cv2.cvtColor(mask_image, cv2.COLOR_GRAY2BGR)
-
-        #     # Generate a random color for each segment
-        #     color = np.random.randint(0, 255, size=(3,), dtype=np.uint8)
-
-        #     # Apply color to the segment mask
-        #     colored_mask = cv2.bitwise_and(mask_color, (color[0], color[1], color[2]))
-
-        #     # Combine the colored mask with the combined mask
-        #     combined_mask = cv2.bitwise_or(combined_mask, colored_mask)
 
         # Convert the combined mask to image message
         image_message = self.bridge.cv2_to_imgmsg(vis_frame, encoding="bgr8")
         self.publisher.publish(image_message)
-        self.get_logger().info("Image received.")
 
 
 def main():

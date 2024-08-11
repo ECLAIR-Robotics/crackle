@@ -1,0 +1,8 @@
+# This format is suitable for the following services
+#   - set_force_control_pid
+
+float32[] kp
+float32[] ki
+float32[] kd
+float32[] xe_limit
+

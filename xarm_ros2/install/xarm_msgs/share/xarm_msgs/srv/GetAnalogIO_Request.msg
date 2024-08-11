@@ -1,0 +1,6 @@
+# This format is suitable for the following services
+#   - get_tgpio_analog
+#   - get_cgpio_analog
+
+int16 ionum
+

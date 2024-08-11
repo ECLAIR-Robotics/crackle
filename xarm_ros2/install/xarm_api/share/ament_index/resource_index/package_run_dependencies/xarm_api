@@ -1,0 +1,1 @@
+rclcpp;rclcpp_action;std_msgs;sensor_msgs;control_msgs;geometry_msgs;xarm_msgs;xarm_sdk;xarm_description;rviz2;xacro;urdf;launch;launch_ros;ament_lint_auto;ament_lint_common

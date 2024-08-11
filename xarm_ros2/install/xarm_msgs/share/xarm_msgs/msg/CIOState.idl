@@ -1,0 +1,64 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from xarm_msgs/msg/CIOState.msg
+// generated code does not contain a copyright notice
+
+#include "std_msgs/msg/Header.idl"
+
+module xarm_msgs {
+  module msg {
+    typedef uint16 uint16__2[2];
+    typedef float float__2[2];
+    typedef uint8 uint8__16[16];
+    struct CIOState {
+      std_msgs::msg::Header header;
+
+      @verbatim (language="comment", text=
+        "contorller gpio module state")
+      int16 state;
+
+      @verbatim (language="comment", text=
+        "controller gpio module error code")
+      int16 code;
+
+      @verbatim (language="comment", text=
+        "input_digitals[0]: digital input functional gpio state" "\n"
+        "input_digitals[1]: digital input configuring gpio state" "\n"
+        "   CI0: (input_digitals[1] >> 0) & 0x0001" "\n"
+        "   CI1: (input_digitals[1] >> 1) & 0x0001" "\n"
+        "   CI7: (input_digitals[1] >> 7) & 0x0001" "\n"
+        "   DI0: (input_digitals[1] >> 8) & 0x0001" "\n"
+        "   DI1: (input_digitals[1] >> 9) & 0x0001" "\n"
+        "   DI7: (input_digitals[1] >> 15) & 0x0001")
+      uint16__2 input_digitals;
+
+      @verbatim (language="comment", text=
+        "output_digitals[0]: digital output functional gpio state" "\n"
+        "output_digitals[1]: digital output configuring gpio state" "\n"
+        "   CO0: (output_digitals[1] >> 0) & 0x0001" "\n"
+        "   CO1: (output_digitals[1] >> 1) & 0x0001" "\n"
+        "   CO7: (output_digitals[1] >> 7) & 0x0001" "\n"
+        "   DO0: (output_digitals[1] >> 8) & 0x0001" "\n"
+        "   DO1: (output_digitals[1] >> 9) & 0x0001" "\n"
+        "   DO7: (output_digitals[1] >> 15) & 0x0001")
+      uint16__2 output_digitals;
+
+      @verbatim (language="comment", text=
+        "input_analogs[0]: the value of AI0" "\n"
+        "input_analogs[1]: the value of AI1")
+      float__2 input_analogs;
+
+      @verbatim (language="comment", text=
+        "output_analogs[0]: the value of AO0" "\n"
+        "output_analogs[1]: the value of AO1")
+      float__2 output_analogs;
+
+      @verbatim (language="comment", text=
+        "digital input functional info")
+      uint8__16 input_conf;
+
+      @verbatim (language="comment", text=
+        "digital output functional info")
+      uint8__16 output_conf;
+    };
+  };
+};

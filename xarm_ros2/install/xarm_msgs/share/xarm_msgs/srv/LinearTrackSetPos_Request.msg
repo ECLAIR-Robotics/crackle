@@ -1,0 +1,9 @@
+# This format is suitable for the following services
+#   - set_linear_track_pos
+
+int16 pos
+int16 speed         0
+bool wait           true
+float32 timeout     100
+bool auto_enable     true
+

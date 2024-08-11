@@ -1,0 +1,20 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from xarm_msgs/srv/PlanJoint.srv
+// generated code does not contain a copyright notice
+
+
+module xarm_msgs {
+  module srv {
+    @verbatim (language="comment", text=
+      "This format is suitable for the following services" "\n"
+      "  - xarm_joint_plan")
+    struct PlanJoint_Request {
+      @verbatim (language="comment", text=
+        "list of target joint positions in radian.")
+      sequence<double> target;
+    };
+    struct PlanJoint_Response {
+      boolean success;
+    };
+  };
+};

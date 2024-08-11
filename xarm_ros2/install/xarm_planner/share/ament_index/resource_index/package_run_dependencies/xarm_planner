@@ -1,0 +1,1 @@
+moveit;moveit_ros_planning_interface;rclcpp;std_msgs;geometry_msgs;moveit_msgs;xarm_msgs;xarm_description;xarm_moveit_config;launch;launch_ros;ament_lint_auto;ament_lint_common

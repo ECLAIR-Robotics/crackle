@@ -1,0 +1,28 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from xarm_msgs/srv/BioGripperCtrl.srv
+// generated code does not contain a copyright notice
+
+
+module xarm_msgs {
+  module srv {
+    @verbatim (language="comment", text=
+      "This format is suitable for the following services" "\n"
+      "  - open_bio_gripper" "\n"
+      "  - close_bio_gripper")
+    struct BioGripperCtrl_Request {
+      @default (value=0)
+      int16 speed;
+
+      @default (value=TRUE)
+      boolean wait;
+
+      @default (value=5.0)
+      float timeout;
+    };
+    struct BioGripperCtrl_Response {
+      int16 ret;
+
+      string message;
+    };
+  };
+};

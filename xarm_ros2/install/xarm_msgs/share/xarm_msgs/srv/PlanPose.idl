@@ -1,0 +1,19 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from xarm_msgs/srv/PlanPose.srv
+// generated code does not contain a copyright notice
+
+#include "geometry_msgs/msg/Pose.idl"
+
+module xarm_msgs {
+  module srv {
+    @verbatim (language="comment", text=
+      "This format is suitable for the following services" "\n"
+      "  - xarm_pose_plan")
+    struct PlanPose_Request {
+      geometry_msgs::msg::Pose target;
+    };
+    struct PlanPose_Response {
+      boolean success;
+    };
+  };
+};

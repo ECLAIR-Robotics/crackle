@@ -1,1 +1,0 @@
-/home/tanay/crackle_ws/src/crackle/xarm_ros2/xarm_moveit_config/launch/xarm6_moveit_realmove.launch.py

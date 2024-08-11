@@ -1,1 +1,0 @@
-/home/tanay/crackle_ws/src/crackle/xarm_ros2/thirdparty/realsense_gazebo_plugin/include/realsense_gazebo_plugin/RealSensePlugin.h

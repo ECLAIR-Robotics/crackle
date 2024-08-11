@@ -1,0 +1,63 @@
+// generated from rosidl_adapter/resource/msg.idl.em
+// with input from xarm_msgs/msg/RobotMsg.msg
+// generated code does not contain a copyright notice
+
+#include "std_msgs/msg/Header.idl"
+
+module xarm_msgs {
+  module msg {
+    typedef float float__6[6];
+    struct RobotMsg {
+      std_msgs::msg::Header header;
+
+      @verbatim (language="comment", text=
+        "feedback information of the controlled robot" "\n"
+        "state of robot:" "\n"
+        "1: RUNNING, executing motion command." "\n"
+        "2: SLEEPING, not in execution, but ready to move." "\n"
+        "3: PAUSED, paused in the middle of unfinished motion." "\n"
+        "4: STOPPED, not ready for any motion commands." "\n"
+        "5: CONFIG_CHANGED, system configuration or mode changed, not ready for motion commands.")
+      int16 state;
+
+      @verbatim (language="comment", text=
+        "mode of robot:" "\n"
+        "0 for POSITION mode.(position control by xarm controller box, execute api standard commands)" "\n"
+        "1 for SERVOJ mode. (Immediate execution towards received joint space target, like a step response)" "\n"
+        "2 for TEACHING_JOINT mode. (Gravity compensated mode, easy for teaching)")
+      int16 mode;
+
+      @verbatim (language="comment", text=
+        "cmdnum: number of commands waiting in the buffer.")
+      int16 cmdnum;
+
+      @verbatim (language="comment", text=
+        "mt_brake: if translated to binary digits, each bit represent one axis, 1 for brake enabled, 0 for brake disabled")
+      int16 mt_brake;
+
+      @verbatim (language="comment", text=
+        "mt_able: if translated to binary digits, each bit represent one axis, 1 for servo control enabled, 0 for servo disabled")
+      int16 mt_able;
+
+      @verbatim (language="comment", text=
+        "error code (if non-zero)")
+      int16 err;
+
+      @verbatim (language="comment", text=
+        "warning code (if non-zero)")
+      int16 warn;
+
+      @verbatim (language="comment", text=
+        "current joint angles expressed in radian.")
+      sequence<float> angle;
+
+      @verbatim (language="comment", text=
+        "current TCP Cartesian position expressed in mm(position), radian(orientation)")
+      float__6 pose;
+
+      @verbatim (language="comment", text=
+        "TCP offset from center of flange, with respect to tool frame.")
+      float__6 offset;
+    };
+  };
+};

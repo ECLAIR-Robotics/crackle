@@ -1,0 +1,22 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from xarm_msgs/srv/RobotiqReset.srv
+// generated code does not contain a copyright notice
+
+
+module xarm_msgs {
+  module srv {
+    @verbatim (language="comment", text=
+      "This format is suitable for the following services" "\n"
+      "  - robotiq_reset")
+    struct RobotiqReset_Request {
+      uint8 structure_needs_at_least_one_member;
+    };
+    struct RobotiqReset_Response {
+      int16 ret;
+
+      string message;
+
+      sequence<uint8> ret_data;
+    };
+  };
+};

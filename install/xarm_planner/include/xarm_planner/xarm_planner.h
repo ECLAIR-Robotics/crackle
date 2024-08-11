@@ -1,1 +1,0 @@
-/home/tanay/crackle_ws/src/crackle/xarm_ros2/xarm_planner/include/xarm_planner/xarm_planner.h

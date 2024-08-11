@@ -1,0 +1,30 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from xarm_msgs/srv/IdenLoad.srv
+// generated code does not contain a copyright notice
+
+
+module xarm_msgs {
+  module srv {
+    @verbatim (language="comment", text=
+      "This format is suitable for the following services" "\n"
+      "  - iden_tcp_load" "\n"
+      "  - ft_sensor_iden_load")
+    struct IdenLoad_Request {
+      @verbatim (language="comment", text=
+        "estimated mass(kg), only required for Lite6 models via the `iden_tcp_load` service")
+      @default (value=0.0)
+      float estimated_mass;
+    };
+    struct IdenLoad_Response {
+      int16 ret;
+
+      string message;
+
+      @verbatim (language="comment", text=
+        "the result of identification" "\n"
+        "  iden_tcp_load: [mass(kg)，x_centroid(mm)，y_centroid(mm)，z_centroid(mm)]" "\n"
+        "  ft_sensor_iden_load: [mass(kg)，x_centroid(mm)，y_centroid(mm)，z_centroid(mm)，Fx_offset，Fy_offset，Fz_offset，Tx_offset，Ty_offset，Tz_ffset]")
+      sequence<float> datas;
+    };
+  };
+};

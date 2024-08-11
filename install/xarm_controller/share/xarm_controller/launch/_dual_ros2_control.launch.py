@@ -1,1 +1,0 @@
-/home/tanay/crackle_ws/src/crackle/xarm_ros2/xarm_controller/launch/_dual_ros2_control.launch.py

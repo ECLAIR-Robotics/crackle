@@ -1,0 +1,50 @@
+// generated from rosidl_adapter/resource/srv.idl.em
+// with input from xarm_msgs/srv/MoveJoint.srv
+// generated code does not contain a copyright notice
+
+
+module xarm_msgs {
+  module srv {
+    @verbatim (language="comment", text=
+      "This format is suitable for the following services" "\n"
+      "  - set_servo_angle" "\n"
+      "  - set_servo_angle_j")
+    struct MoveJoint_Request {
+      @verbatim (language="comment", text=
+        "set_servo_angle/set_servo_angle_j")
+      sequence<float> angles;
+
+      @default (value=0.0)
+      float speed;
+
+      @default (value=0.0)
+      float acc;
+
+      @default (value=0.0)
+      float mvtime;
+
+      @verbatim (language="comment", text=
+        "set_servo_angle")
+      @default (value=FALSE)
+      boolean wait;
+
+      @default (value=-1.0)
+      float timeout;
+
+      @verbatim (language="comment", text=
+        "set_servo_angle")
+      @default (value=-1.0)
+      float radius;
+
+      @verbatim (language="comment", text=
+        "set_servo_angle")
+      @default (value=FALSE)
+      boolean relative;
+    };
+    struct MoveJoint_Response {
+      int16 ret;
+
+      string message;
+    };
+  };
+};

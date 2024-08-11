@@ -1,1 +1,0 @@
-/home/tanay/crackle_ws/src/crackle/xarm_ros2/xarm_controller/launch/xarm7_mirror_control_rviz_display.launch.py

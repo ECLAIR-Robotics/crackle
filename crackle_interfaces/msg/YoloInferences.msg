@@ -1,2 +1,2 @@
 string[] classes
-float32[] confidences
+crackle_interfaces/YoloSegment[] segments

@@ -1,0 +1,1 @@
+backward_ros;xarm_description;xarm_controller;xarm_gazebo;rviz2;xacro;urdf;launch;launch_ros;tf2_ros;joint_state_publisher;robot_state_publisher;controller_manager;joint_trajectory_controller;joint_state_broadcaster;moveit_ros_move_group;ament_lint_auto;ament_lint_common
