@@ -1,5 +1,5 @@
 # crackle
-Contextual Robotics Arm with Knowledge Learning and Exploration
+Contextual Robotics Arm for Knowledge Learning and Exploration
 
 
 # Setup 
