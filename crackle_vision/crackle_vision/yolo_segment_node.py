@@ -3,7 +3,6 @@ from sensor_msgs.msg import Image
 import rclpy
 from rclpy.node import Node
 from cv_bridge import CvBridge
-import cv2
 import numpy as np
 from std_msgs.msg import String
 from crackle_interfaces.msg import YoloInferences, YoloSegment

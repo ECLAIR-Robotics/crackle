@@ -1,3 +1,4 @@
 {
-    "cmake.sourceDirectory": "C:/eclair_projects/crackle/apriltag"
+    "cmake.sourceDirectory": "/home/tanay/crackle_ws/src/crackle/crackle_interfaces",
+    "CodeGPT.apiKey": "CodeGPT Plus Beta"
 }
