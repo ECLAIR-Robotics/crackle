@@ -1,5 +1,5 @@
 # Credit to ChatGPT
-# (if it doesnt work -> blame chatGPT)
+# (if it doesnt work --> blame chatGPT)
 #
 # Handles getting of microphone data and processing of microphone data
 # Goal: use two microphones a known distance apart to find the angle from their center that a sound is originated
@@ -10,7 +10,6 @@
 #
 # TODO: figure out a way to find the actual of 2 angles a sound originated form
 # TODO: make a method to send the data to subscribers
-# TODO: find out a way to prevent timeouts in case of a mike disconnection
 
 import pyaudio
 import numpy as np
@@ -26,6 +25,9 @@ CHUNK = 1024  # Number of frames per buffer
 THRESHOLD = 0.01  # Threshold for detecting sound
 LEFT_MIKE_INDEX = 0
 RIGHT_MIKE_INDEX = 1
+
+# time after which timeout has probably occured: after this point reset the test
+MAX_WAIT_TIME = 1000
 
 
 # Opens an audio path for the given mike
@@ -67,7 +69,14 @@ def significantAudio(sound):
     return sound > THRESHOLD
 
 
-Running = True
+# return time at which second sound is recorded
+# get out if waiting for too long
+def secondMike(audioStream):
+    tStart = time.time()  # time at which started waiting
+    while tStart - time.time() < MAX_WAIT_TIME:
+        if significantAudio(audioStream):
+            return time.time()
+    return 0
 
 
 # Note: individually checks for sound from left side and right side
@@ -79,7 +88,7 @@ def main():
     leftPyAudio, leftStream = getAudioStream(LEFT_MIKE_INDEX)
     rightPyAudio, rightStream = getAudioStream(RIGHT_MIKE_INDEX)
 
-    while Running:
+    while 1 == 1:
         t0 = time.time()  # time at which segment recording starts
         t1 = 0
         t2 = 0
@@ -89,24 +98,23 @@ def main():
         leftVolume = captureSound(leftStream)
         if significantAudio(leftVolume):
             t1 = time.time() - t0  # the time after t0 that first sound was recorded
-            rightVolume = captureSound(rightStream)
-            if significantAudio(rightVolume):
-                t2 = time.time - t0  # time after t1 that second sound was recorded
+            t2 = (
+                secondMike(rightStream) - t0
+            )  # time after t1 that second sound was recorded
 
         # check for sound originating from right side
         rightVolume = captureSound(rightStream)
         if significantAudio(rightVolume):
             t1 = time.time() - t0  # the time after t0 that first sound was recorded
-            leftVolume = captureSound(leftStream)
-            if significantAudio(leftVolume):
-                t2 = time.time - t0  # time after t1 that second sound was recorded
+            t2 = (
+                secondMike(leftStream) - t0
+            )  # time after t1 that second sound was recorded
 
-        angles = getAngle(getDeltaTime(t1, t2))
-        # NOTE: Reverse this comparison if robot points the opposite direction of whats wanted
-        if rightVolume > leftVolume:
-            angle = angles[0]
-        else:
-            angle = angles[1]
-
-
-# hello
+        # check if it timed out
+        if t2 > 0:
+            angles = getAngle(getDeltaTime(t1, t2))
+            # NOTE: Reverse this comparison if robot points the opposite direction of whats wanted
+            if rightVolume > leftVolume:
+                angle = angles[0]
+            else:
+                angle = angles[1]
