@@ -1,5 +1,0 @@
-# This format is suitable for the following services
-#   - set_reduced_tcp_boundary
-
-int16[] datas
-
