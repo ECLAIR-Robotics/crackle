@@ -1,6 +1,0 @@
-# This format is suitable for the following services
-#   - set_tcp_load
-
-float32 weight
-float32[] center_of_gravity
-
