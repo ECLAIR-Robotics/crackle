@@ -1,5 +1,0 @@
-# This format is suitable for the following services
-#   - robotiq_get_status
-
-uint8 number_of_registers 3
-

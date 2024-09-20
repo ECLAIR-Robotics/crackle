@@ -1,8 +1,0 @@
-# This format is suitable for the following services
-#   - config_force_control
-
-int16 coord
-int16[] c_axis
-float32[] ref
-float32[] limits
-

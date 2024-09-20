@@ -10,6 +10,7 @@
 #
 # TODO: figure out a way to find the actual of 2 angles a sound originated form
 # TODO: make a method to send the data to subscribers
+# TODO: find out a way to prevent timeouts in case of a mike disconnection
 
 import pyaudio
 import numpy as np
@@ -28,7 +29,6 @@ RIGHT_MIKE_INDEX = 1
 
 # time after which timeout has probably occured: after this point reset the test
 MAX_WAIT_TIME = 1000
-
 
 # Opens an audio path for the given mike
 def getAudioStream(mic_index):
