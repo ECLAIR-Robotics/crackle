@@ -19,7 +19,7 @@ Contextual Robotics Arm for Knowledge Learning and Exploration
   
   ```cd src```
   
-  ```git clone git@github.com:ECLAIR-Robotics/crackle.git```
+  ```git clone --recursive git@github.com:ECLAIR-Robotics/crackle.git```
 
 ### Start the docker container
 
