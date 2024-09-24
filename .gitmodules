@@ -1,6 +1,7 @@
 [submodule "xarm_ros2"]
 	path = xarm_ros2
 	url = https://github.com/xArm-Developer/xarm_ros2
+    branch = humble
 [submodule "realsense-ros"]
 	path = realsense-ros
 	url = git@github.com:IntelRealSense/realsense-ros.git
