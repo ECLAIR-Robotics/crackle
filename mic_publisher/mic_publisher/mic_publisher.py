@@ -8,28 +8,43 @@ class MicPublisherNode(Node):
     def __init__(self):
         super().__init__('mic_publisher_node')
 
+        self.left_publisher = self.create_publisher(AudioData, 'mic_audio/left', 10)
         self.right_publisher = self.create_publisher(AudioData, 'mic_audio/right', 10)
 
         audio = pyaudio.PyAudio()
 
-        stream = audio.open(format=pyaudio.paInt16,
+        stream_left = audio.open(format=pyaudio.paInt16,
             channels=1,
             rate=44100,
             input=True,
-            stream_callback=self.mic_callback,
+            stream_callback=self.left_mic_callback,
+            frames_per_buffer=2**13,
+            input_device_index = 0)
+        
+        stream_right = audio.open(format=pyaudio.paInt16,
+            channels=1,
+            rate=44100,
+            input=True,
+            stream_callback=self.right_mic_callback,
             frames_per_buffer=2**13,
             input_device_index = 0)
 
-    def mic_callback(self, input_data, frame_count, time_info, flags):
+    def left_mic_callback(self, input_data, frame_count, time_info, flags):
+        return self.mic_callback(self.left_publisher, input_data, frame_count, time_info, flags)
+    
+    def right_mic_callback(self, input_data, frame_count, time_info, flags):
+        return self.mic_callback(self.right_publisher, input_data, frame_count, time_info, flags)
+
+    def mic_callback(self, publish_topic, input_data, frame_count, time_info, flags):
         audio_data = AudioData()
         audio_data.data = np.frombuffer(input_data, dtype=np.int32).tolist()
         audio_data.frames = frame_count
         audio_data.start_time = time_info["input_buffer_adc_time"]
         audio_data.end_time = time_info["current_time"]
 
-        self.right_publisher.publish(audio_data)
+        publish_topic.publish(audio_data)
 
-        print("pub")
+        print("publishing")
 
         return input_data, pyaudio.paContinue
 
