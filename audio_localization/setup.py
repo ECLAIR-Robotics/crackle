@@ -20,7 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'audio_localization = audio_localization.mic_publisher:main'
+            'audio_localization = audio_localization.audio_localization:main'
         ],
     },
 )
