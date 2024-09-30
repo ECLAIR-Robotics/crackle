@@ -54,7 +54,7 @@ class audioLocalizationNode(Node):
         delta = (deltaTime * self.SPEED_OF_SOUND) / self.MIKE_DISTANCE
         angle1 = np.arctan2(delta, 1)
         angle2 = np.arctan2(-delta, 1)
-        return np.degrees(angle1), np.degrees(angle2)`
+        return np.degrees(angle1), np.degrees(angle2)
         
     def main(self):
         #if both are at threshold sounds on average over time frame
