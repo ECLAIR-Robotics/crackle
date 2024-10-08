@@ -212,7 +212,7 @@
      
     <link name="camera_depth_optical_frame">
       <inertial>
-        <origin xyz="0 0 0" rpy="0 0 3.14" />
+        <origin xyz="0 0 0" rpy="0 0 0" />
         <mass value="0.01" />
         <inertia
           ixx="0" ixy="0" ixz="0"
@@ -235,7 +235,7 @@
       </collision>
     </link>
     <joint name="joint_link6_camera_link" type="fixed">
-      <origin xyz="0 0 0.01" rpy="0 0 0" />
+      <origin xyz="0 0 0.01" rpy="0 0 4.71" />
       <parent link="${prefix}link6" />
       <child link="camera_depth_optical_frame" />
     </joint>

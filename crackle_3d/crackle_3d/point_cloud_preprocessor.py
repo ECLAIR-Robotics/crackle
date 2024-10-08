@@ -4,6 +4,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2
+
 import open3d as o3d
 
 class PointCloudPreprocessorNode(Node):
@@ -11,33 +12,40 @@ class PointCloudPreprocessorNode(Node):
     def __init__(self):
         super().__init__("point_cloud_preprocessor_node")
         self.subscription = self.create_subscription(
-            PointCloud2, "/cloud", self.point_cloud_callback, 10
+            PointCloud2, "/camera/camera/depth/color/points", self.point_cloud_callback, 10
         )
-        self.filtered_pcd_publisher = self.create_publisher(PointCloud2, "/crackle_3d/filtered_cloud", 10)
+        # self.filtered_pcd_publisher = self.create_publisher(PointCloud2, "/crackle_3d/filtered_cloud", 10)
         self.get_logger().info("PointCloudPreprocessorNode initialized.")
 
     def point_cloud_callback(self, msg : PointCloud2):
         pcd = o3d.geometry.PointCloud()
         point_cloud_array = self.extract_point_cloud_array(msg)
-        pcd.points = o3d.utility.Vector3dVector(point_cloud_array)
-        self.publish_point_cloud(pcd, msg)
+        print("point_cloud_array:", point_cloud_array)
+        # pcd.points = o3d.utility.Vector3dVector(point_cloud_array)
+        # self.publish_point_cloud(pcd, msg)
+
 
     
     def extract_point_cloud_array(self, msg : PointCloud2):
+        """
+        header: std_msgs.msg.Header(stamp=builtin_interfaces.msg.Time(sec=1728346425, nanosec=622569336), frame_id='camera_depth_optical_frame')
+        fields: [sensor_msgs.msg.PointField(name='x', offset=0, datatype=7, count=1), sensor_msgs.msg.PointField(name='y', offset=4, datatype=7, count=1), sensor_msgs.msg.PointField(name='z', offset=8, datatype=7, count=1), sensor_msgs.msg.PointField(name='rgb', offset=16, datatype=7, count=1)]
+        height: 1
+        width: 117229
+        point step: 20
+        row step: 2344580
+        """
         point_cloud_array: list = []
-        print(msg.header)
-        print(msg.fields)
-        print(msg.height)
-        print(msg.width)
-        print(msg.point_step)
-        print(msg.row_step)
-        for row in range(msg.height):
-            for col in range(msg.width):
-                index = row * msg.row_step + col * msg.point_step
-                x, y, z, i = struct.unpack('ffff', msg.data[index: index + 12])
-                # if x == x and y == y and z == z:
-                point_cloud_array.append([x * 100, y * 100, z * 100, i])
-        return np.array(point_cloud_array)
+        # print("header:", msg.header)
+        # print("fields:",msg.fields)
+        # print("height:",msg.height)
+        # print("width:",msg.width)
+        # print("point step:",msg.point_step)
+        # print("row step:",msg.row_step)
+
+        print(msg.data)
+            
+        return np.asarray(point_cloud_array)
     
     def publish_point_cloud(self, pcd, input_msg : PointCloud2):
         points = np.asarray(pcd.points)

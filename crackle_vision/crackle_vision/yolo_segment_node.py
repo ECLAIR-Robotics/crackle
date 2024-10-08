@@ -15,7 +15,7 @@ class YoloSegmentNode(Node):
         self.model = YOLO("yolov8n-seg.pt")
         self.bridge = CvBridge()
         self.subscription = self.create_subscription(
-            Image, "camera/image_raw", self.image_callback, 10
+            Image, "/camera/camera/color/image_raw", self.image_callback, 10
         )
         self.publisher = self.create_publisher(Image, "yolo_segmented_image", 10)
         self.classes_publisher = self.create_publisher(
