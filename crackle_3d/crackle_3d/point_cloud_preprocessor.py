@@ -4,7 +4,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2
-
+import ros2_numpy as rnp
 import open3d as o3d
 
 class PointCloudPreprocessorNode(Node):
@@ -20,34 +20,50 @@ class PointCloudPreprocessorNode(Node):
     def point_cloud_callback(self, msg : PointCloud2):
         pcd = o3d.geometry.PointCloud()
         point_cloud_array = self.extract_point_cloud_array(msg)
-        print("point_cloud_array:", point_cloud_array)
-        # pcd.points = o3d.utility.Vector3dVector(point_cloud_array)
+        point_cloud_array_xyz = point_cloud_array['xyz']
+        print(type(point_cloud_array))
+        print("point_cloud_array:", point_cloud_array_xyz)
+        pcd.points = o3d.utility.Vector3dVector(point_cloud_array_xyz)
+        o3d.visualization.draw_geometries([pcd])
         # self.publish_point_cloud(pcd, msg)
 
 
     
     def extract_point_cloud_array(self, msg : PointCloud2):
         """
-        header: std_msgs.msg.Header(stamp=builtin_interfaces.msg.Time(sec=1728346425, nanosec=622569336), frame_id='camera_depth_optical_frame')
-        fields: [sensor_msgs.msg.PointField(name='x', offset=0, datatype=7, count=1), sensor_msgs.msg.PointField(name='y', offset=4, datatype=7, count=1), sensor_msgs.msg.PointField(name='z', offset=8, datatype=7, count=1), sensor_msgs.msg.PointField(name='rgb', offset=16, datatype=7, count=1)]
-        height: 1
-        width: 117229
-        point step: 20
-        row step: 2344580
+        Extracts a point cloud array from a PointCloud2 message.
+
+        Args:
+            msg (PointCloud2): The PointCloud2 message containing the point cloud data.
+        Returns:
+            np.array: A numpy array representation of the point cloud data.
+
         """
         point_cloud_array: list = []
-        # print("header:", msg.header)
-        # print("fields:",msg.fields)
-        # print("height:",msg.height)
-        # print("width:",msg.width)
-        # print("point step:",msg.point_step)
-        # print("row step:",msg.row_step)
+        print("header:", msg.header)
+        print("fields:",msg.fields)
+        print("height:",msg.height)
+        print("width:",msg.width)
+        print("point step:",msg.point_step)
+        print("row step:",msg.row_step)
 
-        print(msg.data)
+        array: np.array = rnp.numpify(msg)
+        
             
-        return np.asarray(point_cloud_array)
+        return array
     
-    def publish_point_cloud(self, pcd, input_msg : PointCloud2):
+    def publish_point_cloud(self, pcd, input_msg : PointCloud2) -> np.array :
+        """
+        Publishes the point cloud data to the filtered_pcd_publisher.
+
+        Args:
+            pcd: The point cloud data to be published.
+
+            input_msg (PointCloud2): The input PointCloud2 message containing the header and fields information.
+
+        Returns:
+            np.array: The array representation of the point cloud points.
+        """
         points = np.asarray(pcd.points)
         new_data = bytearray()
         output_msg = PointCloud2()
