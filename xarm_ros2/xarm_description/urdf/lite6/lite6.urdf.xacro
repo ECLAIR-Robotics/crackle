@@ -221,7 +221,7 @@
       <visual>
         <origin xyz="0 0 0" rpy="0 0 0" />
         <geometry>
-          <box size="0.01 0.01 0.01" />
+          <box size="0.03 0.01 0.01" />
         </geometry>
         <material name="camera_depth_optical_frame_color">
           <color rgba="0.0 0.0 1.0 1.0" />
@@ -235,7 +235,7 @@
       </collision>
     </link>
     <joint name="joint_link6_camera_link" type="fixed">
-      <origin xyz="0 0 0.01" rpy="0 0 4.71" />
+      <origin xyz="-0.06 0.01 0.01" rpy="0 0 4.71" />
       <parent link="${prefix}link6" />
       <child link="camera_depth_optical_frame" />
     </joint>

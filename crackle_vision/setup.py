@@ -22,6 +22,7 @@ setup(
         "torch",
         "numpy",
         "crackle_interfaces",
+        "xarm_msgs"
     ],
     zip_safe=True,
     maintainer="tanay",
