@@ -60,8 +60,8 @@ class YoloSegmentNode(Node):
         )
         self.time_sync.registerCallback(self.image_callback)
         self.intrinsic_matrix = [
-            [636.9296875, 0.0, 317.497],
-            [0.0, 607.5110, 236.004],
+            [382.157, 0.0, 322.589],
+            [0.0, 382.157, 236.004],
             [0.0, 0.0, 1.0],
         ]
         self.tranform_buffer = Buffer()
@@ -70,6 +70,8 @@ class YoloSegmentNode(Node):
         while not self.arm_set_position_client.wait_for_service(timeout_sec=1.0):
             self.get_logger().info('Waiting for MoveCartesian service...')
         self.get_logger().info("YoloSegmentNode initialized.")
+        self.xarm = MoveItPy(node_name="moveit_py")
+
 
 
     def send_request(self, x : float, y : float, z : float, roll : float, pitch : float, yaw : float, speed : float=0.0, acc: float=0.0, mvtime : float=0.0):
@@ -177,8 +179,8 @@ class YoloSegmentNode(Node):
             # TODO FIX THIS
             segment_width = segment_points[2]
             segment_height = segment_points[3]
-            average_x = float((segment_points[0] + segment_height) / 2)
-            average_y = float((segment_points[1] + segment_width) / 2)
+            average_x = float((segment_points[0] + segment_width) / 2)
+            average_y = float((segment_points[1] + segment_height) / 2)
 
             # average_2_x = float(segment_2_points[0])
             # average_2_y = float(segment_2_points[1])
@@ -215,8 +217,8 @@ class YoloSegmentNode(Node):
             print("Closest point:", closest_point_z)
             # Create a PointStamped message for the closest point
             point_stamped: PointStamped = PointStamped()
-            point_stamped.point.x = average_depth_x
-            point_stamped.point.y = average_depth_y
+            point_stamped.point.x = float(closest_point[0])
+            point_stamped.point.y = float(closest_point[1])
             point_stamped.point.z = float(closest_point[2])
             point_stamped.header.frame_id = self.link_base
 
@@ -359,6 +361,10 @@ class YoloSegmentNode(Node):
         self.publisher.publish(image_message)
 
         return classes_inferred, result_boxes_classes, segments
+    
+    def move_to_location(point):
+
+        #xarm6_traj_controller
 
 
 def main():
