@@ -3,7 +3,7 @@ from rclpy.node import Node
 
 class RosInterface:
     def __init__(self, node : Node):
-        pass
+        self._node = node
 
 
     

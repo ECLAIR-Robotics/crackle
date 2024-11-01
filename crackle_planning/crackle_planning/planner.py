@@ -8,7 +8,8 @@ class PlannerNode(Node):
         super().__init__('planner_node')
 
         # Initialize the ROS interface
-        self.ros_interface = RosInterface(self, 'ros_interface')
+        self.ros_interface = RosInterface(self)
+        
 
         # Timer to run the planner at a fixed rate
         self.timer = self.create_timer(1.0 / 10.0, self.timer_callback)
