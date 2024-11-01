@@ -16,7 +16,7 @@ bool reading = true;
 
 void setup() {
   Serial.begin(19200);
-  ADCSRA = (ADCSRA & 0xF8) | 0x04; // Set Analogue Read Rate
+  ADCSRA = (ADCSRA & 0xF8) | 0x02; // Set Analogue Read Rate
   ADCSRA &= ~(1 << ADATE); // Disable auto triggering
   pinMode(MIC_RIGHT, INPUT);
   pinMode(MIC_LEFT, INPUT);
