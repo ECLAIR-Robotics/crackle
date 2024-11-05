@@ -4,10 +4,11 @@ const int MIC_LEFT = A0;
 const int MIC_RIGHT = A15;
 
 const int threshold = 100;
-const int voltage = 330;
+const long voltage = 330;
 
 float d = 125/(2*pow(10,3)); // half mic seperation in m
 float c = 343; // speed of sound in m/s
+float d2 = d*d;
 
 const int samples = 900;
 unsigned long startTimestamp;
@@ -17,8 +18,8 @@ int rightReads[samples];
 unsigned int rightTimestamps[samples];
 int index = 0;
 bool reading = true;
-// bool serialAudioOutput = false;
-bool serialAudioOutput = true;
+bool serialAudioOutput = false;
+// bool serialAudioOutput = true;
 
 void setup() {
   Serial.begin(19200);
@@ -48,7 +49,6 @@ void loop() {
     index++;
     if (index >= samples) {
       if (serialAudioOutput) {
-        Serial.println("left read, left timestamp, right read, right timestamp");
         for (int i = 0; i < samples; i++) {
           char csvLine[100] = "";
           char leftReadstr[25];
@@ -81,33 +81,33 @@ void loop() {
 
 // left is negative, right is positive
 double cross_correlation_time_offset(int leftReads[samples], unsigned int leftTimestamps[samples], int rightReads[samples], unsigned int rightTimestamps[samples]) {
-  double time_step = pow(10,-6)*(leftTimestamps[-1]-leftTimestamps[0]+rightTimestamps[-1]-rightTimestamps[0])/(2*samples);
+  double time_step = pow(10,-6)*(leftTimestamps[samples-2]-leftTimestamps[samples-1]+rightTimestamps[samples-2]-rightTimestamps[samples-1])/(2*samples);
   long cross_correlation[2*samples];
   for (int offset = -samples; offset <= samples; offset++) {
     long correlation = 0;
     for (int i = 0; i < samples; i++) {
       if ((0 <= i+offset) && (i+offset < samples)) {
-        correlation += (rightReads[i]-voltage)*(leftReads[i+offset]-voltage);
+        correlation += (((long) rightReads[i]) - voltage)*(((long) leftReads[i+offset]) - voltage);
       }
     }
     cross_correlation[offset+samples] = correlation;
   }
-  Serial.println("left read, left timestamp, right read, right timestamp");
-  for (int i = 0; i < 2*samples; i++) {
-    Serial.println(cross_correlation[i]);
-  }
+
+  // for (int i = 0; i < 2*samples; i++) {
+  //   Serial.println(cross_correlation[i]);
+  // }
 
   int max_cross_correlation_index = 0;
   int max_cross_correlation = cross_correlation[max_cross_correlation_index];
   for (int i = 0; i <= sizeof(cross_correlation); i++) {
-    // Serial.println(cross_correlation[i]);
+    
     if (cross_correlation[i] > max_cross_correlation) {
       max_cross_correlation_index = i;
       max_cross_correlation = cross_correlation[i];
     }
   }
 
-  Serial.println(max_cross_correlation_index);
+  // Serial.println(max_cross_correlation_index);
 
   // https://pages.hmc.edu/ruye/MachineLearning/lectures/ch3/node4.html
   // Parabolic interpolation
@@ -120,17 +120,18 @@ double cross_correlation_time_offset(int leftReads[samples], unsigned int leftTi
   int fc = cross_correlation[c];
   double interpolated_max_cross_correlation = b+0.5*((fa-fb)*pow(c-b,2)-(fc-fb)*pow(b-a,2))/((fa-fb)*(c-b)+(fc-fb)*(b-a));
 
-  char tstr[25];
-  dtostrf(time_step*(interpolated_max_cross_correlation-samples-0.5), 10, 15, tstr);
-  Serial.println(tstr);
+  // char tstr[25];
+  // dtostrf(time_step*(interpolated_max_cross_correlation-samples-0.5), 10, 15, tstr);
+  // Serial.println(tstr);
     
   return time_step*(interpolated_max_cross_correlation-samples-0.5);
 }
 
 // left is negative, right is positive
 // 0 is middle
-double get_angle_from_time_offset(double t){
+double get_angle_from_time_offset(double t) {
     // t is time difference in seconds
+    // Serial.println("we are here now");
     int left_right_multiplier;
     if (t < 0) {
       left_right_multiplier = -1;
@@ -141,9 +142,10 @@ double get_angle_from_time_offset(double t){
     if (t == 0) {
       return 0;
     }
-    if (4*pow(d,2) < pow(c*t,2)) {
+    float m = c*c*t*t;
+    if (4*d2 < m) {
       return 90*left_right_multiplier;
     }
 
-    return (90-(180/PI)*atan(sqrt((4*pow(d,2)-pow(c*t,2))/pow(c*t,2))))*left_right_multiplier;
+    return (90-(180/PI)*atan(sqrt((4*d2-m)/m)))*left_right_multiplier;
 }
