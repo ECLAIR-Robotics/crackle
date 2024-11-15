@@ -67,10 +67,10 @@ class YoloSegmentNode(Node):
         self.tranform_buffer = Buffer()
         self.tf_listener = TransformListener(self.tranform_buffer, self)
         self.arm_set_position_client = self.create_client(MoveCartesian, "/ufactory/set_position")
-        while not self.arm_set_position_client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info('Waiting for MoveCartesian service...')
+        # while not self.arm_set_position_client.wait_for_service(timeout_sec=1.0):
+        #     self.get_logger().info('Waiting for MoveCartesian service...')
         self.get_logger().info("YoloSegmentNode initialized.")
-        self.xarm = MoveItPy(node_name="moveit_py")
+        # self.xarm = MoveItPy(node_name="moveit_py")
 
 
 
@@ -78,28 +78,29 @@ class YoloSegmentNode(Node):
         """
         Send a request to move the arm to a specified position and orientation. 
         """
-        request = MoveCartesian.Request()
+        pass
+        # request = MoveCartesian.Request()
 
         # Set pose as [x, y, z, qx, qy, qz, qw]
-        rotation = Rotation.from_euler("xyz", [roll, pitch, yaw])
-        quaternion = rotation.as_quat()
-        request.pose = [x, y, z] + quaternion.tolist()
+        # rotation = Rotation.from_euler("xyz", [roll, pitch, yaw])
+        # quaternion = rotation.as_quat()
+        # request.pose = [x, y, z] + quaternion.tolist()
 
         # Set speed, acceleration, and move time
-        request.speed = float(speed)
-        request.acc = float(acc)
-        request.mvtime = float(mvtime)
-        request.wait = False
+        # request.speed = float(speed)
+        # request.acc = float(acc)
+        # request.mvtime = float(mvtime)
+        # request.wait = False
 
         # Send request and wait for response
-        future = self.arm_set_position_client.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
+        # future = self.arm_set_position_client.call_async(request)
+        # rclpy.spin_until_future_complete(self, future)
 
-        if future.result() is not None:
-            response = future.result()
-            self.get_logger().info(f'Response: {response.ret}, {response.message}')
-        else:
-            self.get_logger().error('Failed to call MoveCartesian service.')
+        # if future.result() is not None:
+        #     response = future.result()
+        #     self.get_logger().info(f'Response: {response.ret}, {response.message}')
+        # else:
+        #     self.get_logger().error('Failed to call MoveCartesian service.')
 
     def get_transform_buffer(self):
         try:
@@ -363,7 +364,7 @@ class YoloSegmentNode(Node):
         return classes_inferred, result_boxes_classes, segments
     
     def move_to_location(point):
-
+        pass
         #xarm6_traj_controller
 
 
@@ -375,7 +376,6 @@ def main():
     rclpy.shutdown()
 
 
-43
 
 if __name__ == "__main__":
     main()
