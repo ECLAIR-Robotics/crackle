@@ -1,5 +1,5 @@
 
-from crackle_planning.crackle_planning.planner_lib.ros_interface import RosInterface
+from crackle_planning.ros_interface import RosInterface
 
 class PlannerAPI:
     def __init__(self, ros_interface: RosInterface): 

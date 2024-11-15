@@ -23,7 +23,7 @@ def parse_functions_to_json(module):
             properties = {}
             required = []
 
-            for param_name, param in signature.parameters.item():
+            for param_name, param in signature.parameters.items():
 
                 param_info = {"type": "string"}  # default to string type
 
@@ -51,8 +51,8 @@ def parse_functions_to_json(module):
 
             function_definitions.append(function)
 
-    json_output = json.dumps(function_definitions, indent=4)
-    print(json_output)
+    json_output = json.dumps(function_definitions, indent=4) # this is a string
+    return function_definitions
 
 if __name__ == "__main__":
     import __main__
