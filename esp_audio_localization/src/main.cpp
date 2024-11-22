@@ -9,8 +9,6 @@ const int MIC_THREE = 32;
 const int threshold = 100;
 const long voltage = 330;
 
-setCpuFrequencyMhz(240);
-
 const int samples = 900;
 unsigned long startTimestamp;
 int reads0[samples];
@@ -27,6 +25,9 @@ bool reading = true;
 // bool serialAudioOutput = false;
 bool serialAudioOutput = true;
 
+// currently assumes 240 Mhz and 8 cycles per read
+int TIME_TO_ANALOG_READ = 50;
+
 void setup()
 {
     Serial.begin(111520);
@@ -34,6 +35,8 @@ void setup()
     pinMode(MIC_ONE, INPUT);
     pinMode(MIC_TWO, INPUT);
     pinMode(MIC_THREE, INPUT);
+
+    setCpuFrequencyMhz(240);
 }
 
 int absolute(int x)
@@ -47,27 +50,29 @@ int absolute(int x)
 
 void loop()
 {
+    // need first time before rest of reads
+    unsigned long timestamp0 = micros() + TIME_TO_ANALOG_READ;
     int read0 = analogRead(MIC_ZERO);
-    unsigned long timestamp0 = micros();
     int read1 = analogRead(MIC_ONE);
-    unsigned long timestamp1 = micros();
     int read2 = analogRead(MIC_TWO);
-    unsigned long timestamp2 = micros();
     int read3 = analogRead(MIC_THREE);
-    unsigned long timestamp3 = micros();
+
+    unsigned long timestamp1 = timestamp0 + TIME_TO_ANALOG_READ;
+    unsigned long timestamp2 = timestamp1 + TIME_TO_ANALOG_READ;
+    unsigned long timestamp3 = timestamp2 + TIME_TO_ANALOG_READ;
 
     if (reading)
     {
-        reads0[ind] = read0;
         timestamps0[ind] = timestamp0 - startTimestamp;
-        reads1[ind] = read1;
+        reads0[ind] = read0;
         timestamps1[ind] = timestamp1 - startTimestamp;
+        reads1[ind] = read1;
+        timestamps2[ind] = timestamp1 - startTimestamp;
         reads2[ind] = read2;
-        timestamps2[ind] = timestamp2 - startTimestamp;
+        timestamps3[ind] = timestamp2[ind] + TIME_TO_ANALOG_READ;
         reads3[ind] = read3;
-        timestamps3[ind] = timestamp3 - startTimestamp;
 
-        ind++;
+            ind++;
         if (ind >= samples)
         {
             if (serialAudioOutput)
