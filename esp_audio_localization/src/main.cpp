@@ -25,7 +25,7 @@ bool reading = true;
 // bool serialAudioOutput = false;
 bool serialAudioOutput = true;
 
-// currently assumes 240 Mhz and 8 cycles per read
+// 240 MHZ 1 cycle per read
 int TIME_TO_ANALOG_READ = 50;
 
 void setup()
@@ -57,6 +57,7 @@ void loop()
     int read2 = analogRead(MIC_TWO);
     int read3 = analogRead(MIC_THREE);
 
+    // calculate rest of the times
     unsigned long timestamp1 = timestamp0 + TIME_TO_ANALOG_READ;
     unsigned long timestamp2 = timestamp1 + TIME_TO_ANALOG_READ;
     unsigned long timestamp3 = timestamp2 + TIME_TO_ANALOG_READ;
@@ -72,7 +73,7 @@ void loop()
         timestamps3[ind] = timestamp2[ind] + TIME_TO_ANALOG_READ;
         reads3[ind] = read3;
 
-            ind++;
+        ind++;
         if (ind >= samples)
         {
             if (serialAudioOutput)
