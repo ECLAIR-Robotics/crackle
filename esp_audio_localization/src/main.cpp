@@ -20,13 +20,13 @@ unsigned int timestamps2[samples];
 int reads3[samples];
 unsigned int timestamps3[samples];
 
-int index = 0;
+int ind = 0;
 bool reading = true;
-bool serialAudioOutput = false;
-// bool serialAudioOutput = true;
+// bool serialAudioOutput = false;
+bool serialAudioOutput = true;
 
 void setup() {
-  Serial.begin(19200);
+  Serial.begin(111520);
   pinMode(MIC_ZERO, INPUT);
   pinMode(MIC_ONE, INPUT);
   pinMode(MIC_TWO, INPUT);
@@ -51,17 +51,17 @@ void loop() {
   unsigned long timestamp3 = micros();
 
   if (reading) {
-    reads0[index] = read0;
-    timestamps0[index] = timestamp0 - startTimestamp;
-    reads1[index] = read1;
-    timestamps1[index] = timestamp1 - startTimestamp;
-    reads2[index] = read2;
-    timestamps2[index] = timestamp2 - startTimestamp;
-    reads3[index] = read3;
-    timestamps3[index] = timestamp3 - startTimestamp;
+    reads0[ind] = read0;
+    timestamps0[ind] = timestamp0 - startTimestamp;
+    reads1[ind] = read1;
+    timestamps1[ind] = timestamp1 - startTimestamp;
+    reads2[ind] = read2;
+    timestamps2[ind] = timestamp2 - startTimestamp;
+    reads3[ind] = read3;
+    timestamps3[ind] = timestamp3 - startTimestamp;
 
-    index++;
-    if (index >= samples) {
+    ind++;
+    if (ind >= samples) {
       if (serialAudioOutput) {
         Serial.println("read 0, timestamp 0, read 1, timestamp 1, read 2, timestamp 2, read 3, timestamp 3");
         for (int i = 0; i < samples; i++) {
@@ -98,9 +98,11 @@ void loop() {
           strcat(csvLine, rstr3);
           strcat(csvLine, ",");
           strcat(csvLine, tstr3);
-          strcat(csvLine, ",");
+          // strcat(csvLine, ",");
+          // strcat(csvLine, "\r\n");
 
           Serial.println(csvLine);
+          // Serial.print(csvLine);
         }
       }
 
@@ -108,7 +110,7 @@ void loop() {
     }
   } else if (!reading && (absolute(read0-voltage) > threshold || absolute(read1-voltage) > threshold 
     || absolute(read2-voltage) > threshold || absolute(read3-voltage) > threshold)) {
-    index = 0;
+    ind = 0;
     reading = true;
     startTimestamp = timestamp0;
   }
