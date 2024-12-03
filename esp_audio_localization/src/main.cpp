@@ -8,7 +8,7 @@
 const uint32_t POW_SAMPLES = 0;
 
 static esp_adc_cal_characteristics_t* adc_chars;
-static const adc_bits_width_t WIDTH = ADC_WIDTH_BIT_12;
+static const adc_bits_width_t WIDTH = ADC_WIDTH_BIT_9;
 static const adc_atten_t ATTEN = ADC_ATTEN_DB_12;
 static const adc_unit_t UNIT = ADC_UNIT_1;
 
@@ -41,9 +41,6 @@ int ind = 0;
 bool reading = true;
 // bool serialAudioOutput = false;
 bool serialAudioOutput = true;
-
-// 240 MHZ 1 cycle per read
-int TIME_TO_ANALOG_READ = 50;
 
 void setup() {
   adc1_config_width(WIDTH);
@@ -78,23 +75,27 @@ uint32_t readVoltage(adc1_channel_t channel) {
 
   // divide by 64
   adc_reading >>= POW_SAMPLES;
-  uint32_t voltage = esp_adc_cal_raw_to_voltage(adc_reading, adc_chars);
+  // uint32_t voltage = esp_adc_cal_raw_to_voltage(adc_reading, adc_chars);
 
-  return voltage;
+  // return voltage;
+  return adc_reading;
 }
 
 void loop() {
     // need first time before rest of reads
-    unsigned long timestamp0 = micros() + TIME_TO_ANALOG_READ;
+    unsigned long timestamp0 = micros();
     int read0 = readVoltage(CHANNEL_ZERO);
+    unsigned long timestamp1 = micros();
     int read1 = readVoltage(CHANNEL_ONE);
+    unsigned long timestamp2 = micros();
     int read2 = readVoltage(CHANNEL_TWO);
+    unsigned long timestamp3 = micros();
     int read3 = readVoltage(CHANNEL_THREE);
 
     // calculate rest of the times
-    unsigned long timestamp1 = timestamp0 + TIME_TO_ANALOG_READ;
-    unsigned long timestamp2 = timestamp1 + TIME_TO_ANALOG_READ;
-    unsigned long timestamp3 = timestamp2 + TIME_TO_ANALOG_READ;
+    // unsigned long timestamp1 = timestamp0 + TIME_TO_ANALOG_READ;
+    // unsigned long timestamp2 = timestamp1 + TIME_TO_ANALOG_READ;
+    // unsigned long timestamp3 = timestamp2 + TIME_TO_ANALOG_READ;
 
     if (reading)
     {
