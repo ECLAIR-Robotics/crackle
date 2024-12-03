@@ -41,6 +41,13 @@ def get_cone_intersection_direction(n1, s1, n2, s2):
 
     theta = math.acos(np.dot(n1, n2))
 
+    n2_cross_n1 = np.cross(n2, n1)
+
+    if alpha + beta < theta:
+        angle_to_cones_midpoint = beta + (theta - alpha - beta)/2
+
+        return np.array(np.matmul(rotaion_matrix_around_axis(normalize(n2_cross_n1), angle_to_cones_midpoint), n2).tolist()[0])
+
     z = math.cos(alpha)
     w = np.array([0, math.sin(theta-beta), math.cos(theta-beta)])
 
@@ -48,12 +55,11 @@ def get_cone_intersection_direction(n1, s1, n2, s2):
 
     angle_of_intersection = math.acos((z-w[1]*n[1]*n[2]-(n[2]**2)*w[2])/(w[2]-w[1]*n[1]*n[2]-(n[2]**2)*w[2]))
 
-    n2_cross_n1 = np.cross(n2, n1)
-
     v = np.array(np.matmul(rotaion_matrix_around_axis(normalize(n2_cross_n1), beta), n2).tolist()[0])
 
     intersection_direction1 = np.array(np.matmul(rotaion_matrix_around_axis(n2, angle_of_intersection),v).tolist()[0])
     intersection_direction2 = np.array(np.matmul(rotaion_matrix_around_axis(n2, -angle_of_intersection),v).tolist()[0])
+        
 
     if intersection_direction1[2] > 0: # we assume our sound is in front of mic array. This assumption will not hold in the future when we fix the 3D issues
         return intersection_direction1
@@ -91,5 +97,3 @@ time_differences = get_time_differences(sound_origin)
 print("input", sound_origin)
 print("output", get_sound_direction(time_differences))
 print("desired", normalize(np.array(sound_origin)))
-
-

@@ -7,10 +7,10 @@ import numpy as np
 c = 343 # m/s
 
 mic_locations = [
-    np.array([0.075, 0.075, 0]), # 0
-    np.array([0.075, -0.075, 0]), # 1
-    np.array([-0.075, 0.075, 0]), # 2
-    np.array([-0.075, -0.075, 0]) # 3
+    np.array([0.06, 0.06, 0]), # 0
+    np.array([0.06, -0.06, 0]), # 1
+    np.array([-0.06, 0.06, 0]), # 2
+    np.array([-0.06, -0.06, 0]) # 3
 ]
 
 mic_pairings = [
