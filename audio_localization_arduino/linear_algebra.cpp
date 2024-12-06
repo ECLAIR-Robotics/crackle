@@ -32,12 +32,12 @@ Vector Vector::operator/(const int& a) const {
   );
 }
 
-float magnitude(Vector a) {
+double magnitude(Vector a) {
   return sqrt(pow(a.x,2) + pow(a.y,2) + pow(a.z,2));
 }
 
 Vector normalize(Vector a) {
-  float m = magnitude(a);
+  double m = magnitude(a);
   return Vector(
     a.x/m,
     a.y/m,
@@ -45,7 +45,7 @@ Vector normalize(Vector a) {
   );
 }
 
-float dot(Vector a, Vector b) {
+double dot(Vector a, Vector b) {
   return a.x*b.x + a.y*b.y + a.z*b.z;
 }
 
@@ -57,11 +57,11 @@ Vector cross(Vector a, Vector b) {
   );
 }
 
-Matrix rotaion_matrix_around_axis(Vector axis, float theta) {
+Matrix rotaion_matrix_around_axis(Vector axis, double theta) {
   // https://en.wikipedia.org/wiki/Rotation_matrix#Rotation_matrix_from_axis_and_angle
 
-  float sin_theta = sin(theta);
-  float cos_theta = cos(theta);
+  double sin_theta = sin(theta);
+  double cos_theta = cos(theta);
 
   return Matrix(
     Vector(
