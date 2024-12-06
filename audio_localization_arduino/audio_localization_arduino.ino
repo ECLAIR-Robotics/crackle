@@ -28,15 +28,12 @@ int mic_pairings[6][2] = {
   {2, 3}
 };
 
-// sound coming from [-16,10,7]
-// double mock_time_differences[6] = {
-//   0.00027856163755510255,
-//   0.00010430549200940442,
-//   -0.00017343200226522387,
-//   -0.00017425614554569813,
-//   -0.0004519936398203264,
-//   -0.0002777374942746283
-// };
+struct AnnotatedVector {
+  Vector vector;
+  bool edgeCase;
+  AnnotatedVector() : vector(Vector()), edgeCase(true) {};
+  AnnotatedVector(Vector v, bool e) : vector(v), edgeCase(e) {};
+};
 
 struct Cone {
   Vector normal;
@@ -47,7 +44,6 @@ struct Cone {
 
 Cone cones[6];
 
-// float d = 125/(2*pow(10,3)); // half mic seperation in m
 double c = 343; // speed of sound in m/s
 
 const int samples = 300;
@@ -58,7 +54,7 @@ unsigned int timestamps[4][samples];
 int index = 0;
 bool reading = true;
 bool serialAudioOutput = false;
-// bool serialAudioOutput = true;
+bool includeEdgeCases = false;
 
 void setup() {
   Serial.begin(19200);
@@ -139,14 +135,7 @@ void loop() {
       sound_direction_string += ")";
       Serial.println(sound_direction_string);
       reading = false;
-      // Serial.println("1");
-      // double x = cross_correlation_time_offset(leftReads, leftTimestamps, rightReads, rightTimestamps);
-      // char xstr[25];
-      // dtostrf(x, 10, 15, xstr);
-      // Serial.println(xstr);
-      // Serial.println(get_angle_from_time_offset(cross_correlation_time_offset(leftReads, leftTimestamps, rightReads, rightTimestamps)));
     }
-  // }s
   } else if (!reading && (((absolute<int>(zeroRead - voltage) + absolute<int>(oneRead - voltage) + absolute<int>(twoRead - voltage) + absolute<int>(threeRead - voltage))/4) > threshold)) {
     index = 0;
     reading = true;
@@ -175,48 +164,19 @@ double get_slope_from_time_offset(double t, double d) {
   if (d < c*t) {
     return 0;
   }
-  // Serial.println("get_slope_from_time_offset");
-  // Serial.println(t);
-  // Serial.println(sqrt(pow(d,2)-pow(c*t,2))/(c*t));
   return sqrt(pow(d,2)-pow(c*t,2))/(c*t);
 }
 
-Vector get_cone_intersection(Cone c1, Cone c2) {
-
-  // Serial.println("c1.normal");
-  // Serial.println(c1.normal.x);
-  // Serial.println(c1.normal.y);
-  // Serial.println(c1.normal.z);
-  // Serial.println("c1.slope");
-  // Serial.println(c1.slope);
-
-  // Serial.println("c2.normal");
-  // Serial.println(c2.normal.x);
-  // Serial.println(c2.normal.y);
-  // Serial.println(c2.normal.z);
-  // Serial.println("c2.slope");
-  // Serial.println(c2.slope);
+AnnotatedVector get_cone_intersection(Cone c1, Cone c2) {
 
   double alpha = atan(c1.slope);
   double beta = atan(c2.slope);
-  // Serial.println("alpha");
-  // Serial.println(alpha);
-  // Serial.println("beta");
-  // Serial.println(beta);
 
   double theta = acos(dot(c1.normal, c2.normal));
-  // Serial.println("theta");
-  // Serial.println(theta);
 
   Vector n2_cross_n1 = cross(c2.normal, c1.normal);
-  // Serial.println("n2_cross_n1");
-  // Serial.println(n2_cross_n1.x);
-  // Serial.println(n2_cross_n1.y);
-  // Serial.println(n2_cross_n1.z);
 
   double z = cos(alpha);
-  // Serial.println("z");
-  // Serial.println(z);
 
   double beta_z1 = cos(theta-beta);
   double beta_z2 = cos(theta+beta);
@@ -247,46 +207,56 @@ Vector get_cone_intersection(Cone c1, Cone c2) {
       angle_off_n2 = -beta + ((theta+beta)+alpha)/2;
     }
 
-    return matrix_multiplication(rotaion_matrix_around_axis(normalize(n2_cross_n1), -angle_off_n2), c2.normal);
+    Vector intersection_direction = matrix_multiplication(rotaion_matrix_around_axis(normalize(n2_cross_n1), -angle_off_n2), c2.normal);
+
+    String cone_intersection_direction_string = "";
+    cone_intersection_direction_string += "EdgeIntersectionDirection(";
+    cone_intersection_direction_string += String(intersection_direction.x, 4);
+    cone_intersection_direction_string += ",";
+    cone_intersection_direction_string += String(intersection_direction.y, 4);
+    cone_intersection_direction_string += ",";
+    cone_intersection_direction_string += String(intersection_direction.z, 4);
+    cone_intersection_direction_string += ")";
+    Serial.println(cone_intersection_direction_string);
+
+    return AnnotatedVector(intersection_direction, true);
   }
 
   Vector w = Vector(0, sin(theta-beta), cos(theta-beta));
-  // Serial.println("w");
-  // Serial.println(w.x);
-  // Serial.println(w.y);
-  // Serial.println(w.z);
 
   Vector n = Vector(0, sin(theta), cos(theta)); // n2 rotated away from n1 on z-axis
-  // Serial.println("n");
-  // Serial.println(n.x);
-  // Serial.println(n.y);
-  // Serial.println(n.z);
 
   double angle_of_intersection = acos((z-w.y*n.y*n.z-pow(n.z,2)*w.z)/(w.z-w.y*n.y*n.z-pow(n.z,2)*w.z));
-  // Serial.println("angle_of_intersection");
-  // Serial.println(angle_of_intersection);
 
   Vector v = matrix_multiplication(rotaion_matrix_around_axis(normalize(n2_cross_n1), beta), c2.normal);
-  // Serial.println("v");
-  // Serial.println(v.x);
-  // Serial.println(v.y);
-  // Serial.println(v.z);
 
   Vector intersection_direction1 = matrix_multiplication(rotaion_matrix_around_axis(c2.normal, angle_of_intersection), v);
   Vector intersection_direction2 = matrix_multiplication(rotaion_matrix_around_axis(c2.normal, -angle_of_intersection), v);
-  Serial.println("intersection_direction1");
-  Serial.println(intersection_direction1.x);
-  Serial.println(intersection_direction1.y);
-  Serial.println(intersection_direction1.z);
-  Serial.println("intersection_direction2");
-  Serial.println(intersection_direction2.x);
-  Serial.println(intersection_direction2.y);
-  Serial.println(intersection_direction2.z);
 
   if (intersection_direction1.z > 0) { // we assume our sound is in front of mic array. This assumption will not hold in the future when we fix the 3D issues
-      return intersection_direction1;
+    String cone_intersection_direction_string = "";
+    cone_intersection_direction_string += "IntersectionDirection(";
+    cone_intersection_direction_string += String(intersection_direction1.x, 4);
+    cone_intersection_direction_string += ",";
+    cone_intersection_direction_string += String(intersection_direction1.y, 4);
+    cone_intersection_direction_string += ",";
+    cone_intersection_direction_string += String(intersection_direction1.z, 4);
+    cone_intersection_direction_string += ")";
+    Serial.println(cone_intersection_direction_string);
+
+    return AnnotatedVector(intersection_direction1, false);
   } else {
-    return intersection_direction2;
+    String cone_intersection_direction_string = "";
+    cone_intersection_direction_string += "IntersectionDirection(";
+    cone_intersection_direction_string += String(intersection_direction2.x, 4);
+    cone_intersection_direction_string += ",";
+    cone_intersection_direction_string += String(intersection_direction2.y, 4);
+    cone_intersection_direction_string += ",";
+    cone_intersection_direction_string += String(intersection_direction2.z, 4);
+    cone_intersection_direction_string += ")";
+    Serial.println(cone_intersection_direction_string);
+
+    return AnnotatedVector(intersection_direction2, false);
   }
 }
 
@@ -306,23 +276,13 @@ Vector get_sound_direction(int reads[4][samples], unsigned int timestamps[4][sam
 
   Vector cone_intersection_direction_sum = Vector(0,0,0);
 
-  // Serial.println("cone_intersection_direction_sum");
-  // Serial.println(cone_intersection_direction_sum.x);
-  // Serial.println(cone_intersection_direction_sum.y);
-  // Serial.println(cone_intersection_direction_sum.z);
-
   for (int i=0; i < 5; i++) {
     for (int j=i+1; j < 6; j++) {
-      // if ((i == 0) && (j == 1)) {
       if (!((i == 0) && (j == 5)) && !((i == 2) && (j == 3))) { // cones alligned
-        Serial.println("cone_intersection_direction_sum");
-        Serial.println(i);
-        Serial.println(j);
-        Vector cone_intersection_direction = get_cone_intersection(cones[i], cones[j]);
-        cone_intersection_direction_sum = cone_intersection_direction_sum + cone_intersection_direction;
-        // Serial.println(cone_intersection_direction.x);
-        // Serial.println(cone_intersection_direction.y);
-        // Serial.println(cone_intersection_direction.z);
+        AnnotatedVector cone_intersection_direction = get_cone_intersection(cones[i], cones[j]);
+        if ((cone_intersection_direction.edgeCase == false) || (includeEdgeCases == true)) {
+          cone_intersection_direction_sum = cone_intersection_direction_sum + cone_intersection_direction.vector;
+        }
       }
     }
   }
@@ -368,43 +328,5 @@ double cross_correlation_time_offset(int aReads[samples], unsigned int aTimestam
   
   double interpolated_max_cross_correlation_time = time_step*(interpolated_max_cross_correlation-cross_correlation_range-0.5);
 
-  // char tstr[25];
-  // dtostrf(interpolated_max_cross_correlation_time, 10, 15, tstr);
-  // Serial.println(tstr);
-
-  // char timestr[25];
-  // dtostrf(time_step, 10, 15, timestr);
-  // Serial.println(timestr);
-
-  // Serial.println(interpolated_max_cross_correlation);
-  // Serial.println(cross_correlation_range);
-
   return interpolated_max_cross_correlation_time;
 }
-
-// // left is negative, right is positive
-// // 0 is middle
-// // t is time, d is distance between mics
-// double get_angle_from_time_offset(double t, double d) {
-//   // char tstr[25];
-//   // dtostrf(t, 10, 15, tstr);
-//   // Serial.println(tstr);
-
-//   // t is time difference in seconds
-//   // Serial.println("we are here now");
-//   int left_right_multiplier;
-//   if (t < 0) {
-//     left_right_multiplier = -1;
-//   } else {
-//     left_right_multiplier = 1;
-//   }
-
-//   if (t == 0) {
-//     return 0;
-//   }
-//   if (4*pow(d,2) < pow(c*t,2)) {
-//     return 90*left_right_multiplier;
-//   }
-
-//   return (90-(180/PI)*atan(sqrt((4*pow(d,2)-pow(c*t,2))/pow(c*t,2))))*left_right_multiplier;
-// }
