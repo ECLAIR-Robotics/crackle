@@ -119,7 +119,7 @@ ufactory_driver:
       set_cgpio_digital_with_xyz: false
       set_cgpio_analog: false
       set_cgpio_analog_with_xyz: false
-      set_vacuum_gripper: false
+      set_vacuum_gripper: true
       set_gripper_position: false
       set_bio_gripper_enable: false
       open_bio_gripper: false

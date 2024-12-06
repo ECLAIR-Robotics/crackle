@@ -1,7 +1,9 @@
 import math
+import time
 import cv2
 from ultralytics import YOLO
 from sensor_msgs.msg import Image
+from sensor_msgs.msg import CameraInfo
 import rclpy
 from rclpy.node import Node
 from cv_bridge import CvBridge
@@ -16,10 +18,13 @@ from sensor_msgs.msg import PointCloud2
 import ros2_numpy as rnp
 from scipy.spatial.transform import Rotation
 import open3d as o3d
-from xarm_msgs.srv import MoveCartesian
+from xarm_msgs.srv import MoveCartesian, MoveJoint, Call, SetInt16, VacuumGripperCtrl
+from moveit_msgs.msg import RobotState  
+import pyrealsense2
 
 
 class YoloSegmentNode(Node):
+
 
     def __init__(self):
         """ "
@@ -36,6 +41,7 @@ class YoloSegmentNode(Node):
 
         """
         super().__init__("yolo_segment_node")
+        self.CRACKLE_GRIPPER_OFFSET = 47
         self.model = YOLO("yolov8n.pt")
         self.bridge = CvBridge()
         self.camera_link = "camera_depth_optical_frame"
@@ -47,6 +53,15 @@ class YoloSegmentNode(Node):
         self.pcd_subscription = Subscriber(
             self, PointCloud2, "/camera/camera/depth/color/points"
         )
+
+        self.camera_color_matrix_sub = self.create_subscription(CameraInfo,
+             "/camera/camera/color/camera_info",self.set_color_intrinsic_matrix, 10)
+
+        # self.camera_color_matrix_sub = self.create_subscription(CameraInfo,
+             # "/camera/camera/color/camera_info",self.set_color_intrinsics, 10)
+        self.camera_depth_matrix_sub = self.create_subscription(CameraInfo,
+             "/camera/camera/depth/camera_info", self.set_depth_intrinsic_matrix, 10)
+
         self.point_marker_pub = self.create_publisher(Marker, "point_marker", 10)
         self.point_marker_pub_2 = self.create_publisher(Marker, "point_marker_2", 10)
         self.time_sync = ApproximateTimeSynchronizer(
@@ -60,19 +75,76 @@ class YoloSegmentNode(Node):
         )
         self.time_sync.registerCallback(self.image_callback)
         self.intrinsic_matrix = [
-            [382.157, 0.0, 322.589],
-            [0.0, 382.157, 236.004],
+            [607.619, 0.0, 317.497],
+            [0.0, 607.511, 236.004],
             [0.0, 0.0, 1.0],
         ]
+        self.depth_instrinsic_matrix = [
+            [382.157, 0.0, 322.5689],
+            [0.0, 382.157, 236.520],
+            [0.0, 0.0, 1.0],
+        ]
+
+        # self._intrinsics = pyrealsense2.intrinsics()
+
         self.tranform_buffer = Buffer()
         self.tf_listener = TransformListener(self.tranform_buffer, self)
         self.arm_set_position_client = self.create_client(MoveCartesian, "/ufactory/set_position")
+        self.arm_set_servo_angle_client = self.create_client(MoveJoint, "/ufactory/set_servo_angle")
+        self.arm_clean_warning_client = self.create_client(Call, "/ufactory/clean_warn")
+        self.arm_clean_error_client = self.create_client(Call, "/ufactory/clean_error")
+        self.arm_set_mode_client = self.create_client(SetInt16, "/ufactory/set_mode")
+        self.arm_set_state_client = self.create_client(SetInt16, "/ufactory/set_state")
+        self.arm_set_vacuum_gripper_client = self.create_client(VacuumGripperCtrl, "/ufactory/set_vacuum_gripper")
+
+        # set mode to 0 
+        set_mode_request = SetInt16.Request()
+        set_mode_request.data = 0
+        self.arm_set_mode_client.call_async(set_mode_request)
+
+        # # set state to 0
+        set_state_request = SetInt16.Request()
+        set_state_request.data = 0
+        self.arm_set_state_client.call_async(set_state_request)
+
+        set_gripper_false = VacuumGripperCtrl.Request()
+        set_gripper_false.on = False
+        self.arm_set_vacuum_gripper_client.call_async(set_gripper_false)
+
         # while not self.arm_set_position_client.wait_for_service(timeout_sec=1.0):
         #     self.get_logger().info('Waiting for MoveCartesian service...')
         self.get_logger().info("YoloSegmentNode initialized.")
         # self.xarm = MoveItPy(node_name="moveit_py")
 
+    def set_color_intrinsic_matrix(self, msg: CameraInfo):
+        self.intrinsic_matrix = [
+            [msg.k[0], msg.k[1], msg.k[2]],
+            [msg.k[3], msg.k[4], msg.k[5]],
+            [msg.k[6], msg.k[7], msg.k[8]],
+        ]
+    
+    def set_depth_intrinsic_matrix(self, msg: CameraInfo):
+        self.depth_instrinsic_matrix = [
+            [msg.k[0], msg.k[1], msg.k[2]],
+            [msg.k[3], msg.k[4], msg.k[5]],
+            [msg.k[6], msg.k[7], msg.k[8]],
+        ]
 
+    # def set_color_intrinsics(self, msg: CameraInfo):
+    #    self._intrinsics.width = msg.width
+    #    self._intrinsics.height = msg.height
+    #    self._intrinsics.ppx = msg.k[2]
+    #    self._intrinsics.ppy = msg.k[5]
+    #    self._intrinsics.fx = msg.k[0]
+    #    self._intrinsics.fy = msg.k[4]
+    #    self._intrinsics.model = cameraInfo.distortion_model
+        #self._intrinsics.model  = pyrealsense2.distortion.none
+    #    self._intrinsics.coeffs = [i for i in msg.d]
+
+    # def convert_depth_to_phys_coord_using_realsense(self, x, y, depth):
+        # result = pyrealsense2.rs2_deproject_pixel_to_point(self._intrinsics, [x, y], depth)
+        # result[0]: right, result[1]: down, result[2]: forward
+        # return np.array([result[2], -result[0], -result[1]])
 
     def send_request(self, x : float, y : float, z : float, roll : float, pitch : float, yaw : float, speed : float=0.0, acc: float=0.0, mvtime : float=0.0):
         """
@@ -158,64 +230,69 @@ class YoloSegmentNode(Node):
         if SEGMENT_NAME in classes_inferred:
             # person_index = classes_inferred.index("person")
             person_indices = [i for i, x in enumerate(classes_inferred) if x == SEGMENT_NAME]
-            # segment_2_indices = [i for i, x in enumerate(classes_inferred) if x == SEGMENT_NAME2]
-
             person_confidences = [result_boxes_classes[index] for index in person_indices] 
-            # segment_2_confidences = [result_boxes_classes[index] for index in segment_2_indices]
-
             max_confidence = max(person_confidences)
-            # segment_2_max_confidence = max(segment_2_confidences)
-
             person_index = result_boxes_classes.tolist().index(max_confidence)
-            # segment_2_index = result_boxes_classes.tolist().index(segment_2_max_confidence)
 
             # Get the segment points corresponding to the detected person
             segment_points = boxes[person_index]
-            # segment_2_points = boxes[segment_2_index]
 
             print("Segment points:", segment_points)
             # print("Segment2 points:", segment_2_points)
             # Calculate the average x and y coordinates of the segment points
 
-            # TODO FIX THIS
-            segment_width = segment_points[2]
-            segment_height = segment_points[3]
-            average_x = float((segment_points[0] + segment_width) / 2)
-            average_y = float((segment_points[1] + segment_height) / 2)
+            # segment_x_2 = segment_points[2]
+            # segment_y_2 = segment_points[3]
+            average_x = float(segment_points[0])
+            average_y = float(segment_points[1])
 
-            # average_2_x = float(segment_2_points[0])
-            # average_2_y = float(segment_2_points[1])
-
-            print("Image x, y", average_x, average_y)
+            print("AFTER X AND Y", average_x, average_y)
 
             instrinsic_matrix_inv = np.linalg.inv(self.intrinsic_matrix)
 
             print("Intrinsic Matrix Inv: ", instrinsic_matrix_inv)
             # Extract intrinsic camera parameters
             
-
             point_np = np.array([average_x, average_y, 1])
-            point_transformed = np.dot(instrinsic_matrix_inv, point_np)
-            print("Point transformed:", point_transformed)
+
+            # Point after applying the inverse intrinsic matrix
+            point_transformed_camera = np.dot(instrinsic_matrix_inv, point_np)
+            # point_transformed_camera = self.convert_depth_to_phys_coord_using_realsense(point_np[0], point_np[1], point_np[2])
+            
+            # tranform the point to the depth camera frame
+            # point_transformed = np.dot(depth_instrinsic_matrix_inv, point_transformed)
+
+            print("Point transformed:", point_transformed_camera)
 
             # Calculate distances from all points in the point cloud to the average point
-            points_xy = pcd_xyz[:, :2]
+            pcd_xyz_copy = pcd_xyz.copy()
+            print("PCD XYZ:", pcd_xyz)
+            points_xy = np.array([[x/z, y/z] for x, y, z in pcd_xyz_copy])
+            print("PCD XYZ scaled:", pcd_xyz_copy)
+            # scale x to x/z and y to y/z
+            
+            # points_xy = pcd_xyz[:, :2]
 
-            average_depth_x = float(point_transformed[0])
-            average_depth_y = float(point_transformed[1])
+            average_depth_x = float(point_transformed_camera[0])
+            average_depth_y = float(point_transformed_camera[1])
 
-            print("Points XY:", points_xy)
+            print("PCD XY:", points_xy)
             distances = np.array([math.sqrt((x - average_depth_x) ** 2 + (y - average_depth_y) ** 2) for x, y in points_xy])
 
-            print("distances: ", distances)
+            # print("distances: ", distances)
             # Find the index of the closest point in the point cloud
             min_index = np.argmin(distances)
             print("Min Index: ", min_index)
+            print("Min distance: ", distances[min_index])
             closest_point = pcd_xyz[min_index]
             closest_point_z = closest_point[2]
             print("Average depth x:", average_depth_x)
             print("Average depth y:", average_depth_y)
+
+            print("Closest point x:", closest_point[0])
+            print("Closest point y:", closest_point[1])
             print("Closest point:", closest_point_z)
+
             # Create a PointStamped message for the closest point
             point_stamped: PointStamped = PointStamped()
             point_stamped.point.x = float(closest_point[0])
@@ -230,7 +307,7 @@ class YoloSegmentNode(Node):
             transformed_point = self.transform_point(point_stamped.point)
             print("Transformed point:", transformed_point)
             if transformed_point is None:
-                transformed_point = [average_depth_x, average_depth_y, float(closest_point[2])]
+                return
             marker = Marker()
             marker.header.frame_id = "camera_depth_optical_frame"
             marker.header.stamp = self.get_clock().now().to_msg()
@@ -260,28 +337,59 @@ class YoloSegmentNode(Node):
             MAX_Z_LIMIT = 500
             MIN_Z_LIMIT = 500
             
-            transformed_point[0] =float(max(MIN_X_LIMIT, min(MAX_X_LIMIT, transformed_point[0] * 1000)))
-            transformed_point[1] =float(max(MIN_Y_LIMIT, min(MAX_Y_LIMIT, transformed_point[1] * 1000)))
-            transformed_point[2] =float(max(MIN_Z_LIMIT, min(MAX_Z_LIMIT, transformed_point[2] * 1000)))
+            # transformed_point[0] =float(max(MIN_X_LIMIT, min(MAX_X_LIMIT, transformed_point[0] * 1000)))
+            # transformed_point[1] =float(max(MIN_Y_LIMIT, min(MAX_Y_LIMIT, transformed_point[1] * 1000)))
+            # transformed_point[2] =float(max(MIN_Z_LIMIT, min(MAX_Z_LIMIT, transformed_point[2] * 1000)))
+            transformed_point[0] = float(transformed_point[0] * 1000)
+            transformed_point[1] = float(transformed_point[1] * 1000)
+            transformed_point[2] = float(transformed_point[2] * 1000)
 
-            # Move the arm
-            print("Sending request for point: ", transformed_point[0], transformed_point[1] , transformed_point[2])
             request = MoveCartesian.Request()
             
-            tan_theta = transformed_point[1] / transformed_point[0]
-            angle = np.arctan(tan_theta)
-            request.pose = [transformed_point[0], transformed_point[1] , transformed_point[2] , 
-                            float(angle), float(-83), float(-15.9)]
-            request.speed = 30.0
-            request.acc = 15.0 
-            request.mvtime = 1.0
+            request.pose = [transformed_point[0], transformed_point[1] ,
+                             self.CRACKLE_GRIPPER_OFFSET + transformed_point[2],
+                             float(3.07), float(-0.07),float(1.3)]
+            request.speed = 15.0
+            request.acc = 8.0 
+            request.mvtime = 7.0
             request.wait = True
+            request.timeout = 15.0
+            print(request)
 
-            # future = self.arm_set_position_client.call_async(request)
+            future = None
+            future = self.arm_set_position_client.call_async(request)
+            # resp = self.arm_set_position_client.call(request)   
+            # print("Response: ", resp)   
+            # def func(x = None):
+            #     print("done")
+            # future.add_done_callback(func)
+
+
+            # print(future.done())
             # rclpy.spin_until_future_complete(self, future)
-            # print(future.result())
+            time.sleep(10)
+            print("Picking with gripper")
 
-            self.target_point.publish(point_stamped)
+            set_gripper_false = VacuumGripperCtrl.Request()
+            
+            set_gripper_false.on = True
+            set_gripper_false.wait = True
+            set_gripper_false.timeout = 15.0
+            future = None
+            future = self.arm_set_vacuum_gripper_client.call_async(set_gripper_false)
+
+            # add a delay with rclpy
+            time.sleep(10)
+            
+
+            request.pose = [transformed_point[0], transformed_point[1] ,
+                             self.CRACKLE_GRIPPER_OFFSET + 200 + transformed_point[2],
+                             float(3.07), float(-0.09),float(1.30)]
+            future = self.arm_set_position_client.call_async(request)
+            time.sleep(10)
+            # future.add_done_callback(func)
+
+
             # find the closest point to the average point in the pcd
 
     def get_bounding_boxes(self, msg: Image):
@@ -295,7 +403,7 @@ class YoloSegmentNode(Node):
         if result is None:
             return None
         # # all classes that can be outputted by the yolo model
-        boxes = result.boxes.cpu().xyxy
+        boxes = result.boxes.cpu().xywh
         result_boxes_classes = result.boxes.cpu().numpy().cls
         classes_inferred = [result.names[i] for i in result_boxes_classes]
 
@@ -309,6 +417,14 @@ class YoloSegmentNode(Node):
 
         vis_frame = result.plot()
         
+        for box in list_yolo_boxes:
+            x, y, w, h = box
+            x1, y1, x2, y2 = int(x - w / 2), int(y - h / 2), int(x + w / 2), int(y + h / 2)
+            # add a circle to the center of the bounding box
+            cv2.circle(vis_frame, (int(x), int(y)), 5, (0, 255, 0), -1)
+            print("X and Y: ", x, y)   
+            cv2.rectangle(vis_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+
         # Convert the combined mask to image message
         image_message = self.bridge.cv2_to_imgmsg(vis_frame, encoding="bgr8")
         self.publisher.publish(image_message)
