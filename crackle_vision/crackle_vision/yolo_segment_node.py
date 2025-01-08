@@ -130,49 +130,12 @@ class YoloSegmentNode(Node):
             [msg.k[6], msg.k[7], msg.k[8]],
         ]
 
-    # def set_color_intrinsics(self, msg: CameraInfo):
-    #    self._intrinsics.width = msg.width
-    #    self._intrinsics.height = msg.height
-    #    self._intrinsics.ppx = msg.k[2]
-    #    self._intrinsics.ppy = msg.k[5]
-    #    self._intrinsics.fx = msg.k[0]
-    #    self._intrinsics.fy = msg.k[4]
-    #    self._intrinsics.model = cameraInfo.distortion_model
-        #self._intrinsics.model  = pyrealsense2.distortion.none
-    #    self._intrinsics.coeffs = [i for i in msg.d]
-
-    # def convert_depth_to_phys_coord_using_realsense(self, x, y, depth):
-        # result = pyrealsense2.rs2_deproject_pixel_to_point(self._intrinsics, [x, y], depth)
-        # result[0]: right, result[1]: down, result[2]: forward
-        # return np.array([result[2], -result[0], -result[1]])
 
     def send_request(self, x : float, y : float, z : float, roll : float, pitch : float, yaw : float, speed : float=0.0, acc: float=0.0, mvtime : float=0.0):
         """
         Send a request to move the arm to a specified position and orientation. 
         """
         pass
-        # request = MoveCartesian.Request()
-
-        # Set pose as [x, y, z, qx, qy, qz, qw]
-        # rotation = Rotation.from_euler("xyz", [roll, pitch, yaw])
-        # quaternion = rotation.as_quat()
-        # request.pose = [x, y, z] + quaternion.tolist()
-
-        # Set speed, acceleration, and move time
-        # request.speed = float(speed)
-        # request.acc = float(acc)
-        # request.mvtime = float(mvtime)
-        # request.wait = False
-
-        # Send request and wait for response
-        # future = self.arm_set_position_client.call_async(request)
-        # rclpy.spin_until_future_complete(self, future)
-
-        # if future.result() is not None:
-        #     response = future.result()
-        #     self.get_logger().info(f'Response: {response.ret}, {response.message}')
-        # else:
-        #     self.get_logger().error('Failed to call MoveCartesian service.')
 
     def get_transform_buffer(self):
         try:
@@ -208,6 +171,11 @@ class YoloSegmentNode(Node):
         # return T[:3, 3]
 
     def image_callback(self, msg: Image, pcd: PointCloud2):
+        """
+            This callback executes when the image and point cloud messages are synchronized (published
+            approximately at the same time.) It then gets bounding boxes from the image (YOLO) and then 
+            calculates the x, y, z coordinates of the center of the bounding box in the point cloud.
+        """
         pcd_array = rnp.numpify(pcd)
 
 
@@ -229,6 +197,7 @@ class YoloSegmentNode(Node):
         # Check if a person is detected in the inferred classes
         if SEGMENT_NAME in classes_inferred:
             # person_index = classes_inferred.index("person")
+
             person_indices = [i for i, x in enumerate(classes_inferred) if x == SEGMENT_NAME]
             person_confidences = [result_boxes_classes[index] for index in person_indices] 
             max_confidence = max(person_confidences)
@@ -236,13 +205,8 @@ class YoloSegmentNode(Node):
 
             # Get the segment points corresponding to the detected person
             segment_points = boxes[person_index]
+            print("Boxes points:", segment_points)
 
-            print("Segment points:", segment_points)
-            # print("Segment2 points:", segment_2_points)
-            # Calculate the average x and y coordinates of the segment points
-
-            # segment_x_2 = segment_points[2]
-            # segment_y_2 = segment_points[3]
             average_x = float(segment_points[0])
             average_y = float(segment_points[1])
 
@@ -257,21 +221,17 @@ class YoloSegmentNode(Node):
 
             # Point after applying the inverse intrinsic matrix
             point_transformed_camera = np.dot(instrinsic_matrix_inv, point_np)
-            # point_transformed_camera = self.convert_depth_to_phys_coord_using_realsense(point_np[0], point_np[1], point_np[2])
-            
-            # tranform the point to the depth camera frame
-            # point_transformed = np.dot(depth_instrinsic_matrix_inv, point_transformed)
 
             print("Point transformed:", point_transformed_camera)
 
             # Calculate distances from all points in the point cloud to the average point
             pcd_xyz_copy = pcd_xyz.copy()
             print("PCD XYZ:", pcd_xyz)
+
+            # scale x to x/z and y to y/z
             points_xy = np.array([[x/z, y/z] for x, y, z in pcd_xyz_copy])
             print("PCD XYZ scaled:", pcd_xyz_copy)
-            # scale x to x/z and y to y/z
             
-            # points_xy = pcd_xyz[:, :2]
 
             average_depth_x = float(point_transformed_camera[0])
             average_depth_y = float(point_transformed_camera[1])
@@ -279,7 +239,6 @@ class YoloSegmentNode(Node):
             print("PCD XY:", points_xy)
             distances = np.array([math.sqrt((x - average_depth_x) ** 2 + (y - average_depth_y) ** 2) for x, y in points_xy])
 
-            # print("distances: ", distances)
             # Find the index of the closest point in the point cloud
             min_index = np.argmin(distances)
             print("Min Index: ", min_index)
@@ -300,12 +259,12 @@ class YoloSegmentNode(Node):
             point_stamped.point.z = float(closest_point[2])
             point_stamped.header.frame_id = self.link_base
 
-            
-
             # Transform the point to the world frame
 
             transformed_point = self.transform_point(point_stamped.point)
             print("Transformed point:", transformed_point)
+
+            # Publish the transformed point as a marker
             if transformed_point is None:
                 return
             marker = Marker()
@@ -329,7 +288,8 @@ class YoloSegmentNode(Node):
 
             # Publish the PointStamped message
             self.target_point.publish(point_stamped)
-            
+
+            # **************** ALL THE FOLLOWING CODE IS TO MOVE THE ARM THIS NEEDS TO BE A SEPARATE NODE ********** 
             MAX_Y_LIMIT = 150
             MIN_Y_LIMIT = -150
             MAX_X_LIMIT = 150
@@ -478,11 +438,6 @@ class YoloSegmentNode(Node):
         self.publisher.publish(image_message)
 
         return classes_inferred, result_boxes_classes, segments
-    
-    def move_to_location(point):
-        pass
-        #xarm6_traj_controller
-
 
 def main():
     rclpy.init()
