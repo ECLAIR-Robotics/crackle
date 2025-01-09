@@ -4,6 +4,10 @@ from rclpy.executors import MultiThreadedExecutor
 from std_msgs.msg import String
 from std_srvs.srv import Empty
 
+"""
+! DO NOT EDIT THIS. IT IS AN EXAMPLE ON HOW TO MAKE BLOCKING AND ASYNCHRONOUS SERVICE CALLS FROM A CALLBACK
+"""
+
 class MyNode(Node):
     def __init__(self):
         super().__init__('my_node')

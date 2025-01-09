@@ -41,6 +41,7 @@
     robot_sn:='' 
     mesh_suffix:='stl' 
     kinematics_suffix:=''
+    simulated:='false'
     "
     > 
 
@@ -154,7 +155,8 @@
           model_num="${model_num}"
           inertial_params_filename="${inertial_params_filename}"
           kinematics_params_filename="${kinematics_params_filename}"
-          hard_interface="${hard_interface}" />
+          hard_interface="${hard_interface}"
+          simulated="${simulated}"/>
       </xacro:if>
       <xacro:unless value="${robot_type == 'lite' or robot_type == 'uf850'}">
         <!-- Load XArm6 Robot Model URDF -->
