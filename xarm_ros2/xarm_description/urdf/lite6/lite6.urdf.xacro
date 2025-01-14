@@ -8,7 +8,8 @@
     joint5_lower_limit:=${-2.1642}  joint5_upper_limit:=${2.1642}
     joint6_lower_limit:=${-2.0*pi}  joint6_upper_limit:=${2.0*pi}
     model_num:=0
-    inertial_params_filename:='' kinematics_params_filename:='' "
+    inertial_params_filename:='' kinematics_params_filename:=''
+    simulated:='false' "
     >
 
     <!-- load params and define property -->
@@ -209,36 +210,40 @@
         velocity="3.14"/>
       <dynamics damping="1.0" friction="1.0"/>
     </joint>
-     
-    <link name="camera_depth_optical_frame">
-      <inertial>
-        <origin xyz="0 0 0" rpy="0 0 3.14" />
-        <mass value="0.01" />
-        <inertia
-          ixx="0" ixy="0" ixz="0"
-          iyy="0" iyz="0" izz="0" />
-      </inertial>
-      <visual>
-        <origin xyz="0 0 0" rpy="0 0 0" />
-        <geometry>
-          <box size="0.01 0.01 0.01" />
-        </geometry>
-        <material name="camera_depth_optical_frame_color">
-          <color rgba="0.0 0.0 1.0 1.0" />
-        </material>
-      </visual>
-      <collision>
-        <origin xyz="0 0 0" rpy="0 0 0" />
-        <geometry>
-          <box size="0.01 0.01 0.01" />
-        </geometry>
-      </collision>
-    </link>
-    <joint name="joint_link6_camera_link" type="fixed">
-      <origin xyz="0 0 0.01" rpy="0 0 0" />
-      <parent link="${prefix}link6" />
-      <child link="camera_depth_optical_frame" />
-    </joint>
+
+    <!-- * Remove to uncomment before running on the actual arm -->
+
+    <!-- <xacro:unless value="${simulated}"> 
+      <link name="camera_depth_optical_frame">
+        <inertial>
+          <origin xyz="0 0 0" rpy="0 0 0" />
+          <mass value="0.01" />
+          <inertia
+            ixx="0" ixy="0" ixz="0"
+            iyy="0" iyz="0" izz="0" />
+        </inertial>
+        <visual>
+          <origin xyz="0 0 0" rpy="0 0 0" />
+          <geometry>
+            <box size="0.03 0.01 0.01" />
+          </geometry>
+          <material name="camera_depth_optical_frame_color">
+            <color rgba="0.0 0.0 1.0 1.0" />
+          </material>
+        </visual>
+        <collision>
+          <origin xyz="0 0 0" rpy="0 0 0" />
+          <geometry>
+            <box size="0.01 0.01 0.01" />
+          </geometry>
+        </collision>
+      </link>
+      <joint name="joint_link6_camera_link" type="fixed">
+        <origin xyz="-0.06 0.01 0.01" rpy="0 0 4.71" />
+        <parent link="${prefix}link6" />
+        <child link="camera_depth_optical_frame" />
+      </joint>
+    </xacro:unless> -->
 
     <!-- <link name="${prefix}link_eef" />
     <joint name="${prefix}joint_eef" type="fixed">

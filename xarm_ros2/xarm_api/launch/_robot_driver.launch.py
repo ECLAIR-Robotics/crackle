@@ -55,7 +55,7 @@ def launch_setup(context, *args, **kwargs):
     dof = LaunchConfiguration('dof', default=7)
     hw_ns = LaunchConfiguration('hw_ns', default='xarm')
     add_gripper = LaunchConfiguration('add_gripper', default=False)
-    add_vacuum_gripper = LaunchConfiguration('add_vacuum_gripper', default=False)
+    add_vacuum_gripper = LaunchConfiguration('add_vacuum_gripper', default=True)
     prefix = LaunchConfiguration('prefix', default='')
     baud_checkset = LaunchConfiguration('baud_checkset', default=True)
     default_gripper_baud = LaunchConfiguration('default_gripper_baud', default=2000000)

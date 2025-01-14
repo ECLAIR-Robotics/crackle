@@ -41,11 +41,12 @@ def generate_launch_description():
     report_type = LaunchConfiguration('report_type', default='normal')
     hw_ns = LaunchConfiguration('hw_ns', default='ufactory')
     add_gripper = LaunchConfiguration('add_gripper', default=False)
-    add_vacuum_gripper = LaunchConfiguration('add_vacuum_gripper', default=False)
+    add_vacuum_gripper = LaunchConfiguration('add_vacuum_gripper', default=True)
     show_rviz = LaunchConfiguration('show_rviz', default=False)
 
     # robot driver launch
     # xarm_api/launch/_robot_driver.launch.py
+    print("Launching XARM!")
     robot_driver_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource([ThisLaunchFileDir(), '/_robot_driver.launch.py']),
         launch_arguments={
