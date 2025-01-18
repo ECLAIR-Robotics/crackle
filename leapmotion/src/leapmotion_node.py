@@ -1,121 +1,75 @@
 import leap, _thread, sys, time
-# from leap import CirleGesture, KeyTapGesture, ScreenTapGesture, SwipeGesture
 import rclpy
+from rclpy.node import Node
+from geometry_msgs.msg import Vector3
 
 class LeapMotionNode(leap.Listener, Node):
     finger_names = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky']
     bone_names = ['Metacarpal', 'Proximal', 'Intermediate', 'Distal']
     state_names = ['STATE_INVALID', 'STATE_START', 'STATE_UPDATE', 'STATE_END']
     def __init__(self):
-        self.controller = leap.Controller()
-        self.controller.add_listener(self)
-        self.frame = None
-        self.gestures = []
-        self.hands = []
-        self.fingers = []
-        self.bones = []
+        super().__init__('hand_direction_publisher')
+        self.publisher_ = self.create_publisher(Vector3, "hand_direction_topic", 1)
+        self.hand = None
+        self.most_recent_frame = 0
+        self.skip = 1
 
-    def on_init(self, controller):
-        print("Initialized")
+    def on_connection_event(self, event):
+        print("Connected")
 
-    def on_connect(self, controller):
-        print ("Connected")
-        controller.enable_gesture()
-        controller.enable_gesture(KeyTapGesture.GESTURE_TYPE)
-        controller.enable_gesture(ScreenTapGesture.GESTURE_TYPE)
-        controller.enable_gesture(SwipeGesture.GESTURE_TYPE)
+    def on_device_event(self, event):
+        try:
+            with event.device.open():
+                info = event.device.get_info()
+        except leap.LeapCannotOpenDeviceError:
+            info = event.device.get_info()
 
-    def on_disconnect(self, controller):
-        print ("Disconnected")
+        print(f"Found device {info.serial}")
 
-    def on_exit(self, controller):
-        print ("Exited")
+    def on_tracking_event(self, event):
+        self.most_recent_frame = event.tracking_fram_id
+        if event.tracking_frame_id % self.skip == 0:
+            print(f"Frame {event.tracking_frame_id} with {len(event.hands)} hands.")
+            for hand in event.hands:
+                hand_type = "left" if str(hand.type) == "HandType.Left" else "right"
+                print(
+                    f"Hand id {hand.id} is a {hand_type} hand with position ({hand.palm.position.x}, {hand.palm.position.y}, {hand.palm.position.z})."
+                )
+            self.hand = max(event.hands, key=lambda hand: hand.confidence())
+            self.frame_callback()
+    
+    def frame_callback(self):
+        dir = self.hand.palm().direction()
+        to_publish = Vector3()
+        to_publish.x = dir.x()
+        to_publish.y = dir.y()
+        to_publish.z = dir.z()
 
-    def on_frame(self, controller):
-        self.frame = controller.frame()
-        self.gestures = self.frame.gestures()
-        self.hands = self.frame.hands()
-        self.fingers = self.frame.fingers()
-        self.bones = self.frame.bones()
+        self.publisher_.publish(to_publish)
 
-    def get_frame(self):
-        return self.frame
 
-    def get_gestures(self):
-        return self.gestures
-
-    def get_hands(self):
-        return self.hands
-
-    def get_fingers(self):
-        return self.fingers
-
-    def get_bones(self):
-        return self.bones
-
-    def get_hand(self, index):
-        return self.hands[index]
-
-    def get_finger(self, index):
-        return self.fingers[index]
-
-    def get_bone(self, index):
-        return self.bones[index]
-
-    def get_joint_position(self, joint):
-        return joint.position
-
-    def get_joint_direction(self, joint):
-        return joint.direction
-
-    def get_joint_normal(self, joint):
-        return joint.normal
-
-    def get_joint_velocity(self, joint):
-        return joint.velocity
-
-    def get_joint_width(self, joint):
-        return joint.width
-
-    def get_joint_length(self, joint):
-        return joint.length
-
-    def get_joint_is_valid(self, joint):
-        return joint.is_valid
-
-    def get_joint_is_left(self, joint):
-        return joint.is_left
-
-    def get_joint_is_right(self, joint):
-        return joint.is_right
-
-    def get_joint_is_thumb(self, joint):
-        return joint.is_thumb
-
-    def get_joint_is_index(self, joint):
-        return joint.is_index
-
-    def get_joint_is_middle(self, joint):
-        return joint.is_middle
-
-    def get_joint_is_ring(self, joint):
-        return joint.is_ring
-
-    def get_joint_is_pinky(self, joint):
-        return joint.is_pinky
-
-def main():
+def main(args = None):
+    rclpy.init(args=args)
     listener = LeapMotionNode()
-    controller = leap.Controller()
+    connection = leap.Connection()
 
-    controller.add_listener(listener)
+    connection.add_listener(listener)
+
+
+    with connection.open():
+        connection.set_tracking_mode(leap.TrackingMode.Desktop)
+
     print("Press Enter to quit...")
     try:
         sys.stdin.readline()
     except KeyboardInterrupt:
         pass
     finally:
-        controller.remove_listener(listener)
+        listener.destroy_node()
+        rclpy.shutdown()
+
+        connection.remove_listener(listener)
+        connection._destroy_connection()
 
 if __name__ == "__main__":
     main()
