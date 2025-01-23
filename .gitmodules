@@ -5,3 +5,11 @@
 	path = py_binding_tools
 	url = git@github.com:moveit/py_binding_tools.git
 	branch = ros2
+[submodule "moveit_mtc"]
+	path = moveit_mtc
+	url = git@github.com:moveit/moveit_task_constructor.git
+	branch = humble
+[submodule "crackle_mtc"]
+	path = moveit_task_constructor
+	url = git@github.com:moveit/moveit_task_constructor.git
+	branch = humble

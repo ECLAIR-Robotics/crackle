@@ -7,22 +7,23 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(moveit_task_constructor_core REQUIRED)
+find_package(xarm_msgs REQUIRED)
+
 # uncomment the following section in order to fill in
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
-find_package(std_msgs REQUIRED)
-find_package(moveit_msgs REQUIRED)
-find_package(crackle_interfaces REQUIRED)
 
+add_executable(task_constructor src/task_constructor.cpp)
+ament_target_dependencies(task_constructor rclcpp std_msgs xarm_msgs moveit_task_constructor_core)
 
-add_executable(moveit_task_constructor src/moveit_task_constructor.cpp)
-target_include_directories(moveit_task_constructor PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>)
-target_compile_features(moveit_task_constructor PUBLIC c_std_99 cxx_std_17)  # Require C99 and C++17
-
-install(TARGETS moveit_task_constructor
+install(TARGETS
+  task_constructor
   DESTINATION lib/${PROJECT_NAME})
+
+install (DIRECTORY launch DESTINATION share/${PROJECT_NAME})
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

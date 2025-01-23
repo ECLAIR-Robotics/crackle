@@ -27,7 +27,7 @@ class LeapMotionNode(leap.Listener, Node):
         print(f"Found device {info.serial}")
 
     def on_tracking_event(self, event):
-        self.most_recent_frame = event.tracking_fram_id
+        self.most_recent_frame = event.tracking_frame_id
         if event.tracking_frame_id % self.skip == 0:
             print(f"Frame {event.tracking_frame_id} with {len(event.hands)} hands.")
             for hand in event.hands:
@@ -35,11 +35,19 @@ class LeapMotionNode(leap.Listener, Node):
                 print(
                     f"Hand id {hand.id} is a {hand_type} hand with position ({hand.palm.position.x}, {hand.palm.position.y}, {hand.palm.position.z})."
                 )
-            self.hand = max(event.hands, key=lambda hand: hand.confidence())
-            self.frame_callback()
+            if (len(event.hands) > 0):
+                print(event.hands[0])
+                hands = event.hands
+                # hands = sorted(hands, key=lambda hand: hand.confidence, reverse=True)
+                # print("Confidence: ", hands[0].confidence)
+                self.hand = max(event.hands, key=lambda hand: hand.confidence)
+                print("Self.hand: ", self.hand)
+                self.frame_callback()
     
     def frame_callback(self):
-        dir = self.hand.palm().direction()
+        print(self.hand.palm)
+        dir = self.hand.palm.direction
+        print("Direction: ", dir)
         to_publish = Vector3()
         to_publish.x = dir.x()
         to_publish.y = dir.y()
@@ -55,9 +63,12 @@ def main(args = None):
 
     connection.add_listener(listener)
 
+    running = True
 
     with connection.open():
         connection.set_tracking_mode(leap.TrackingMode.Desktop)
+        while running:
+            time.sleep(1)
 
     print("Press Enter to quit...")
     try:
