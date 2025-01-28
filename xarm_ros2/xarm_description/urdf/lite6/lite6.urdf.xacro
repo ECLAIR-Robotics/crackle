@@ -213,7 +213,7 @@
 
     <!-- * Remove to uncomment before running on the actual arm -->
 
-    <!-- <xacro:unless value="${simulated}"> 
+    <!-- <xacro:unless value="${simulated}">  -->
       <link name="camera_depth_optical_frame">
         <inertial>
           <origin xyz="0 0 0" rpy="0 0 0" />
@@ -243,7 +243,7 @@
         <parent link="${prefix}link6" />
         <child link="camera_depth_optical_frame" />
       </joint>
-    </xacro:unless> -->
+    <!-- </xacro:unless> -->
 
     <!-- <link name="${prefix}link_eef" />
     <joint name="${prefix}joint_eef" type="fixed">
