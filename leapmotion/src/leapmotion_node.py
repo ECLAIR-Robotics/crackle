@@ -70,7 +70,7 @@ def main(args = None):
     running = True
 
     with connection.open():
-        connection.set_tracking_mode(leap.TrackingMode.Desktop)
+        connection.set_tracking_mode(leap.TrackingMode.Screentop)
         while running:
             time.sleep(1)
 
