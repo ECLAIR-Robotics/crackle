@@ -1,0 +1,2 @@
+Point hand_pos
+Vector3 hand_dir

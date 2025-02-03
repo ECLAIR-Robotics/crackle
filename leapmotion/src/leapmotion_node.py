@@ -1,7 +1,7 @@
 import leap, _thread, sys, time
 import rclpy
 from rclpy.node import Node
-from geometry_msgs.msg import Vector3
+from crackle_interfaces.msg import LeapMotionHand
 
 class LeapMotionNode(leap.Listener, Node):
     finger_names = ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky']
@@ -9,7 +9,7 @@ class LeapMotionNode(leap.Listener, Node):
     state_names = ['STATE_INVALID', 'STATE_START', 'STATE_UPDATE', 'STATE_END']
     def __init__(self):
         super().__init__('hand_direction_publisher')
-        self.publisher_ = self.create_publisher(Vector3, "hand_direction_topic", 1)
+        self.publisher_ = self.create_publisher(LeapMotionHand, "hand_direction_topic", 1)
         self.hand = None
         self.most_recent_frame = 0
         self.skip = 1
@@ -47,11 +47,15 @@ class LeapMotionNode(leap.Listener, Node):
     def frame_callback(self):
         print(self.hand.palm)
         dir = self.hand.palm.direction
+        pos = self.hand.palm.stabilized_position
         print("Direction: ", dir)
-        to_publish = Vector3()
-        to_publish.x = dir.x()
-        to_publish.y = dir.y()
-        to_publish.z = dir.z()
+        to_publish = LeapMotionHand()
+        to_publish.hand_dir.x = dir.x()
+        to_publish.hand_dir.y = dir.y()
+        to_publish.hand_dir.z = dir.z()
+        to_publish.hand_pos.x = pos.x()
+        to_publish.hand_pos.x = pos.y()
+        to_publish.hand_pos.x = pos.z()
 
         self.publisher_.publish(to_publish)
 
