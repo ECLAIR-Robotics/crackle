@@ -4,28 +4,28 @@
 // 4 microphones in square pattern
 // (4 choose 2) = 6 so 6 cones
 
-const int MIC_ZERO = A0;
 const int MIC_ONE = A1;
 const int MIC_TWO = A2;
 const int MIC_THREE = A3;
+const int MIC_FOUR = A4;
 
-const int threshold = 100;
+const int threshold = 75;
 const int voltage = 330;
 
 Vector mic_locations[4] = { // in METERS
-  Vector(0.06, 0.06, 0), // 0
-  Vector(-0.06, 0.06, 0), // 1
-  Vector(-0.06, -0.06, 0), // 2
-  Vector(0.06, -0.06, 0) // 3
+  Vector(0.065, 0.065, 0), // 1
+  Vector(0.065, -0.065, 0), // 2
+  Vector(-0.065, 0.065, 0), // 3
+  Vector(-0.065, -0.065, 0) // 4
 };
 
 int mic_pairings[6][2] = {
-  {0, 1},
-  {0, 2},
-  {0, 3},
-  {1, 2},
-  {1, 3},
-  {2, 3}
+  {0, 1}, // 0
+  {0, 2}, // 1
+  {0, 3}, // 2
+  {1, 2}, // 3
+  {1, 3}, // 4
+  {2, 3}  // 5
 };
 
 struct AnnotatedVector {
@@ -60,56 +60,52 @@ void setup() {
   Serial.begin(19200);
   ADCSRA = (ADCSRA & 0xF8) | 0x02; // Set Analogue Read Rate (change to 0x02 if want faster)
   ADCSRA &= ~(1 << ADATE); // Disable auto triggering
-  pinMode(MIC_ZERO, INPUT);
   pinMode(MIC_ONE, INPUT);
   pinMode(MIC_TWO, INPUT);
   pinMode(MIC_THREE, INPUT);
+  pinMode(MIC_FOUR, INPUT);
 }
 
 void loop() {
-  int zeroRead = analogRead(MIC_ZERO);
-  unsigned long zeroTimestamp = micros();
   int oneRead = analogRead(MIC_ONE);
   unsigned long oneTimestamp = micros();
   int twoRead = analogRead(MIC_TWO);
   unsigned long twoTimestamp = micros();
   int threeRead = analogRead(MIC_THREE);
   unsigned long threeTimestamp = micros();
+  int fourRead = analogRead(MIC_FOUR);
+  unsigned long fourTimestamp = micros();
   if (reading) {
-    reads[0][index] = zeroRead;
-    timestamps[0][index] = zeroTimestamp - startTimestamp;
-    reads[1][index] = oneRead;
-    timestamps[1][index] = oneTimestamp - startTimestamp;
-    reads[2][index] = twoRead;
-    timestamps[2][index] = twoTimestamp - startTimestamp;
-    reads[3][index] = threeRead;
-    timestamps[3][index] = threeTimestamp - startTimestamp;
+    reads[0][index] = oneRead;
+    timestamps[0][index] = oneTimestamp - startTimestamp;
+    reads[1][index] = twoRead;
+    timestamps[1][index] = twoTimestamp - startTimestamp;
+    reads[2][index] = threeRead;
+    timestamps[2][index] = threeTimestamp - startTimestamp;
+    reads[3][index] = fourRead;
+    timestamps[3][index] = fourTimestamp - startTimestamp;
     index++;
     if (index >= samples) {
       if (serialAudioOutput) {
-        Serial.println("0 read, 0 timestamp, 1 read, 1 timestamp, 2 read, 2 timestamp, 3 read, 3 timestamp");
+        Serial.println("1 read, 1 timestamp, 2 read, 2 timestamp, 3 read, 3 timestamp, 4 read, 4 timestamp");
         for (int i = 0; i < samples; i++) {
           char csvLine[100] = "";
-          char zeroReadstr[25];
-          char zeroTimestampstr[25];
           char oneReadstr[25];
           char oneTimestampstr[25];
           char twoReadstr[25];
           char twoTimestampstr[25];
           char threeReadstr[25];
           char threeTimestampstr[25];
-          sprintf(zeroReadstr, "%d", reads[0][i]);
-          sprintf(zeroTimestampstr, "%d", timestamps[0][i]);
-          sprintf(oneReadstr, "%d", reads[1][i]);
-          sprintf(oneTimestampstr, "%d", timestamps[1][i]);
-          sprintf(twoReadstr, "%d", reads[2][i]);
-          sprintf(twoTimestampstr, "%d", timestamps[2][i]);
-          sprintf(threeReadstr, "%d", reads[3][i]);
-          sprintf(threeTimestampstr, "%d", timestamps[3][i]);
-          strcat(csvLine, zeroReadstr);
-          strcat(csvLine, ",");
-          strcat(csvLine, zeroTimestampstr);
-          strcat(csvLine, ",");
+          char fourReadstr[25];
+          char fourTimestampstr[25];
+          sprintf(oneReadstr, "%d", reads[0][i]);
+          sprintf(oneTimestampstr, "%d", timestamps[0][i]);
+          sprintf(twoReadstr, "%d", reads[1][i]);
+          sprintf(twoTimestampstr, "%d", timestamps[1][i]);
+          sprintf(threeReadstr, "%d", reads[2][i]);
+          sprintf(threeTimestampstr, "%d", timestamps[2][i]);
+          sprintf(fourReadstr, "%d", reads[3][i]);
+          sprintf(fourTimestampstr, "%d", timestamps[3][i]);
           strcat(csvLine, oneReadstr);
           strcat(csvLine, ",");
           strcat(csvLine, oneTimestampstr);
@@ -121,6 +117,10 @@ void loop() {
           strcat(csvLine, threeReadstr);
           strcat(csvLine, ",");
           strcat(csvLine, threeTimestampstr);
+          strcat(csvLine, ",");
+          strcat(csvLine, fourReadstr);
+          strcat(csvLine, ",");
+          strcat(csvLine, fourTimestampstr);
           Serial.println(csvLine);
         }
       }
@@ -136,10 +136,10 @@ void loop() {
       Serial.println(sound_direction_string);
       reading = false;
     }
-  } else if (!reading && (((absolute<int>(zeroRead - voltage) + absolute<int>(oneRead - voltage) + absolute<int>(twoRead - voltage) + absolute<int>(threeRead - voltage))/4) > threshold)) {
+  } else if (!reading && (((absolute<int>(oneRead - voltage) + absolute<int>(twoRead - voltage) + absolute<int>(threeRead - voltage) + absolute<int>(fourRead - voltage))/4) > threshold)) {
     index = 0;
     reading = true;
-    startTimestamp = zeroTimestamp;
+    startTimestamp = oneTimestamp;
   }
 }
 
@@ -278,7 +278,7 @@ Vector get_sound_direction(int reads[4][samples], unsigned int timestamps[4][sam
 
   for (int i=0; i < 5; i++) {
     for (int j=i+1; j < 6; j++) {
-      if (!((i == 0) && (j == 5)) && !((i == 2) && (j == 3))) { // cones alligned
+      if (!((i == 0) && (j == 5)) && !((i == 1) && (j == 4))) { // cones alligned
         AnnotatedVector cone_intersection_direction = get_cone_intersection(cones[i], cones[j]);
         if ((cone_intersection_direction.edgeCase == false) || (includeEdgeCases == true)) {
           cone_intersection_direction_sum = cone_intersection_direction_sum + cone_intersection_direction.vector;
