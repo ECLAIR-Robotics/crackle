@@ -4,11 +4,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.spatial.distance import euclidean
 from crackle_planning.arm_planner import PlannerNode
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Pose, Point
 import rclpy
 import rclpy.time
 import time
+import cv2
 from visualization_msgs.msg import Marker, MarkerArray
+import math
 
 # Mock definitions for your pre-existing plan and execute functionalities.
 def plan_path(points_3d: List[Tuple[float, float, float]]) -> List[Tuple[float, float, float]]:
@@ -40,18 +42,20 @@ class FreeDrawToRobot:
         # Hardcoded dimensions/offsets for demonstration
         # In a real-world application, these would be calibrated carefully.
         self.PAPER_Z_HEIGHT = 0.0           # z-height of the paper plane
-        self.END_EFFECTOR_OFFSET = 0.1064      # offset between pen tip and end-effector frame
+        self.PD_END_EFFECTOR_OFFSET = 0.1085      # offset between pen tip and end-effector frame
+        self.PU_END_EFFECTOR_OFFSET = 0.170
 
         self.DEFAULT_POSITION = Pose()
         self.DEFAULT_POSITION.position.x = self.canvas_coords[0][0]
         self.DEFAULT_POSITION.position.y = self.canvas_coords[0][1]
-        self.DEFAULT_POSITION.position.z = self.PAPER_Z_HEIGHT + self.END_EFFECTOR_OFFSET
+        self.DEFAULT_POSITION.position.z = self.PAPER_Z_HEIGHT + self.PU_END_EFFECTOR_OFFSET
         self.DEFAULT_POSITION.orientation.x = 1.0
         self.DEFAULT_POSITION.orientation.y = 0.0
         self.DEFAULT_POSITION.orientation.z = 0.0
         self.DEFAULT_POSITION.orientation.w = 0.0
         self.arm_api = PlannerNode()
         self.marker_publisher = self.arm_api.create_publisher(MarkerArray, '/path_visualizer_array', 10)
+        self.line_marker_publisher = self.arm_api.create_publisher(Marker, '/line_visualizer', 10) 
         self.arm_api.plan_to_pose(self.DEFAULT_POSITION)
         self.arm_api.execute_plan()
 
@@ -89,7 +93,7 @@ class FreeDrawToRobot:
         # publish a series of markers to visualize the path
 
         marker_array = MarkerArray()
-        i = 0
+        i = 1
         for waypoint in path:
             marker = Marker()
             marker.header.frame_id = "link_base"
@@ -98,9 +102,9 @@ class FreeDrawToRobot:
             marker.id = i
             marker.type = Marker.SPHERE
             marker.action = Marker.ADD
-            marker.pose.position.x = waypoint[0]
-            marker.pose.position.y = waypoint[1]
-            marker.pose.position.z = waypoint[2]
+            marker.pose.position.x = float(waypoint[0])
+            marker.pose.position.y = float(waypoint[1])
+            marker.pose.position.z = float(waypoint[2])
             marker.pose.orientation.x = 1.0
             marker.pose.orientation.y = 0.0
             marker.pose.orientation.z = 0.0
@@ -123,16 +127,16 @@ class FreeDrawToRobot:
             # then 'pen up' and then pen down after you get to the point            
 
             pose = Pose()
-            pose.position.x = waypoint[0]
-            pose.position.y = waypoint[1]
-            pose.position.z = waypoint[2]
+            pose.position.x = float(waypoint[0])
+            pose.position.y = float(waypoint[1])
+            pose.position.z = float(waypoint[2])
             pose.orientation.x = 1.0
             pose.orientation.y = 0.0
             pose.orientation.z = 0.0
             pose.orientation.w = 0.0
             self.arm_api.plan_to_pose(pose)
             self.arm_api.execute_plan()
-            time.sleep(0.5)
+            time.sleep(0.1)
             print(f"Moving to {waypoint}")
 
     print("Execution complete.")
@@ -195,7 +199,7 @@ class FreeDrawToRobot:
         return recursive_rdp(points, epsilon)
     
     def distance_based_filtered(self, points, min_dist=0.1):
-        print(points)
+        # print(points)
         filtered = [points[0]]
         for p in points[1: ]:
             if euclidean(p, filtered[-1]) > min_dist:
@@ -217,7 +221,6 @@ class FreeDrawToRobot:
         # The simplest approach: (x_pixel, y_pixel) => (x_robot, y_robot, z_robot).
         # This is a placeholder for a real calibration/transform.
         points_3d = []
-        print("Points: ", self.drawing_points)
 
         # rdp_result = self.rdp(self.drawing_points) 
 
@@ -226,25 +229,71 @@ class FreeDrawToRobot:
 
         points_np = self.distance_based_filtered(self.drawing_points, self.SCALING_FACTOR * 0.005)
 
+        # Create a black image (3-channel BGR)
+        # canvas_image = np.zeros((self.canvas_height, self.canvas_width, 3), dtype=np.uint8)
 
+        # prev_point = self.drawing_points[0]
+        # for (x, y) in self.drawing_points[1:]:
+        #     print(prev_point)
+        #     (x_prev, y_prev) = prev_point
+        #     cv2.line(canvas_image, (x_prev, y_prev), (x, y), (255, 255, 255), 1)
+        #     prev_point = (x, y)
+            # canvas_image[y, x] = np.array([255, 255, 255])
+        # cv_image = cv2.cvtColor(canvas_image, cv2.COLOR_BGR2GRAY)
+        # cv2.imshow("Black Image", cv_image)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
+        
+        # contours, hierarchy = cv2.findContours(cv_image, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+        # print("Number of contours found: ", len(contours))
+        # print(contours)
+        # print(hierarchy)
+        # cv2.drawContours(canvas_image, contours, -1, (0, 255, 0), 1)
+        # cv2.imshow("Contours", canvas_image)
+        # cv2.waitKey(0)
+        # Display the image
 
-        # plt.plot(points_np[: ,0], points_np[: , 1], 'bo-', label="Path")
-        # plt.xlabel("X")
-        # plt.ylabel("Y")
-        # plt.title("Title")
-        # plt.legend()
-        # plt.grid(True)
-        # plt.show()
-
-        for x, y in self.drawing_points:
+        prev_point = points_np[0]
+        
+        points_3d.append([prev_point[0] / self.SCALING_FACTOR, prev_point[1]/ self.SCALING_FACTOR, (self.PAPER_Z_HEIGHT + self.PU_END_EFFECTOR_OFFSET)])
+        points_3d.append([prev_point[0]/ self.SCALING_FACTOR, prev_point[1]/ self.SCALING_FACTOR, (self.PAPER_Z_HEIGHT + self.PD_END_EFFECTOR_OFFSET)])
+        for x, y in points_np[1:]:
             # Convert from top-left pixel coordinates to a robot coordinate frame
             # e.g., assume top-left of the canvas is robot world (0,0),
             # and each pixel is scaled by PIXEL_TO_ROBOT_SCALE in millimeters.
             # Hardcode Z to the PAPER_Z_HEIGHT plus the pen offset if needed.
-            x_robot = x / self.SCALING_FACTOR
-            y_robot = y / self.SCALING_FACTOR
-            z_robot = self.PAPER_Z_HEIGHT + self.END_EFFECTOR_OFFSET
 
+            x_robot = float(x / self.SCALING_FACTOR)
+            y_robot = float(y / self.SCALING_FACTOR)
+            dist = math.sqrt((y_robot - prev_point[1]) **2 + ((x_robot - prev_point[0]) **2))
+            print("dist: ", dist)
+            if (dist > 0.01):
+                print("Dist More")
+
+                # publish a marker a line between prev and current point
+                marker = Marker()
+                marker.header.frame_id = "link_base"
+                marker.ns = "lines"
+                marker.id = 0
+                marker.type = Marker.LINE_STRIP
+                marker.action = Marker.ADD
+                p1 = Point(x = prev_point[0] / self.SCALING_FACTOR, y = prev_point[1] / self.SCALING_FACTOR, z = self.PAPER_Z_HEIGHT + self.PU_END_EFFECTOR_OFFSET)
+                p2 = Point(x = x_robot, y = y_robot, z = self.PAPER_Z_HEIGHT + self.PU_END_EFFECTOR_OFFSET)
+                marker.points.append(p1)
+                marker.points.append(p2)
+                marker.scale.x = 0.01
+                marker.scale.y = 0.01
+                marker.scale.z = 0.01
+                marker.color.a = 1.0
+                marker.color.r = 0.0
+                marker.color.g = 1.0
+                marker.color.b = 0.0
+                self.line_marker_publisher.publish(marker)
+
+                points_3d.append((float(prev_point[0]/ self.SCALING_FACTOR), float(prev_point[1]/ self.SCALING_FACTOR), float(self.PU_END_EFFECTOR_OFFSET)))
+                points_3d.append((x_robot, y_robot, float(self.PU_END_EFFECTOR_OFFSET)))
+            z_robot = float(self.PAPER_Z_HEIGHT + self.PD_END_EFFECTOR_OFFSET)
+            prev_point = np.array([float(x_robot), float(y_robot)])
             points_3d.append((x_robot, y_robot, z_robot))
 
         # Plan the path using the existing function
