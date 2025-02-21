@@ -143,13 +143,16 @@ def play_pause():
 @app.route('/volume_up', methods=['POST'])
 @login_required
 def volume_up():
-    print("VOLUME UP CALLED")
+    delta = 0.01
+    target_pose.position.z += delta
+
     return jsonify({"status": "success"})
 
 @app.route('/volume_down', methods=['POST'])
 @login_required
 def volume_down():
-    print("VOLUME DOWN CALLED")
+    delta = -0.01
+    target_pose.position.z += delta
     return jsonify({"status": "success"})
 
 @app.route('/brightness_up', methods=['POST'])

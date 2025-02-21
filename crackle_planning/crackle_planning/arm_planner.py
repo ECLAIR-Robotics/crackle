@@ -45,12 +45,20 @@ class PlannerNode(Node):
         future = self.xarm_plan_straight.call_async(req)
         rclpy.spin_until_future_complete(self, future)
         return future.result()
-    
+
+    def execute_done_callback(self, args):
+        print('Execution done')
+
     def execute_plan(self):
         req = PlanExec.Request()
         future = self.xarm_exec_plan.call_async(req)
-        rclpy.spin_until_future_complete(self, future)
-        return future.result()
+        future.add_done_callback(self.execute_done_callback)
+        # rclpy.spin_until_future_complete(self, future)
+        while future.done() == False:
+            print(f"{future.done()}")
+            rclpy.spin_once(self)
+        print('Execution done')
+        return future
 
 def accept_input(node):
     while True:
@@ -69,7 +77,6 @@ def accept_input(node):
             print('Planned to pose', pose)
             print(node.plan_to_pose(pose))
             print("planned successfully")   
-            print(node.execute_plan())
 
         elif cmd[0] == 'joint':
             joint = [0, 0, 0, 0, 0, 0]
@@ -77,9 +84,13 @@ def accept_input(node):
 
         elif cmd[0] == 'straight':
             pose = Pose()
-            pose.position.x = 0.3
-            pose.position.y = 0.3
-            pose.position.z = 0.3
+            pose.position.x = float(cmd[1])
+            pose.position.y = float(cmd[2])
+            pose.position.z = float(cmd[3])
+            pose.orientation.x = float(1.0)
+            pose.orientation.y = float(0.0)
+            pose.orientation.z = float(0.0)
+            pose.orientation.w = float(0.0)
             node.plan_straight(pose)
         elif cmd[0] == 'execute':
             node.execute_plan()

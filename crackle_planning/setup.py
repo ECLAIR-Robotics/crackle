@@ -18,7 +18,10 @@ setup(
         "crackle_interfaces", 
         "std_msgs", 
         "sensor_msgs", 
-        "geometry_msgs"
+        "geometry_msgs",
+        "moveit_msgs",
+        "moveit_commander", 
+        "ruckig"
     ],
     zip_safe=True,
     maintainer='tanay',
