@@ -21,8 +21,11 @@ def plan_path(points_3d: List[Tuple[float, float, float]]) -> List[Tuple[float, 
     # For demonstration, pretend the input points are already suitable as a path.
     return points_3d
 
-
-
+class CanvasPoints:
+    A = Point()
+    B = Point()
+    C = Point()
+    D = Point()
 
 class FreeDrawToRobot:
     def __init__(self, master=None):
@@ -36,18 +39,35 @@ class FreeDrawToRobot:
         self.canvas_width = 600
         self.canvas_height = 600
 
-        self.canvas_coords = [(0.087, 0.1592), (0.3188, 0.1592), (0.3188, -0.1027), (0.087, -0.1027)] # ABCD anti clockwise
-        
+        """
+            A ---- B
+            |      |
+            |      |
+            C ---- D 
+              arm
+        """
+        self.real_word_side = 0.100
+
+        self.canvas_coords = CanvasPoints()
+        self.canvas_coords.C.x = 0.1176
+        self.canvas_coords.C.y = 0.0548
+
+        # self.canvas_coords.A.x = self.canvas_coords.C.x + self.real_word_side
+        # self.canvas_coords.A.y = self.canvas_coords.C.y + self.real_word_side
+        # self.canvas_coords.B.x = self.canvas_coords.C.x + self.real_word_side
+        # self.canvas_coords.B.y = self.canvas_coords.C.y + self.real_word_side
+        # self.canvas_coords.D.x = self.canvas_coords.C.x + self.real_word_side
+        # self.canvas_coords.D.y = self.canvas_coords.C.y + self.real_word_side
 
         # Hardcoded dimensions/offsets for demonstration
         # In a real-world application, these would be calibrated carefully.
         self.PAPER_Z_HEIGHT = 0.0           # z-height of the paper plane
-        self.PD_END_EFFECTOR_OFFSET = 0.1085      # offset between pen tip and end-effector frame
+        self.PD_END_EFFECTOR_OFFSET = 0.1078      # offset between pen tip and end-effector frame
         self.PU_END_EFFECTOR_OFFSET = 0.170
 
         self.DEFAULT_POSITION = Pose()
-        self.DEFAULT_POSITION.position.x = self.canvas_coords[0][0]
-        self.DEFAULT_POSITION.position.y = self.canvas_coords[0][1]
+        self.DEFAULT_POSITION.position.x = self.canvas_coords.C.x
+        self.DEFAULT_POSITION.position.y = self.canvas_coords.C.y
         self.DEFAULT_POSITION.position.z = self.PAPER_Z_HEIGHT + self.PU_END_EFFECTOR_OFFSET
         self.DEFAULT_POSITION.orientation.x = 1.0
         self.DEFAULT_POSITION.orientation.y = 0.0
@@ -59,7 +79,7 @@ class FreeDrawToRobot:
         self.arm_api.plan_to_pose(self.DEFAULT_POSITION)
         self.arm_api.execute_plan()
 
-        self.SCALING_FACTOR = self.canvas_width / (self.canvas_coords[1][0] - self.canvas_coords[0][0]) # Ratio of widths assuming square 
+        self.SCALING_FACTOR = self.canvas_width / self.real_word_side # Ratio of widths assuming square 
 
 
 
@@ -222,49 +242,35 @@ class FreeDrawToRobot:
         # This is a placeholder for a real calibration/transform.
         points_3d = []
 
-        # rdp_result = self.rdp(self.drawing_points) 
-
-        # points_np = np.array(self.drawing_points)
-        # points_np = rdp_result
+        plt.figure()
+        points_np = np.array(self.drawing_points)
+        plt.plot(points_np[:, 0], points_np[:, 1], 'ro-')
+        plt.show()
 
         points_np = self.distance_based_filtered(self.drawing_points, self.SCALING_FACTOR * 0.005)
 
-        # Create a black image (3-channel BGR)
-        # canvas_image = np.zeros((self.canvas_height, self.canvas_width, 3), dtype=np.uint8)
-
-        # prev_point = self.drawing_points[0]
-        # for (x, y) in self.drawing_points[1:]:
-        #     print(prev_point)
-        #     (x_prev, y_prev) = prev_point
-        #     cv2.line(canvas_image, (x_prev, y_prev), (x, y), (255, 255, 255), 1)
-        #     prev_point = (x, y)
-            # canvas_image[y, x] = np.array([255, 255, 255])
-        # cv_image = cv2.cvtColor(canvas_image, cv2.COLOR_BGR2GRAY)
-        # cv2.imshow("Black Image", cv_image)
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows()
-        
-        # contours, hierarchy = cv2.findContours(cv_image, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
-        # print("Number of contours found: ", len(contours))
-        # print(contours)
-        # print(hierarchy)
-        # cv2.drawContours(canvas_image, contours, -1, (0, 255, 0), 1)
-        # cv2.imshow("Contours", canvas_image)
-        # cv2.waitKey(0)
-        # Display the image
-
+        list_points = []
+        for point in points_np:
+            p = [
+                self.canvas_coords.C.x + (point[0] / self.SCALING_FACTOR),
+                self.canvas_coords.C.y + (point[1] / self.SCALING_FACTOR),
+                # (self.PAPER_Z_HEIGHT + self.PD_END_EFFECTOR_OFFSET)
+            ]
+            list_points.append(np.array(p))
+        points_np = np.array(list_points)
         prev_point = points_np[0]
-        
-        points_3d.append([prev_point[0] / self.SCALING_FACTOR, prev_point[1]/ self.SCALING_FACTOR, (self.PAPER_Z_HEIGHT + self.PU_END_EFFECTOR_OFFSET)])
-        points_3d.append([prev_point[0]/ self.SCALING_FACTOR, prev_point[1]/ self.SCALING_FACTOR, (self.PAPER_Z_HEIGHT + self.PD_END_EFFECTOR_OFFSET)])
+
+        points_3d.append((prev_point[0], (prev_point[1]), float(self.PAPER_Z_HEIGHT + self.PU_END_EFFECTOR_OFFSET)))
+        points_3d.append((prev_point[0], (prev_point[1]), float(self.PAPER_Z_HEIGHT + self.PD_END_EFFECTOR_OFFSET)))
+
         for x, y in points_np[1:]:
             # Convert from top-left pixel coordinates to a robot coordinate frame
             # e.g., assume top-left of the canvas is robot world (0,0),
             # and each pixel is scaled by PIXEL_TO_ROBOT_SCALE in millimeters.
             # Hardcode Z to the PAPER_Z_HEIGHT plus the pen offset if needed.
 
-            x_robot = float(x / self.SCALING_FACTOR)
-            y_robot = float(y / self.SCALING_FACTOR)
+            x_robot = float(x)
+            y_robot = float(y)
             dist = math.sqrt((y_robot - prev_point[1]) **2 + ((x_robot - prev_point[0]) **2))
             print("dist: ", dist)
             if (dist > 0.01):
@@ -277,8 +283,10 @@ class FreeDrawToRobot:
                 marker.id = 0
                 marker.type = Marker.LINE_STRIP
                 marker.action = Marker.ADD
-                p1 = Point(x = prev_point[0] / self.SCALING_FACTOR, y = prev_point[1] / self.SCALING_FACTOR, z = self.PAPER_Z_HEIGHT + self.PU_END_EFFECTOR_OFFSET)
+
+                p1 = Point(x = float(prev_point[0]), y = float(prev_point[1]), z = self.PAPER_Z_HEIGHT + self.PU_END_EFFECTOR_OFFSET) # Add points for pen up for prev and current point
                 p2 = Point(x = x_robot, y = y_robot, z = self.PAPER_Z_HEIGHT + self.PU_END_EFFECTOR_OFFSET)
+
                 marker.points.append(p1)
                 marker.points.append(p2)
                 marker.scale.x = 0.01
@@ -290,8 +298,9 @@ class FreeDrawToRobot:
                 marker.color.b = 0.0
                 self.line_marker_publisher.publish(marker)
 
-                points_3d.append((float(prev_point[0]/ self.SCALING_FACTOR), float(prev_point[1]/ self.SCALING_FACTOR), float(self.PU_END_EFFECTOR_OFFSET)))
-                points_3d.append((x_robot, y_robot, float(self.PU_END_EFFECTOR_OFFSET)))
+                points_3d.append((float(prev_point[0]), float(prev_point[1]), float(self.PAPER_Z_HEIGHT + self.PU_END_EFFECTOR_OFFSET)))
+                points_3d.append((x_robot, y_robot, float(self.PAPER_Z_HEIGHT + self.PU_END_EFFECTOR_OFFSET)))
+
             z_robot = float(self.PAPER_Z_HEIGHT + self.PD_END_EFFECTOR_OFFSET)
             prev_point = np.array([float(x_robot), float(y_robot)])
             points_3d.append((x_robot, y_robot, z_robot))
