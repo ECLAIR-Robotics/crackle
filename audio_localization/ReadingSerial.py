@@ -18,4 +18,4 @@ while True:
         i += 1
         output = open(filename+str(i)+".csv", "w+")
     print(ser_bytes)
-    output.write(ser_bytes + "\n")
+    output.write(ser_bytes[2:-5] + "\n")
