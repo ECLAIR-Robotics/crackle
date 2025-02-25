@@ -46,11 +46,11 @@ class FreeDrawToRobot:
             C ---- D 
               arm
         """
-        self.real_word_side = 0.100
+        self.real_word_side = 0.200
 
         self.canvas_coords = CanvasPoints()
-        self.canvas_coords.C.x = 0.1176
-        self.canvas_coords.C.y = 0.0548
+        self.canvas_coords.C.x = 0.1245
+        self.canvas_coords.C.y = -0.030
 
         # self.canvas_coords.A.x = self.canvas_coords.C.x + self.real_word_side
         # self.canvas_coords.A.y = self.canvas_coords.C.y + self.real_word_side
@@ -62,7 +62,7 @@ class FreeDrawToRobot:
         # Hardcoded dimensions/offsets for demonstration
         # In a real-world application, these would be calibrated carefully.
         self.PAPER_Z_HEIGHT = 0.0           # z-height of the paper plane
-        self.PD_END_EFFECTOR_OFFSET = 0.1078      # offset between pen tip and end-effector frame
+        self.PD_END_EFFECTOR_OFFSET = 0.1083      # offset between pen tip and end-effector frame
         self.PU_END_EFFECTOR_OFFSET = 0.170
 
         self.DEFAULT_POSITION = Pose()
