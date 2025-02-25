@@ -1,7 +1,17 @@
 import serial
 import subprocess
+from serial.tools import list_ports
 
-ser = serial.Serial('/dev/tty.usbmodem101', baudrate=19200)
+serial_port = None
+
+for p in list(list_ports.comports()):
+    if p.description.strip() == "Arduino Mega":
+        serial_port = p.device
+
+if serial_port == None:
+    print("Arduino Mega not found")
+
+ser = serial.Serial(serial_port, baudrate=19200)
 
 line_break = str("1 read, 1 timestamp, 2 read, 2 timestamp, 3 read, 3 timestamp, 4 read, 4 timestamp")
 

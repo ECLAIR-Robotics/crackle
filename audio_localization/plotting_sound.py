@@ -2,8 +2,19 @@ import math
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 import serial
+from serial.tools import list_ports
+import subprocess
 
-ser = serial.Serial('/dev/tty.usbmodem11301', baudrate=19200, timeout=1)
+serial_port = None
+
+for p in list(list_ports.comports()):
+    if p.description.strip() == "Arduino Mega":
+        serial_port = p.device
+
+if serial_port == None:
+    print("Arduino Mega not found")
+
+ser = serial.Serial(serial_port, baudrate=19200)
 
 fig, ax = plt.subplots()
 
