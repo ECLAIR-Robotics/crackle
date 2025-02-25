@@ -4,6 +4,7 @@
 // 4 microphones in square pattern
 // (4 choose 2) = 6 so 6 cones
 
+bool serialAudioOutput = true;
 const int MIC_ONE = A1;
 const int MIC_TWO = A2;
 const int MIC_THREE = A3;
@@ -53,7 +54,6 @@ int reads[4][samples];
 unsigned int timestamps[4][samples];
 int index = 0;
 bool reading = true;
-bool serialAudioOutput = true;
 bool includeEdgeCases = false;
 
 void setup() {
