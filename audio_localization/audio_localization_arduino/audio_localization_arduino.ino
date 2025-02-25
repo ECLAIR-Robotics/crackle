@@ -53,7 +53,7 @@ int reads[4][samples];
 unsigned int timestamps[4][samples];
 int index = 0;
 bool reading = true;
-bool serialAudioOutput = false;
+bool serialAudioOutput = true;
 bool includeEdgeCases = false;
 
 void setup() {
