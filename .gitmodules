@@ -5,7 +5,3 @@
 	path = py_binding_tools
 	url = git@github.com:moveit/py_binding_tools.git
 	branch = ros2
-[submodule "xarm_ros2"]
-	path = xarm_ros2
-	url = git@github.com:xArm-Developer/xarm_ros2.git
-	branch = humble
