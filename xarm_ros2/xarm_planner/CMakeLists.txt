@@ -42,7 +42,6 @@ include_directories(
 add_library(xarm_planner SHARED
   src/xarm_planner.cpp
 )
-
 ament_target_dependencies(xarm_planner 
   moveit_ros_planning_interface
   ${dependencies}

@@ -27,8 +27,6 @@ def generate_launch_description():
             'no_gui_ctrl': 'true',
         }.items(),
     )
-
-    
     
     return LaunchDescription([
         robot_moveit_fake_launch
