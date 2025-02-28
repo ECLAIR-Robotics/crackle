@@ -210,6 +210,9 @@
       <dynamics damping="1.0" friction="1.0"/>
     </joint>
 
+    <!-- <xacro:include filename="$(find crackle_description)/urdf/crackle_gripper.urdf.xacro" /> -->
+    <!-- <xacro:three_claw_gripper arm_link="${prefix}link6" /> -->
+
     <!-- <link name="${prefix}link_eef" />
     <joint name="${prefix}joint_eef" type="fixed">
       <origin xyz="0 0 0" rpy="0 0 0" />

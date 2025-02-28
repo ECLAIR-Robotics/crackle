@@ -1,0 +1,114 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://ros.org/wiki/xacro" name="three_claw_gripper" >
+  <xacro:macro name="three_claw_gripper" params="arm_link:='link_6'">
+
+  <!-- Common properties -->
+  <xacro:property name="pkg_path" value="package://crackle_description/meshes"/>
+  <xacro:property name="mesh_scale" value="1 1 1"/>
+  <xacro:property name="arm_last_link" value="${arm_link}"/>
+
+  <!-- =========================
+       Macro: Gripper Base Link
+       ========================= -->
+  <xacro:macro name="gripper_base_macro" params="link_name base_mesh:='ClawBase.stl'">
+    <link name="${link_name}">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="${pkg_path}/${base_mesh}" scale="${mesh_scale}"/>
+        </geometry>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="${pkg_path}/${base_mesh}" scale="${mesh_scale}"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <mass value="0.2"/>
+        <inertia ixx="0.001" ixy="0.0" ixz="0.0"
+                 iyy="0.001" iyz="0.0"
+                 izz="0.001"/>
+      </inertial>
+      <color rgba="0.0 0.0 0.5 1"/>
+    </link>
+  </xacro:macro>
+
+  <!-- =========================
+       Macro: Claw Link + Joint
+       =========================
+       params:
+         claw_name, claw_mesh
+         pivot_xyz, pivot_rpy, pivot_axis
+  -->
+  <xacro:macro name="claw_macro" params="claw_name claw_mesh pivot_xyz:='0 0 0' pivot_rpy:='0 0 0' pivot_axis:='0 0 1'">
+    <link name="${claw_name}">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="${pkg_path}/${claw_mesh}" scale="${mesh_scale}"/>
+        </geometry>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <mesh filename="${pkg_path}/${claw_mesh}" scale="${mesh_scale}"/>
+        </geometry>
+      </collision>
+      <inertial>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <mass value="0.05"/>
+        <inertia ixx="0.0001" ixy="0.0" ixz="0.0"
+                 iyy="0.0001" iyz="0.0"
+                 izz="0.0001"/>
+      </inertial>
+    </link>
+
+    <joint name="${claw_name}_joint" type="revolute">
+      <parent link="gripper_base"/>
+      <child link="${claw_name}"/>
+      <origin xyz="${pivot_xyz}" rpy="${pivot_rpy}"/>
+      <axis xyz="${pivot_axis}"/>
+      <limit effort="1.0" velocity="1.0" lower="0" upper="1.57"/>
+    </joint>
+  </xacro:macro>
+
+  <!-- =========================
+       Instantiate the Gripper
+       ========================= -->
+
+  <!-- 1) Base link -->
+  <xacro:gripper_base_macro link_name="gripper_base"/>
+
+  <!-- 2) Fixed joint to arm -->
+  <joint name="gripper_base_joint" type="fixed">
+    <parent link="${arm_last_link}"/>
+    <child link="gripper_base"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint>
+
+  <!-- 3) Three claws, each with a revolute joint -->
+  <!-- <xacro:claw_macro 
+    claw_name="claw_1" 
+    claw_mesh="ClawArm.stl"
+    pivot_xyz="0 -0.05 0.05"
+    pivot_rpy="0 1.57 0"
+    pivot_axis="0 1 0"/>
+
+  <xacro:claw_macro 
+    claw_name="claw_2" 
+    claw_mesh="ClawArm.stl"
+    pivot_xyz="0.05 -0.05 0"
+    pivot_rpy="0 1.57 1.57"
+    pivot_axis="0 1 0"/>
+
+  <xacro:claw_macro 
+    claw_name="claw_3" 
+    claw_mesh="ClawArm.stl"
+    pivot_xyz="0 0.05 0"
+    pivot_rpy="1.57 1.57 1.57"
+    pivot_axis="0 1 0"/> -->
+  </xacro:macro>
+
+</robot>
