@@ -31,10 +31,6 @@
       <selfCollide>true</selfCollide>
     </gazebo>
 
-    <gazebo reference="camera_depth_optical_frame">
-      <selfCollide>false</selfCollide>
-    </gazebo>
-
   </xacro:macro>
 
 </robot>

@@ -8,12 +8,14 @@ For simplified Chinese version: [简体中文版](./ReadMe_cn.md)
 - Ubuntu 20.04 + ROS Foxy
 - Ubuntu 20.04 + ROS Galactic
 - Ubuntu 22.04 + ROS Humble
+- Ubuntu 24.04 + ROS Jazzy
 - Ubuntu 22.04 + ROS Rolling
 
 &ensp;&ensp;&ensp;&ensp;Please switch to the corresponding code branch according to different ros2 versions (no corresponding code branch means it has not been tested in this version)
 - Foxy: [foxy](https://github.com/xArm-Developer/xarm_ros2/tree/foxy)
 - Galactic: [galactic](https://github.com/xArm-Developer/xarm_ros2/tree/galactic)
 - Humble: [humble](https://github.com/xArm-Developer/xarm_ros2/tree/humble)
+- Jazzy: [jazzy](https://github.com/xArm-Developer/xarm_ros2/tree/jazzy)
 - Rolling: [rolling](https://github.com/xArm-Developer/xarm_ros2/tree/rolling)
 
 ## 2. Update History    
@@ -37,7 +39,9 @@ For simplified Chinese version: [简体中文版](./ReadMe_cn.md)
 - (2024-01-17) Added support for xarm7_mirror model robotic arm
 - (2024-02-27) Added support for Bio Gripper (parameter `add_bio_gripper`, Lite6 is not supported)
 - (2024-04-12) Added __uf_ros_lib__ to encapsulate certain functions for calling (including __MoveItConfigsBuilder__), see [Documentation](./uf_ros_lib/Readme.md)
-
+- (2024-10-11) Added [mbot_demo](demo/mbot_demo/readme.md) to demonstrate how to build a xarm robot on the chassis 
+- (2024-11-05) Support Jazzy version
+- (2024-12-02) Add detailed ReadMe instructions for xarm_api wrapped services.  
 
 ## 3. Preparation
 
@@ -45,6 +49,7 @@ For simplified Chinese version: [简体中文版](./ReadMe_cn.md)
   - [Foxy](https://docs.ros.org/en/ros2_documentation/foxy/Installation.html)
   - [Galactic](https://docs.ros.org/en/ros2_documentation/galactic/Installation.html)
   - [Humble](https://docs.ros.org/en/ros2_documentation/humble/Installation.html)
+  - [Jazzy](https://docs.ros.org/en/ros2_documentation/jazzy/Installation.html)
 
 - ### 3.2 Install [Moveit2](https://moveit.ros.org/install-moveit2/binary/)  
 
@@ -100,19 +105,20 @@ For simplified Chinese version: [简体中文版](./ReadMe_cn.md)
 
 ## 5. Package Introduction
 
-__Reminder 1: If there are multiple people using ros2 in the current LAN, in order to avoid mutual interference, please set ROS_DOMAIN_ID__
+__Reminder 1: If there are multiple people using ros2 in the current LAN, in order to avoid mutual interference, please set ROS_DOMAIN_ID__  
   - [Foxy](https://docs.ros.org/en/ros2_documentation/foxy/Concepts/About-Domain-ID.html)
   - [Galactic](https://docs.ros.org/en/ros2_documentation/galactic/Concepts/About-Domain-ID.html)
   - [Humble](https://docs.ros.org/en/ros2_documentation/humble/Concepts/About-Domain-ID.html)
+  - [Jazzy](https://docs.ros.org/en/ros2_documentation/jazzy/Concepts/About-Domain-ID.html)
 
-__Reminder 2： Remember to source the environment setup script before running any applications in xarm_ros2__
+__Reminder 2： Remember to source the environment setup script before running any applications in xarm_ros2__  
 
 ```bash
 $ cd ~/dev_ws/
 $ source install/setup.bash
 ```
-__Reminder 3： All following instructions will base on xArm6，please use proper parameters or filenames for xArm5 or xArm7__
-__Reminder 4: The <hw_ns> described below is replaced with the actual one, the xarm series defaults is xarm, and the rest defaults is ufactory__
+__Reminder 3： All following instructions will base on xArm6，please use proper parameters or filenames for xArm5 or xArm7__  
+__Reminder 4: The <hw_ns> described below is replaced with the actual one, the xarm series defaults is xarm, and the rest defaults is ufactory__  
 
 
 - ### 5.1 xarm_description
@@ -235,6 +241,7 @@ __Reminder 4: The <hw_ns> described below is replaced with the actual one, the x
         ```
 
     Note: please study the meanings of [Mode](https://github.com/xArm-Developer/xarm_ros#6-mode-change), State and available motion instructions before testing on the real robot. Please note **the services provided by xArm series and Lite 6 have different namespaces**.  
+    For **detailed service instructions**, refer to the [ReadMe](./xarm_api/ReadMe.md) inside `xarm_api` folder.  
 
 - ### 5.5 xarm_controller
     This package defines the hardware interface for real xArm control under ros2.  
