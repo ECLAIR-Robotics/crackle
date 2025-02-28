@@ -3,9 +3,9 @@
 #include <map>
 
 // servo pins
-#define SERVO_ONE 1
-#define SERVO_TWO 2
-#define SERVO_THREE 3
+#define SERVO_ONE 2
+#define SERVO_TWO 4
+#define SERVO_THREE 18
 
 // servo constants
 #define SERVO_HERTZ 50
@@ -14,6 +14,11 @@
 // TODO: set real min and max constants
 #define MIN_DEGREE 0
 #define MAX_DEGREE 180
+
+// Current Sensor Pins
+#define SERVO_ONE_SENSOR 15
+#define SERVO_TWO_SENSOR 5
+#define SERVO_THREE_SENSOR 19
 
 // serial parameters
 #define BAUD_RATE 9600
@@ -40,6 +45,12 @@ std::map<int, int> servoLocations = {
     {2, servoTwoLocation},
     {3, servoThreeLocation}};
 
+// servo sensors
+std::map<int, int> servoSensors = {
+    {1, SERVO_ONE_SENSOR},
+    {2, SERVO_TWO_SENSOR},
+    {3, SERVO_THREE_SENSOR}};
+
 // setup
 void setup()
 {
@@ -58,6 +69,9 @@ String readSerial()
 {
     String command = Serial.readString();
     return command;
+    pinMode(SERVO_ONE_SENSOR, INPUT);
+    pinMode(SERVO_TWO_SENSOR, INPUT);
+    pinMode(SERVO_THREE_SENSOR, INPUT);
 }
 
 // send a message over serial
@@ -172,5 +186,18 @@ bool runOp(String command)
     else
     {
         return false;
+    }
+}
+
+// test runner
+void loop()
+{
+    int x = 10;
+    while (1 == 1)
+    {
+        Serial.println(analogRead(SERVO_ONE_SENSOR));
+        servoOne.write(x);
+        Serial.println(analogRead(SERVO_ONE_SENSOR));
+        servoOne.write(-x);
     }
 }
