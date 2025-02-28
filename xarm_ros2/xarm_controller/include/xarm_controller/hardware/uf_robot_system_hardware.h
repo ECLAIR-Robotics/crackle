@@ -14,6 +14,7 @@
 #include <queue>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <std_msgs/msg/empty.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include "rclcpp_lifecycle/node_interfaces/lifecycle_node_interface.hpp"
 // #include "rclcpp_lifecycle/state.hpp"
@@ -72,7 +73,7 @@ namespace uf_robot_hardware
         bool velocity_control_;
         bool initialized_;
         bool read_ready_;
-        bool reload_controller_;
+        bool reactivate_controller_later_;
 
         long int read_cnts_;
         long int read_failed_cnts_;
@@ -101,6 +102,9 @@ namespace uf_robot_hardware
         rclcpp::Client<controller_manager_msgs::srv::ListControllers>::SharedPtr client_list_controller_;
         rclcpp::Client<controller_manager_msgs::srv::SwitchController>::SharedPtr client_switch_controller_;
 
+        rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr update_goal_state_pub_;
+        std_msgs::msg::Empty update_goal_state_msg_;
+
         bool _check_cmds_is_change(float *prev, float *cur, double threshold = 0.0001);
         bool _xarm_is_ready_read(void);
         bool _xarm_is_ready_write(void);
@@ -108,7 +112,8 @@ namespace uf_robot_hardware
 
         bool _need_reset(void);
 
-        void _reload_controller(void);
+        void _deactivate_controller(void);
+        void _activate_controller(void);
 
         void _init_ufactory_driver(void);
 

@@ -1223,12 +1223,13 @@ namespace xarm_api
             res->ret = PARAM_ERROR;
             return true;
         }
-        char *filename = NULL;
-        if (req->filename.size() != 0) {
-            char file_name[81]={0};
-            req->filename.copy(file_name, req->filename.size(), 0);
-            filename = file_name;
-        }        
+        char *filename = req->filename.size() == 0 ? NULL : (char *)req->filename.c_str();
+        // if (req->filename.size() != 0) {
+        //     char file_name[81]={0};
+
+        //     req->filename.copy(file_name, req->filename.size(), 0);
+        //     filename = file_name;
+        // }
         res->ret = arm->playback_trajectory(req->times, filename, req->wait, req->double_speed);
         return true; 
     }
