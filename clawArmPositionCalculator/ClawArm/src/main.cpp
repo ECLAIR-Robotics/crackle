@@ -11,9 +11,13 @@
 #define SERVO_HERTZ 50
 #define SERVO_MIN 500
 #define SERVO_MAX 2400
+
 // TODO: set real min and max constants
-#define MIN_DEGREE 0
-#define MAX_DEGREE 180
+// IMPORTANT ::: IMPORTANT
+// PLEASE DO THIS OR EVERYTHING WILL BLOW UP!!!!!
+// IMPORTANT FIRST STEP AS SOON AS YOU CAN MAKE THINGS RUN
+#define MIN_DEGREE 30
+#define MAX_DEGREE 70
 
 // Current Sensor Pins
 #define SERVO_ONE_SENSOR 15
