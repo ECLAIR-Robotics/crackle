@@ -54,10 +54,17 @@ std::map<int, int> servoSensors = {
 // setup
 void setup()
 {
+    // set up current sensors
+    pinMode(SERVO_ONE_SENSOR, INPUT);
+    pinMode(SERVO_TWO_SENSOR, INPUT);
+    pinMode(SERVO_THREE_SENSOR, INPUT);
+
     // init servos
     servoOne.attach(SERVO_ONE, SERVO_MIN, SERVO_MAX);
     servoTwo.attach(SERVO_TWO, SERVO_MIN, SERVO_MAX);
     servoThree.attach(SERVO_THREE, SERVO_MIN, SERVO_MAX);
+
+    zero();
 
     // serial setup
     Serial.begin(BAUD_RATE);
@@ -69,9 +76,6 @@ String readSerial()
 {
     String command = Serial.readString();
     return command;
-    pinMode(SERVO_ONE_SENSOR, INPUT);
-    pinMode(SERVO_TWO_SENSOR, INPUT);
-    pinMode(SERVO_THREE_SENSOR, INPUT);
 }
 
 // send a message over serial
@@ -131,15 +135,15 @@ int closeServo(int servoOneAmt, int servoTwoAmt, int servoThreeAmt)
     // increment each servo by one up until closed
     for (int i = 0; i < largestServo; i++)
     {
-        if (servoLocations[0] < servoOneAmt)
+        if (servoLocations[1] < servoOneAmt)
         {
             moveServo(1, 1);
         }
-        if (servoLocations[1] < servoTwoAmt)
+        if (servoLocations[2] < servoTwoAmt)
         {
             moveServo(2, 1);
         }
-        if (servoLocations[2] < servoThreeAmt)
+        if (servoLocations[3] < servoThreeAmt)
         {
             moveServo(3, 1);
         }
