@@ -4,7 +4,7 @@
 // 4 microphones in square pattern
 // (4 choose 2) = 6 so 6 cones
 
-bool serialAudioOutput = true;
+bool serialAudioOutput = false;
 const int MIC_ONE = A1;
 const int MIC_TWO = A2;
 const int MIC_THREE = A3;
@@ -14,10 +14,10 @@ const int threshold = 75;
 const int voltage = 330;
 
 Vector mic_locations[4] = { // in METERS
-  Vector(0.065, 0.065, 0), // 1
-  Vector(0.065, -0.065, 0), // 2
-  Vector(-0.065, 0.065, 0), // 3
-  Vector(-0.065, -0.065, 0) // 4
+  Vector(0.0625, -0.0625, 0), // 1
+  Vector(0.0625, 0.0625, 0), // 2
+  Vector(-0.0625, 0.0625, 0), // 3
+  Vector(-0.0625, -0.0625, 0) // 4
 };
 
 int mic_pairings[6][2] = {
