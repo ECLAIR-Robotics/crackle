@@ -3,7 +3,7 @@
 #include <map>
 
 // servo pins
-#define SERVO_ONE 2
+#define SERVO_ONE 13
 #define SERVO_TWO 4
 #define SERVO_THREE 18
 
@@ -20,7 +20,7 @@
 #define MAX_DEGREE 70
 
 // Current Sensor Pins
-#define SERVO_ONE_SENSOR 15
+#define SERVO_ONE_SENSOR 12
 #define SERVO_TWO_SENSOR 5
 #define SERVO_THREE_SENSOR 19
 
@@ -58,6 +58,9 @@ std::map<int, int> servoSensors = {
 // setup
 void setup()
 {
+
+    Serial.begin(BAUD_RATE);
+
     // set up current sensors
     pinMode(SERVO_ONE_SENSOR, INPUT);
     pinMode(SERVO_TWO_SENSOR, INPUT);
@@ -69,9 +72,6 @@ void setup()
     servoThree.attach(SERVO_THREE, SERVO_MIN, SERVO_MAX);
 
     zero();
-
-    // serial setup
-    Serial.begin(BAUD_RATE);
 }
 
 // read current serial message
@@ -200,7 +200,7 @@ bool runOp(String command)
 // test runner
 void loop()
 {
-    int x = 10;
+    int x = 100;
     while (1 == 1)
     {
         Serial.println(analogRead(SERVO_ONE_SENSOR));
