@@ -1,16 +1,11 @@
 #include <Arduino.h>
 #include <ESP32Servo.h>
-#include <map>
-
-// servo pins
-#define SERVO_ONE 13
-#define SERVO_TWO 4
-#define SERVO_THREE 18
 
 // servo constants
 #define SERVO_HERTZ 50
 #define SERVO_MIN 500
 #define SERVO_MAX 2400
+#define NUMBER_OF_SERVOS 3
 
 // TODO: set real min and max constants
 // IMPORTANT ::: IMPORTANT
@@ -19,58 +14,50 @@
 #define MIN_DEGREE 30
 #define MAX_DEGREE 70
 
-// Current Sensor Pins
-#define SERVO_ONE_SENSOR 12
-#define SERVO_TWO_SENSOR 5
-#define SERVO_THREE_SENSOR 19
-
 // serial parameters
 #define BAUD_RATE 9600
 
-// define servos
-Servo servoOne;
-Servo servoTwo;
-Servo servoThree;
+// Class for the claw fingers
+class KrabbyPatty {
+    public:
+        Servo servo;
+        int location;
+        int sensor;
+        KrabbyPatty(int servoPin, int sensorPin) {
+            servo.attach(servoPin);
+            location = 0;
+            pinMode(sensorPin, INPUT);
+            sensor = sensorPin;
+        }
+        KrabbyPatty() {}
+};
 
-// servo locations
-int servoOneLocation;
-int servoTwoLocation;
-int servoThreeLocation;
+// servo list
+KrabbyPatty krabbyPattyLookUp[NUMBER_OF_SERVOS] = {
+    KrabbyPatty(13, 12),
+    KrabbyPatty(4, 5),
+    KrabbyPatty(18, 19)
+};
 
-// define Servos
-std::map<int, Servo> servoLookUp = {
-    {1, servoOne},
-    {2, servoTwo},
-    {3, servoThree}};
-
-// servo locations
-std::map<int, int> servoLocations = {
-    {1, servoOneLocation},
-    {2, servoTwoLocation},
-    {3, servoThreeLocation}};
-
-// servo sensors
-std::map<int, int> servoSensors = {
-    {1, SERVO_ONE_SENSOR},
-    {2, SERVO_TWO_SENSOR},
-    {3, SERVO_THREE_SENSOR}};
+// zero the claws
+bool zero()
+{
+    bool servosZeroed = true;
+    for (int i = 0; i < NUMBER_OF_SERVOS; i++) {
+        if (krabbyPattyLookUp[i].servo.attached()) {
+            krabbyPattyLookUp[i].servo.write(MIN_DEGREE);
+        } else {
+            servosZeroed = false;
+        }
+    }
+    return servosZeroed;
+}
 
 // setup
 void setup()
 {
-
     Serial.begin(BAUD_RATE);
-
-    // set up current sensors
-    pinMode(SERVO_ONE_SENSOR, INPUT);
-    pinMode(SERVO_TWO_SENSOR, INPUT);
-    pinMode(SERVO_THREE_SENSOR, INPUT);
-
-    // init servos
-    servoOne.attach(SERVO_ONE, SERVO_MIN, SERVO_MAX);
-    servoTwo.attach(SERVO_TWO, SERVO_MIN, SERVO_MAX);
-    servoThree.attach(SERVO_THREE, SERVO_MIN, SERVO_MAX);
-
+    
     zero();
 }
 
@@ -89,15 +76,6 @@ bool writeSerial(String message)
     Serial.println(message);
 }
 
-// zero the claws
-// todo: actually make a zero procedure
-bool zero()
-{
-    servoOneLocation = 0;
-    servoTwoLocation = 0;
-    servoThreeLocation = 0;
-}
-
 // move the servo
 // take in servo number and degree
 bool moveServo(int servoID, int degree)
@@ -108,9 +86,9 @@ bool moveServo(int servoID, int degree)
         return false;
     }
 
-    Servo servo = servoLookUp[servoID];
-    servo.write(degree);
-    servoLocations[servoID] += degree;
+    // KrabbyPatty krabbyPatty = krabbyPattyLookUp[servoID];
+    // krabbyPatty.servo.write(degree);
+    // krabbyPatty.location = degree;
 
     return true;
 }
@@ -130,27 +108,34 @@ int largest(int servoOneAmt, int servoTwoAmt, int servoThreeAmt)
     return largest;
 }
 
+
+
 // close servo
 // TODO: implement logic to run until ampMeter spike
 int closeServo(int servoOneAmt, int servoTwoAmt, int servoThreeAmt)
 {
     int largestServo = largest(servoOneAmt, servoTwoAmt, servoThreeAmt);
+    int servoOneReadings[20];
+    int servoTwoReadings[20];
+    int servoThreeReadings[20];
+    // YASH ABSOLUTELY SUCKS
+    //  -LEO
 
     // increment each servo by one up until closed
     for (int i = 0; i < largestServo; i++)
     {
-        if (servoLocations[1] < servoOneAmt)
-        {
-            moveServo(1, 1);
-        }
-        if (servoLocations[2] < servoTwoAmt)
-        {
-            moveServo(2, 1);
-        }
-        if (servoLocations[3] < servoThreeAmt)
-        {
-            moveServo(3, 1);
-        }
+        // if (krabbyPattyLookUp[1].location < servoOneAmt)
+        // {
+        //     moveServo(1, 1);
+        // }
+        // if (krabbyPattyLookUp[2].location < servoTwoAmt)
+        // {
+        //     moveServo(2, 1);
+        // }
+        // if (krabbyPattyLookUp[3].location < servoThreeAmt)
+        // {
+        //     moveServo(3, 1);
+        // }
     }
 }
 
@@ -197,15 +182,38 @@ bool runOp(String command)
     }
 }
 
+
 // test runner
 void loop()
 {
-    int x = 100;
+    // while (Serial.available()) {
+    //     // krabbyPattyIndex: _ 
+    //     String input = Serial.readStringUntil('\n');
+
+    // }
+    // Serial.println(krabbyPattyLookUp[1].servo.read());
+    // krabbyPattyLookUp[0].servo.write(MIN_DEGREE);
+    int x = 50;
     while (1 == 1)
     {
-        Serial.println(analogRead(SERVO_ONE_SENSOR));
-        servoOne.write(x);
-        Serial.println(analogRead(SERVO_ONE_SENSOR));
-        servoOne.write(-x);
+        krabbyPattyLookUp[0].servo.write(50);
+        Serial.println(krabbyPattyLookUp[0].servo.attached());
+        Serial.println(krabbyPattyLookUp[0].servo.read());
+  
+        // Serial.println("working");
+        // for (int i = 0; i < 500; i++) {
+        //     // delay(10);
+        //     Serial.println(analogRead(SERVO_ONE_SENSOR));
+        // }
+        // servoOne.write(180);
+        // for (int i = 0; i < 500; i++) {
+        //     // delay(10);
+        //     Serial.println(analogRead(SERVO_ONE_SENSOR));
+        // }
+        // servoOne.write(0);
+        // for (int i = 0; i < 500; i++) {
+        //     // delay(10);
+        //     Serial.println(analogRead(SERVO_ONE_SENSOR));
+        // }
     }
 }
