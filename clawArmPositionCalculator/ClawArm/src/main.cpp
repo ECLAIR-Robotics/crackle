@@ -164,10 +164,26 @@ bool commandInput(String command)
     return false;
 }
 
+int sensor_readings[10];
+
 // test runner
 void loop()
 {
     while (Serial.available()) {
         commandInput(Serial.readString());
     }
+    // Serial.println(analogRead(krabbyPattyLookUp[0].sensor));
+    // int sensor_readout = kp.sensor.analogRead();
+    // Serial.println(krabbyPattyLookUp[0].sensor.analogRead());
+    // delay(5000);
+    while (1 == 1) {
+        // Serial.println(analogRead(krabbyPattyLookUp[0].sensor));
+        Serial.println(krabbyPattyLookUp[0].servo.read());
+        // Serial.println(krabbyPattyLookUp[0].servo.readTimerWidth());
+        moveServo(0, 50);
+    }
+    // delay(5000);
+    // moveServo(0, 100);
 }
+
+#define sensorThreshold 300
