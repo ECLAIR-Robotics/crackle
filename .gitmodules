@@ -8,3 +8,11 @@
 [submodule "octomap_server2"]
 	path = octomap_server2
 	url = git@github.com:iKrishneel/octomap_server2.git
+[submodule "moveit_task_constructor"]
+	path = moveit_task_constructor
+	url = git@github.com:moveit/moveit_task_constructor.git
+	branch = humble
+[submodule "ros2_numpy"]
+	path = ros2_numpy
+	url = git@github.com:Box-Robotics/ros2_numpy.git
+	branch = humble

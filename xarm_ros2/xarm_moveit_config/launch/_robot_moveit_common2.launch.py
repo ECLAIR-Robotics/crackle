@@ -42,6 +42,7 @@ def launch_setup(context, *args, **kwargs):
         parameters=[
             moveit_config_dict,
             {'use_sim_time': use_sim_time},
+            {"capabilities": "move_group/ExecuteTaskSolutionCapability"},
         ],
     )
 
