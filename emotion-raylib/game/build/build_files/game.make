@@ -184,8 +184,8 @@ endif
 GENERATED :=
 OBJECTS :=
 
-GENERATED += $(OBJDIR)/main.o
-OBJECTS += $(OBJDIR)/main.o
+GENERATED += $(OBJDIR)/emotion.o
+OBJECTS += $(OBJDIR)/emotion.o
 
 # Rules
 # #############################################
@@ -249,7 +249,7 @@ endif
 # File Rules
 # #############################################
 
-$(OBJDIR)/main.o: ../../src/main.c
+$(OBJDIR)/emotion.o: ../../src/emotion.c
 	@echo "$(notdir $<)"
 	$(SILENT) $(CC) $(ALL_CFLAGS) $(FORCE_INCLUDE) -o "$@" -MF "$(@:%.o=%.d)" -c "$<"
 
