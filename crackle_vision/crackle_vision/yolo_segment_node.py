@@ -21,6 +21,7 @@ import open3d as o3d
 from xarm_msgs.srv import MoveCartesian, MoveJoint, Call, SetInt16, VacuumGripperCtrl
 from moveit_msgs.msg import RobotState  
 import pyrealsense2
+from segment_img.py import get_object_points, get_center
 
 
 class YoloSegmentNode(Node):
@@ -206,6 +207,18 @@ class YoloSegmentNode(Node):
             # Get the segment points corresponding to the detected person
             segment_points = boxes[person_index]
             print("Boxes points:", segment_points)
+
+            # temp - isabella code
+            # is this the area to wor'k? At this point there is ONE bounding box of the object.
+            # in xywh format.
+            
+            # segment the image, assumes boxes only has one box
+            print("segmenting image")
+            obj_points = get_object_points(msg, segment_points)
+
+            center_pair = get_center(obj_points)
+            # average_x = center_pair[0]
+            # average_y = center_pair[1]
 
             average_x = float(segment_points[0])
             average_y = float(segment_points[1])
@@ -449,4 +462,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # main()
+    capture = cv2.VideoCapture(0)
+    while True:
+        ret, frame = capture.read()
+        cv2.imshow("frame", frame)
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            break
