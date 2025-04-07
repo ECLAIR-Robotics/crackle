@@ -20,8 +20,7 @@ from scipy.spatial.transform import Rotation
 import open3d as o3d
 from xarm_msgs.srv import MoveCartesian, MoveJoint, Call, SetInt16, VacuumGripperCtrl
 from moveit_msgs.msg import RobotState  
-import pyrealsense2
-from segment_img.py import get_object_points, get_center
+from crackle_vision.segment_img import get_object_points, get_center
 
 
 class YoloSegmentNode(Node):
@@ -49,7 +48,8 @@ class YoloSegmentNode(Node):
         self.link_base = "link_base"
 
         self.image_subscription = Subscriber(
-            self, Image, "/camera/camera/color/image_raw"
+            # self, Image, "/camera/camera/color/image_raw"
+            self, Image, "camera/camera/color/image_raw"
         )
         self.pcd_subscription = Subscriber(
             self, PointCloud2, "/camera/camera/depth/color/points"
@@ -177,6 +177,8 @@ class YoloSegmentNode(Node):
             approximately at the same time.) It then gets bounding boxes from the image (YOLO) and then 
             calculates the x, y, z coordinates of the center of the bounding box in the point cloud.
         """
+
+        print("Image callback triggered")
         pcd_array = rnp.numpify(pcd)
 
 
@@ -196,174 +198,120 @@ class YoloSegmentNode(Node):
         SEGMENT_NAME = "cell phone"
 
         # Check if a person is detected in the inferred classes
-        if SEGMENT_NAME in classes_inferred:
-            # person_index = classes_inferred.index("person")
+        # person_index = classes_inferred.index("person")
 
-            person_indices = [i for i, x in enumerate(classes_inferred) if x == SEGMENT_NAME]
-            person_confidences = [result_boxes_classes[index] for index in person_indices] 
-            max_confidence = max(person_confidences)
-            person_index = result_boxes_classes.tolist().index(max_confidence)
+        person_indices = [i for i, x in enumerate(classes_inferred) if x == SEGMENT_NAME]
+        person_confidences = [result_boxes_classes[index] for index in person_indices] 
+        if (len(person_confidences) == 0):
+            print("No objects detected")
+            return
+        max_confidence = max(person_confidences)
+        person_index = result_boxes_classes.tolist().index(max_confidence)
 
-            # Get the segment points corresponding to the detected person
-            segment_points = boxes[person_index]
-            print("Boxes points:", segment_points)
+        # Get the segment points corresponding to the detected person
+        segment_points = boxes[person_index]
+        print("Boxes points:", segment_points)
 
-            # temp - isabella code
-            # is this the area to wor'k? At this point there is ONE bounding box of the object.
-            # in xywh format.
-            
-            # segment the image, assumes boxes only has one box
-            print("segmenting image")
-            obj_points = get_object_points(msg, segment_points)
+        # temp - isabella code
+        # is this the area to wor'k? At this point there is ONE bounding box of the object.
+        # in xywh format.
+        
+        # segment the image, assumes boxes only has one box
+        print("segmenting image")
+        obj_points = get_object_points(msg, segment_points)
 
-            center_pair = get_center(obj_points)
-            # average_x = center_pair[0]
-            # average_y = center_pair[1]
+        center_pair = get_center(obj_points)
 
-            average_x = float(segment_points[0])
-            average_y = float(segment_points[1])
-
-            print("AFTER X AND Y", average_x, average_y)
-
-            instrinsic_matrix_inv = np.linalg.inv(self.intrinsic_matrix)
-
-            print("Intrinsic Matrix Inv: ", instrinsic_matrix_inv)
-            # Extract intrinsic camera parameters
-            
-            point_np = np.array([average_x, average_y, 1])
-
-            # Point after applying the inverse intrinsic matrix
-            point_transformed_camera = np.dot(instrinsic_matrix_inv, point_np)
-
-            print("Point transformed:", point_transformed_camera)
-
-            # Calculate distances from all points in the point cloud to the average point
-            pcd_xyz_copy = pcd_xyz.copy()
-            print("PCD XYZ:", pcd_xyz)
-
-            # scale x to x/z and y to y/z
-            points_xy = np.array([[x/z, y/z] for x, y, z in pcd_xyz_copy])
-            print("PCD XYZ scaled:", pcd_xyz_copy)
-            
-
-            average_depth_x = float(point_transformed_camera[0])
-            average_depth_y = float(point_transformed_camera[1])
-
-            print("PCD XY:", points_xy)
-            distances = np.array([math.sqrt((x - average_depth_x) ** 2 + (y - average_depth_y) ** 2) for x, y in points_xy])
-
-            # Find the index of the closest point in the point cloud
-            min_index = np.argmin(distances)
-            print("Min Index: ", min_index)
-            print("Min distance: ", distances[min_index])
-            closest_point = pcd_xyz[min_index]
-            closest_point_z = closest_point[2]
-            print("Average depth x:", average_depth_x)
-            print("Average depth y:", average_depth_y)
-
-            print("Closest point x:", closest_point[0])
-            print("Closest point y:", closest_point[1])
-            print("Closest point:", closest_point_z)
-
-            # Create a PointStamped message for the closest point
-            point_stamped: PointStamped = PointStamped()
-            point_stamped.point.x = float(closest_point[0])
-            point_stamped.point.y = float(closest_point[1])
-            point_stamped.point.z = float(closest_point[2])
-            point_stamped.header.frame_id = self.link_base
-
-            # Transform the point to the world frame
-
-            transformed_point = self.transform_point(point_stamped.point)
-            print("Transformed point:", transformed_point)
-
-            # Publish the transformed point as a marker
-            if transformed_point is None:
-                return
-            marker = Marker()
-            marker.header.frame_id = "camera_depth_optical_frame"
-            marker.header.stamp = self.get_clock().now().to_msg()
-            marker.type = Marker.SPHERE
-            marker.id = 0
-            marker.pose.position.x = float(closest_point[0])
-            marker.pose.position.y = float(closest_point[1])
-            marker.pose.position.z = float(closest_point[2])
-            marker.pose.orientation.x = 0.0
-            marker.pose.orientation.y = 0.0
-            marker.pose.orientation.z = 0.0
-            marker.pose.orientation.w = 1.0
-            marker.scale.x = 0.05
-            marker.scale.y = 0.05
-            marker.scale.z = 0.05
-            marker.color.r = 1.0
-            marker.color.a = 1.0
-            self.point_marker_pub.publish(marker)
-
-            # Publish the PointStamped message
-            self.target_point.publish(point_stamped)
-
-            # **************** ALL THE FOLLOWING CODE IS TO MOVE THE ARM THIS NEEDS TO BE A SEPARATE NODE ********** 
-            MAX_Y_LIMIT = 150
-            MIN_Y_LIMIT = -150
-            MAX_X_LIMIT = 150
-            MIN_X_LIMIT = -150  
-            MAX_Z_LIMIT = 500
-            MIN_Z_LIMIT = 500
-            
-            # transformed_point[0] =float(max(MIN_X_LIMIT, min(MAX_X_LIMIT, transformed_point[0] * 1000)))
-            # transformed_point[1] =float(max(MIN_Y_LIMIT, min(MAX_Y_LIMIT, transformed_point[1] * 1000)))
-            # transformed_point[2] =float(max(MIN_Z_LIMIT, min(MAX_Z_LIMIT, transformed_point[2] * 1000)))
-            transformed_point[0] = float(transformed_point[0] * 1000)
-            transformed_point[1] = float(transformed_point[1] * 1000)
-            transformed_point[2] = float(transformed_point[2] * 1000)
-
-            request = MoveCartesian.Request()
-            
-            request.pose = [transformed_point[0], transformed_point[1] ,
-                             self.CRACKLE_GRIPPER_OFFSET + transformed_point[2],
-                             float(3.07), float(-0.07),float(1.3)]
-            request.speed = 15.0
-            request.acc = 8.0 
-            request.mvtime = 7.0
-            request.wait = True
-            request.timeout = 15.0
-            print(request)
-
-            future = None
-            future = self.arm_set_position_client.call_async(request)
-            # resp = self.arm_set_position_client.call(request)   
-            # print("Response: ", resp)   
-            # def func(x = None):
-            #     print("done")
-            # future.add_done_callback(func)
+        print("Center pair:", center_pair)
+        print("object points:", obj_points)
 
 
-            # print(future.done())
-            # rclpy.spin_until_future_complete(self, future)
-            time.sleep(10)
-            print("Picking with gripper")
+        # average_x = center_pair[0]
+        # average_y = center_pair[1]
 
-            set_gripper_false = VacuumGripperCtrl.Request()
-            
-            set_gripper_false.on = True
-            set_gripper_false.wait = True
-            set_gripper_false.timeout = 15.0
-            future = None
-            future = self.arm_set_vacuum_gripper_client.call_async(set_gripper_false)
+        average_x = float(segment_points[0])
+        average_y = float(segment_points[1])
 
-            # add a delay with rclpy
-            time.sleep(10)
-            
+        print("AFTER X AND Y", average_x, average_y)
 
-            request.pose = [transformed_point[0], transformed_point[1] ,
-                             self.CRACKLE_GRIPPER_OFFSET + 200 + transformed_point[2],
-                             float(3.07), float(-0.09),float(1.30)]
-            future = self.arm_set_position_client.call_async(request)
-            time.sleep(10)
-            # future.add_done_callback(func)
+        instrinsic_matrix_inv = np.linalg.inv(self.intrinsic_matrix)
+
+        print("Intrinsic Matrix Inv: ", instrinsic_matrix_inv)
+        # Extract intrinsic camera parameters
+        
+        point_np = np.array([average_x, average_y, 1])
+
+        # Point after applying the inverse intrinsic matrix
+        point_transformed_camera = np.dot(instrinsic_matrix_inv, point_np)
+
+        print("Point transformed:", point_transformed_camera)
+
+        # Calculate distances from all points in the point cloud to the average point
+        pcd_xyz_copy = pcd_xyz.copy()
+        print("PCD XYZ:", pcd_xyz)
+
+        # scale x to x/z and y to y/z
+        points_xy = np.array([[x/z, y/z] for x, y, z in pcd_xyz_copy])
+        print("PCD XYZ scaled:", pcd_xyz_copy)
+        
+
+        average_depth_x = float(point_transformed_camera[0])
+        average_depth_y = float(point_transformed_camera[1])
+
+        print("PCD XY:", points_xy)
+        distances = np.array([math.sqrt((x - average_depth_x) ** 2 + (y - average_depth_y) ** 2) for x, y in points_xy])
+
+        # Find the index of the closest point in the point cloud
+        min_index = np.argmin(distances)
+        print("Min Index: ", min_index)
+        print("Min distance: ", distances[min_index])
+        closest_point = pcd_xyz[min_index]
+        closest_point_z = closest_point[2]
+        print("Average depth x:", average_depth_x)
+        print("Average depth y:", average_depth_y)
+
+        print("Closest point x:", closest_point[0])
+        print("Closest point y:", closest_point[1])
+        print("Closest point:", closest_point_z)
+
+        # Create a PointStamped message for the closest point
+        point_stamped: PointStamped = PointStamped()
+        point_stamped.point.x = float(closest_point[0])
+        point_stamped.point.y = float(closest_point[1])
+        point_stamped.point.z = float(closest_point[2])
+        point_stamped.header.frame_id = self.link_base
+
+        # Transform the point to the world frame
+
+        transformed_point = self.transform_point(point_stamped.point)
+        print("Transformed point:", transformed_point)
+
+        # Publish the transformed point as a marker
+        if transformed_point is None:
+            return
+        marker = Marker()
+        marker.header.frame_id = "camera_depth_optical_frame"
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.type = Marker.SPHERE
+        marker.id = 0
+        marker.pose.position.x = float(closest_point[0])
+        marker.pose.position.y = float(closest_point[1])
+        marker.pose.position.z = float(closest_point[2])
+        marker.pose.orientation.x = 0.0
+        marker.pose.orientation.y = 0.0
+        marker.pose.orientation.z = 0.0
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = 0.05
+        marker.scale.y = 0.05
+        marker.scale.z = 0.05
+        marker.color.r = 1.0
+        marker.color.a = 1.0
+        self.point_marker_pub.publish(marker)
+
+        # Publish the PointStamped message
+        self.target_point.publish(point_stamped)
 
 
-            # find the closest point to the average point in the pcd
 
     def get_bounding_boxes(self, msg: Image):
         """
@@ -459,13 +407,6 @@ def main():
     yolo_segment_node.destroy_node()
     rclpy.shutdown()
 
-
-
 if __name__ == "__main__":
-    # main()
-    capture = cv2.VideoCapture(0)
-    while True:
-        ret, frame = capture.read()
-        cv2.imshow("frame", frame)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
+    main()
+    
