@@ -8,7 +8,7 @@
 // Maximum value of a 16-bit signed integer
 #define INT_MAX_VAL 32767
 
-#define RESISTANCE_THRESHOLD 1780
+#define RESISTANCE_THRESHOLD 1775
 
 #define NUMBER_OF_SERVOS 3
 
