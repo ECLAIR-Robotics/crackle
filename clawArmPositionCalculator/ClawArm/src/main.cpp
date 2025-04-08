@@ -13,7 +13,7 @@
 #define NUMBER_OF_SERVOS 3
 
 #define MIN_DEGREE 0
-#define MAX_DEGREE 180
+#define MAX_DEGREE 90
 
 // serial parameters
 #define BAUD_RATE 9600
@@ -25,12 +25,19 @@ public:
     Servo servo;
     int location;
     int sensor;
+    int offset;
     ClawFinger(int servoPin, int sensorPin)
     {
         servo.attach(servoPin);
         location = 0;
         pinMode(sensorPin, INPUT);
         sensor = sensorPin;
+        offset = 0;
+    }
+    ClawFinger(int servoPin, int sensorPin, int off)
+    {
+        ClawFinger(servoPin, sensorPin);
+        offset = offset;
     }
     ClawFinger() {}
 };
@@ -41,7 +48,6 @@ ClawFinger clawFingerLookup[NUMBER_OF_SERVOS] = {
     ClawFinger(27, 14),
     ClawFinger(26, 25)};
 
-
 // moves an individual servo w/out reacting to resistance
 bool moveServo(int servoID, int degree)
 {
@@ -50,7 +56,7 @@ bool moveServo(int servoID, int degree)
     {
         return false;
     }
-    clawFingerLookup[servoID].servo.write(degree);
+    clawFingerLookup[servoID].servo.write(degree + clawFingerLookup[servoID].offset);
     clawFingerLookup[servoID].location = degree;
     return true;
 }
@@ -122,7 +128,7 @@ bool openClaw()
 {
     for(int i = 0; i < NUMBER_OF_SERVOS; i++)
     {
-       moveServo(i, 90);
+       moveServo(i, MAX_DEGREE);
     }
     return true;
 }
