@@ -26,6 +26,7 @@ public:
     int location;
     int sensor;
     int offset;
+    bool going;
     ClawFinger(int servoPin, int sensorPin)
     {
         servo.attach(servoPin);
@@ -33,6 +34,7 @@ public:
         pinMode(sensorPin, INPUT);
         sensor = sensorPin;
         offset = 0;
+        going = false;
     }
     ClawFinger(int servoPin, int sensorPin, int off)
     {
@@ -64,71 +66,120 @@ bool moveServo(int servoID, int degree)
 // TODO: code with a usable zero routine
 bool zero()
 {
-    for(int i = 0; i < NUMBER_OF_SERVOS; i++)
+    for (int i = 0; i < NUMBER_OF_SERVOS; i++)
     {
         moveServo(i, 0);
     }
     return true;
 }
 
-int sign(int x) {
-    if (x > 0) return 1;
-    if (x < 0) return -1;
+int sign(int x)
+{
+    if (x > 0)
+        return 1;
+    if (x < 0)
+        return -1;
     return 0;
 }
 
 int moveServoToResistanceRecursive(int servoID, int degree, int finalDegree)
 {
-    if (degree == finalDegree || degree < MIN_DEGREE || degree > MAX_DEGREE) {
+    if (degree == finalDegree || degree < MIN_DEGREE || degree > MAX_DEGREE)
+    {
         return clawFingerLookup[servoID].location;
     }
     int numberSensorReadings = 5;
     int sensorReadingSum = 0;
-    for (int i = 0; i < numberSensorReadings; i++) {
+    for (int i = 0; i < numberSensorReadings; i++)
+    {
         sensorReadingSum += analogRead(clawFingerLookup[servoID].sensor);
-    } 
+    }
     int averageSensorReading = (int)(sensorReadingSum) / numberSensorReadings;
-    if (averageSensorReading < RESISTANCE_THRESHOLD) {
+    if (averageSensorReading < RESISTANCE_THRESHOLD)
+    {
         return clawFingerLookup[servoID].location;
     }
 
-    bool servoMoved = moveServo(servoID, degree); 
-    if (servoMoved == false) {
+    bool servoMoved = moveServo(servoID, degree);
+    if (servoMoved == false)
+    {
         return clawFingerLookup[servoID].location;
     }
-    
+
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
-    return moveServoToResistanceRecursive(servoID, degree + sign(finalDegree-clawFingerLookup[servoID].location)*1, finalDegree);
+    return moveServoToResistanceRecursive(servoID, degree + sign(finalDegree - clawFingerLookup[servoID].location) * 1, finalDegree);
 }
 
-int moveServoToResistance(int servoID, int finalDegree) {
-    if (clawFingerLookup[servoID].location == finalDegree) {
+int moveServoToResistance(int servoID, int finalDegree)
+{
+    if (clawFingerLookup[servoID].location == finalDegree)
+    {
         return finalDegree;
     }
-    return moveServoToResistanceRecursive(servoID, clawFingerLookup[servoID].location + sign(finalDegree-clawFingerLookup[servoID].location)*1, finalDegree);
+    return moveServoToResistanceRecursive(servoID, clawFingerLookup[servoID].location + sign(finalDegree - clawFingerLookup[servoID].location) * 1, finalDegree);
 }
 
 // moveServoToResistance to 0 for all servos
 bool closeClaw()
 {
     std::thread threads[NUMBER_OF_SERVOS];
-    for(int i = 0; i < NUMBER_OF_SERVOS; i++)
+    for (int i = 0; i < NUMBER_OF_SERVOS; i++)
     {
         threads[i] = std::thread(moveServoToResistance, i, 0);
     }
-    for(int i = 0; i < NUMBER_OF_SERVOS; i++)
+    for (int i = 0; i < NUMBER_OF_SERVOS; i++)
     {
         threads[i].join();
     }
     return true;
 }
 
+// runs all servos to close until resistance or at 0
+bool simpleClose()
+{
+    int NUM_SENSOR_READS = 5;
+    int DISTANCE_PER_MOVE = 5;
+    // make sure all arms are running
+    for (int i = 0; i < NUMBER_OF_SERVOS; i++)
+    {
+        clawFingerLookup[i].going = true;
+    }
+
+    bool totalGoing = true;
+    while (totalGoing)
+    {
+        // check each individual finger and totalGoing condition
+        totalGoing = false;
+        for (int i = 0; i < NUMBER_OF_SERVOS; i++)
+        {
+            int sensorAvg = 0;
+            // check current resistance val
+            for (int x = 0; x < NUM_SENSOR_READS; x++)
+            {
+                sensorAvg += analogRead(clawFingerLookup[i].sensor);
+            }
+            sensorAvg /= NUM_SENSOR_READS;
+            if (clawFingerLookup[i].location <= 0 || sensorAvg < RESISTANCE_THRESHOLD)
+            {
+                clawFingerLookup[i].going = false;
+            }
+            totalGoing = totalGoing | clawFingerLookup[i].going;
+        }
+
+        // run each servo that still needs to be run
+        for (int i = 0; i < NUMBER_OF_SERVOS; i++)
+        {
+            moveServo(i, DISTANCE_PER_MOVE);
+        }
+    }
+}
+
 bool openClaw()
 {
-    for(int i = 0; i < NUMBER_OF_SERVOS; i++)
+    for (int i = 0; i < NUMBER_OF_SERVOS; i++)
     {
-       moveServo(i, MAX_DEGREE);
+        moveServo(i, MAX_DEGREE);
     }
     return true;
 }
@@ -139,9 +190,12 @@ bool commandInput(String command)
     int spaceOne = command.indexOf(" ");
     String commandId;
 
-    if (spaceOne == -1) {
+    if (spaceOne == -1)
+    {
         commandId = command;
-    } else {
+    }
+    else
+    {
         commandId = command.substring(0, spaceOne);
     }
     commandId.toLowerCase();
@@ -156,9 +210,9 @@ bool commandInput(String command)
     // MOVE <ServoID> <Degree>
     if (commandId.equals("move"))
     {
-        int spaceTwo = command.indexOf(" ", spaceOne+1);
-        int servoId = command.substring(spaceOne+1, spaceTwo).toInt();
-        int degree = command.substring(spaceTwo+1).toInt();
+        int spaceTwo = command.indexOf(" ", spaceOne + 1);
+        int servoId = command.substring(spaceOne + 1, spaceTwo).toInt();
+        int degree = command.substring(spaceTwo + 1).toInt();
         return moveServo(servoId, degree);
     }
 
@@ -174,7 +228,8 @@ void setup()
 
 void loop()
 {
-    if (Serial.available()) {
+    if (Serial.available())
+    {
         commandInput(Serial.readString());
     }
     openClaw();
