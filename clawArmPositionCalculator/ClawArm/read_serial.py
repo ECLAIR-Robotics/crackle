@@ -2,7 +2,7 @@ import serial
 import serial.tools
 import serial.tools.list_ports
 
-DEVICE = "CP2102 USB to UART Bridge Controller" # TODO: change this if needed
+DEVICE = "CP2102 USB to UART Bridge Controller"
 
 serial_port = None
 
@@ -19,13 +19,14 @@ if serial_port == None:
 print(serial_port)
 ser = serial.Serial(serial_port, baudrate=9600)
 
-while True:
-  cmd = input()
-  cmd = cmd.strip()
-  # ZERO
-  # MOVE <ServoID> <Degree>
-  ser.write(cmd.encode())
+output = open("closing_data.csv", "w+")
 
-# 0 23
-# 1 13
-# 2 43
+try:
+    while True:
+        if ser.in_waiting > 0:
+            ser_bytes = str(ser.readline()).strip()[2:-5]
+            print(ser_bytes) 
+            output.write(ser_bytes + "\n")
+except KeyboardInterrupt:
+    output.flush()
+    output.close()
