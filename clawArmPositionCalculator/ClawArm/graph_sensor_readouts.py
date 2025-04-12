@@ -64,16 +64,15 @@ for data_point in sensor_readouts:
 # plt.legend()
 # plt.show()
 
-print(len(servo_0) // 10)
-
 servo_0_trailing_averages = []
 servo_1_trailing_averages = []
 servo_2_trailing_averages = []
 
-for i in range(5, len(servo_0) // 10):
-    servo_0_trailing_averages.append(getServoAverage(servo_0[(i-5)*10:i*10]))
-    servo_1_trailing_averages.append(getServoAverage(servo_1[(i-5)*10:i*10]))
-    servo_2_trailing_averages.append(getServoAverage(servo_2[(i-5)*10:i*10]))
+trailing_average = 50
+for i in range(trailing_average, len(servo_0)):
+    servo_0_trailing_averages.append(getServoAverage(servo_0[i-trailing_average:i]))
+    servo_1_trailing_averages.append(getServoAverage(servo_1[i-trailing_average:i]))
+    servo_2_trailing_averages.append(getServoAverage(servo_2[i-trailing_average:i]))
 
 plt.plot(list(range(len(servo_0_trailing_averages))), servo_0_trailing_averages, label = "servo_0_trailing_averages")
 plt.plot(list(range(len(servo_1_trailing_averages))), servo_1_trailing_averages, label = "servo_1_trailing_averages")

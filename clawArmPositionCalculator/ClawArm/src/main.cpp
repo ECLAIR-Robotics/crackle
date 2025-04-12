@@ -5,18 +5,17 @@
 #include <stdexcept>
 #include <thread>
 
-// Maximum value of a 16-bit signed integer
-#define INT_MAX_VAL 32767
-
-#define RESISTANCE_THRESHOLD 1800
+#define AVERAGE_RESISTANCE_THRESHOLD 1800
+#define TRAILING_AVERAGE 50
+#define READING_PER_MOVE 10
 
 #define NUMBER_OF_SERVOS 3
 
 #define MIN_DEGREE 0
 #define MAX_DEGREE 70
 
-// serial parameters
 #define BAUD_RATE 9600
+#define LOG_READOUTS false
 
 // class for claw fingers
 class ClawFinger
@@ -26,7 +25,32 @@ public:
     int location;
     int sensor;
     int offset;
-    bool going;
+    int threshold;
+    int sensorReadings[TRAILING_AVERAGE];
+    int readingIndex;
+    bool readingFull = false;
+    void resetSensorReadings() {
+        readingIndex = 0;
+        readingFull = false;
+    }
+    void appendSensorReading(int sensorReading) {
+        sensorReadings[readingIndex] = sensorReading;
+        if ((readingFull == false) && (readingIndex == TRAILING_AVERAGE-1)) {
+            readingFull = true;
+        }
+        readingIndex = (readingIndex + 1)%TRAILING_AVERAGE;
+    }
+    int averageSensorReadings() {
+        int sumUpTo = readingIndex;
+        if (readingFull) {
+            sumUpTo = TRAILING_AVERAGE;
+        }
+        int sensorReadingSum = 0;
+        for (int i = 0; i < sumUpTo; i++) {
+            sensorReadingSum += sensorReadings[i];
+        }
+        return (int)sensorReadingSum/sumUpTo;
+    }
     void attachServo(int servoPin) {
         servo.attach(servoPin);
     }
@@ -40,15 +64,17 @@ public:
         setupSensor(sensorPin);
         location = 0;
         offset = 0;
-        going = false;
+        threshold = AVERAGE_RESISTANCE_THRESHOLD;
+        readingIndex = 0;
     }
-    ClawFinger(int servoPin, int sensorPin, int off)
+    ClawFinger(int servoPin, int sensorPin, int off, int thres)
     {
         attachServo(servoPin);
         setupSensor(sensorPin);
         location = 0;
         offset = off;
-        going = false;
+        threshold = thres;
+        readingIndex = 0;
     }
     ClawFinger() {}
 };
@@ -56,23 +82,9 @@ public:
 // list of claw fingers
 ClawFinger clawFingerLookup[NUMBER_OF_SERVOS] = {
     // servoPin, sensorPin
-    ClawFinger(13, 12, 23),
-    ClawFinger(14, 27, 13),
-    ClawFinger(26, 25, 43)};
-
-void log() {
-    String readouts = "";
-    for(int i = 0; i < NUMBER_OF_SERVOS; i++)
-    {
-        readouts += i;
-        readouts += " ";
-        readouts += analogRead(clawFingerLookup[i].sensor);
-        if (i != NUMBER_OF_SERVOS - 1) {
-            readouts += ", ";
-        }
-    } 
-    Serial.println(readouts);
-}
+    ClawFinger(13, 12, 23, 1803),
+    ClawFinger(14, 27, 13, 1813),
+    ClawFinger(26, 25, 43, 1823)};
 
 // moves an individual servo w/out reacting to resistance
 bool moveServo(int servoID, int degree)
@@ -105,32 +117,40 @@ int sign(int x) {
 
 void closeClawToResistance() {
     bool allResistanceOrZero = false;
+
+    for(int i = 0; i < NUMBER_OF_SERVOS; i++)
+    {
+        clawFingerLookup[i].resetSensorReadings();
+    }
+
     while (allResistanceOrZero == false) {
 
         allResistanceOrZero = true;
-
-        // log();
 
         String readouts = "";
         for(int i = 0; i < NUMBER_OF_SERVOS; i++)
         {
             String individual_readout = "";
             individual_readout += i;
-            int numberSensorReadings = 10;
-            int sensorReadingSum = 0;
-            for (int j = 0; j < numberSensorReadings; j++) {
+
+            for (int j = 0; j < READING_PER_MOVE; j++) {
                 int reading = analogRead(clawFingerLookup[i].sensor);
-                sensorReadingSum += reading;
+                clawFingerLookup[i].appendSensorReading(reading);
                 individual_readout += ", ";
                 individual_readout += reading;
             } 
-            Serial.println(individual_readout);
-            int averageSensorReading = (int)(sensorReadingSum) / numberSensorReadings;
+
+            if (LOG_READOUTS) {
+                Serial.println(individual_readout);
+            }
+
+            int averageSensorReading = clawFingerLookup[i].averageSensorReadings();
             int newLocation = clawFingerLookup[i].location - 1;
-            if (averageSensorReading >= RESISTANCE_THRESHOLD && newLocation > 0) {
+            if (averageSensorReading >= clawFingerLookup[i].threshold && newLocation > 0) {
                 allResistanceOrZero = false;
                 moveServo(i, newLocation);
             }
+
             readouts += i;
             readouts += " ";
             readouts += averageSensorReading;
@@ -138,7 +158,11 @@ void closeClawToResistance() {
                 readouts += ", ";
             }
         }
-        Serial.println(readouts);
+
+        if (LOG_READOUTS) {
+            Serial.println(readouts);
+        }
+
         delay(50);
     }
 
@@ -194,44 +218,44 @@ void setup()
 }
 
 // runs all servos to close until resistance or at 0
-void simpleClose()
-{
-    int NUM_SENSOR_READS = 5;
-    int DISTANCE_PER_MOVE = 1;
-    // make sure all arms are running
-    for (int i = 0; i < NUMBER_OF_SERVOS; i++)
-    {
-        clawFingerLookup[i].going = true;
-    }
+// void simpleClose()
+// {
+//     int NUM_SENSOR_READS = 5;
+//     int DISTANCE_PER_MOVE = 1;
+//     // make sure all arms are running
+//     for (int i = 0; i < NUMBER_OF_SERVOS; i++)
+//     {
+//         clawFingerLookup[i].going = true;
+//     }
 
-    bool totalGoing = true;
-    while (totalGoing)
-    {
-        // check each individual finger and totalGoing condition
-        totalGoing = false;
-        for (int i = 0; i < NUMBER_OF_SERVOS; i++)
-        {
-            int sensorAvg = 0;
-            // check current resistance val
-            for (int x = 0; x < NUM_SENSOR_READS; x++)
-            {
-                sensorAvg += analogRead(clawFingerLookup[i].sensor);
-            }
-            sensorAvg /= NUM_SENSOR_READS;
-            if (clawFingerLookup[i].location <= 0 || sensorAvg < RESISTANCE_THRESHOLD)
-            {
-                clawFingerLookup[i].going = false;
-            }
-            totalGoing = totalGoing | clawFingerLookup[i].going;
-        }
+//     bool totalGoing = true;
+//     while (totalGoing)
+//     {
+//         // check each individual finger and totalGoing condition
+//         totalGoing = false;
+//         for (int i = 0; i < NUMBER_OF_SERVOS; i++)
+//         {
+//             int sensorAvg = 0;
+//             // check current resistance val
+//             for (int x = 0; x < NUM_SENSOR_READS; x++)
+//             {
+//                 sensorAvg += analogRead(clawFingerLookup[i].sensor);
+//             }
+//             sensorAvg /= NUM_SENSOR_READS;
+//             if (clawFingerLookup[i].location <= 0 || sensorAvg < RESISTANCE_THRESHOLD)
+//             {
+//                 clawFingerLookup[i].going = false;
+//             }
+//             totalGoing = totalGoing | clawFingerLookup[i].going;
+//         }
 
-        // run each servo that still needs to be run
-        for (int i = 0; i < NUMBER_OF_SERVOS; i++)
-        {
-            moveServo(i, DISTANCE_PER_MOVE);
-        }
-    }
-}
+//         // run each servo that still needs to be run
+//         for (int i = 0; i < NUMBER_OF_SERVOS; i++)
+//         {
+//             moveServo(i, DISTANCE_PER_MOVE);
+//         }
+//     }
+// }
 
 void loop()
 {
