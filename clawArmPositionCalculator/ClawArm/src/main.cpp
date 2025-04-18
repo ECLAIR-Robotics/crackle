@@ -15,7 +15,7 @@
 #define MAX_DEGREE 70
 
 #define BAUD_RATE 9600
-#define LOG_READOUTS false
+#define LOG_READOUTS true
 
 // class for claw fingers
 class ClawFinger
@@ -82,9 +82,9 @@ public:
 // list of claw fingers
 ClawFinger clawFingerLookup[NUMBER_OF_SERVOS] = {
     // servoPin, sensorPin
-    ClawFinger(13, 12, 23, 1803),
-    ClawFinger(14, 27, 13, 1813),
-    ClawFinger(26, 25, 43, 1823)};
+    ClawFinger(13, 12, 23, 1813),
+    ClawFinger(14, 27, 13, 1810),
+    ClawFinger(26, 25, 43, 1815)};
 
 // moves an individual servo w/out reacting to resistance
 bool moveServo(int servoID, int degree)
@@ -123,25 +123,27 @@ void closeClawToResistance() {
         clawFingerLookup[i].resetSensorReadings();
     }
 
-    while (allResistanceOrZero == false) {
+    String servo_0 = "";
+    String servo_1 = "";
+    String servo_2 = "";
 
+    while (allResistanceOrZero == false)
+    {
         allResistanceOrZero = true;
 
-        String readouts = "";
         for(int i = 0; i < NUMBER_OF_SERVOS; i++)
         {
-            String individual_readout = "";
-            individual_readout += i;
 
             for (int j = 0; j < READING_PER_MOVE; j++) {
                 int reading = analogRead(clawFingerLookup[i].sensor);
                 clawFingerLookup[i].appendSensorReading(reading);
-                individual_readout += ", ";
-                individual_readout += reading;
-            } 
-
-            if (LOG_READOUTS) {
-                Serial.println(individual_readout);
+                if(i == 0) {
+                    servo_0 +=  ", " + String(reading);
+                } else if (i == 1) {
+                    servo_1 +=  ", " + String(reading);
+                } else {
+                    servo_2 += ", " + String(reading);
+                }
             }
 
             int averageSensorReading = clawFingerLookup[i].averageSensorReadings();
@@ -151,21 +153,24 @@ void closeClawToResistance() {
                 moveServo(i, newLocation);
             }
 
-            readouts += i;
-            readouts += " ";
-            readouts += averageSensorReading;
-            if (i != NUMBER_OF_SERVOS - 1) {
-                readouts += ", ";
-            }
-        }
-
-        if (LOG_READOUTS) {
-            Serial.println(readouts);
         }
 
         delay(50);
     }
 
+    if (LOG_READOUTS) {
+        Serial.println("0, " + servo_0);
+        Serial.println("1, " + servo_1);
+        Serial.println("2, " + servo_2);
+
+        String stop_degrees = "";
+        for(int i = 0; i < NUMBER_OF_SERVOS; i++) {
+            stop_degrees += clawFingerLookup[i].location;
+            stop_degrees += ", ";
+        }
+        Serial.println(stop_degrees);
+    }
+    
     return;
 }
 
@@ -216,46 +221,6 @@ void setup()
     Serial.begin(BAUD_RATE);
     zero();
 }
-
-// runs all servos to close until resistance or at 0
-// void simpleClose()
-// {
-//     int NUM_SENSOR_READS = 5;
-//     int DISTANCE_PER_MOVE = 1;
-//     // make sure all arms are running
-//     for (int i = 0; i < NUMBER_OF_SERVOS; i++)
-//     {
-//         clawFingerLookup[i].going = true;
-//     }
-
-//     bool totalGoing = true;
-//     while (totalGoing)
-//     {
-//         // check each individual finger and totalGoing condition
-//         totalGoing = false;
-//         for (int i = 0; i < NUMBER_OF_SERVOS; i++)
-//         {
-//             int sensorAvg = 0;
-//             // check current resistance val
-//             for (int x = 0; x < NUM_SENSOR_READS; x++)
-//             {
-//                 sensorAvg += analogRead(clawFingerLookup[i].sensor);
-//             }
-//             sensorAvg /= NUM_SENSOR_READS;
-//             if (clawFingerLookup[i].location <= 0 || sensorAvg < RESISTANCE_THRESHOLD)
-//             {
-//                 clawFingerLookup[i].going = false;
-//             }
-//             totalGoing = totalGoing | clawFingerLookup[i].going;
-//         }
-
-//         // run each servo that still needs to be run
-//         for (int i = 0; i < NUMBER_OF_SERVOS; i++)
-//         {
-//             moveServo(i, DISTANCE_PER_MOVE);
-//         }
-//     }
-// }
 
 void loop()
 {

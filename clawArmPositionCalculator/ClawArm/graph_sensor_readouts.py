@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 
-sensor_readouts = open("1_resistance.csv", 'r').readlines()
+sensor_readouts = open("no_resistance.csv", 'r').readlines()
 
 servo_0 = []
 servo_1 = []
