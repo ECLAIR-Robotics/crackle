@@ -14,6 +14,7 @@ find_package(xarm_planner REQUIRED)  # Add this line
 find_package(crackle_interfaces REQUIRED)
 find_package(moveit REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
+find_package(moveit_task_constructor_core REQUIRED)
 find_package(moveit_msgs REQUIRED)
 find_package(xarm_msgs REQUIRED)
 
@@ -32,6 +33,7 @@ add_executable(moveit_scene_updater src/moveit_scene_updater.cpp)
 
 ament_target_dependencies(moveit_task_constructor
   moveit_ros_planning_interface
+  moveit_task_constructor_core
   ${dependencies}
 )
 

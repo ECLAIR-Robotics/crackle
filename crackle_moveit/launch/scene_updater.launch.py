@@ -97,6 +97,8 @@ def launch_setup(context, *args, **kwargs):
         'robot_description': moveit_config_dict['robot_description'],
         'robot_description_semantic': moveit_config_dict['robot_description_semantic'],
         'robot_description_kinematics': moveit_config_dict['robot_description_kinematics'],
+        'planning_pipelines': moveit_config_dict['planning_pipelines'],
+
     }
 
     node_executable = LaunchConfiguration('node_executable', default='moveit_scene_updater')
@@ -109,7 +111,7 @@ def launch_setup(context, *args, **kwargs):
     except Exception as e:
         xarm_planner_parameters = {}
 
-    xarm_planner_node = Node(
+    moveit_scene_updater_node = Node(
         name=node_name,
         package='crackle_moveit',
         executable="moveit_scene_updater",
@@ -125,8 +127,26 @@ def launch_setup(context, *args, **kwargs):
         ],
     )
 
+    crackle_task_constructor_node = Node(
+        name='crackle_task_constructor',
+        package='crackle_moveit',
+        executable="moveit_task_constructor",
+        output='screen',
+        parameters=[
+            move_group_interface_params,
+            {
+                'robot_type': robot_type,
+                'dof': dof,
+                'prefix': prefix
+            },
+            xarm_planner_parameters,
+        ],
+    )
+
+
+
     
-    return [xarm_planner_node]
+    return [moveit_scene_updater_node, crackle_task_constructor_node]
 
 
 def generate_launch_description():

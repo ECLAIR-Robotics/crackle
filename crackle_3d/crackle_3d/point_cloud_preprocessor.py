@@ -39,10 +39,11 @@ class PointCloudPreprocessorNode(Node):
 
         pcd = o3d.geometry.PointCloud()
         point_cloud_array = rnp.numpify(msg)
-        point_cloud_array_xyz = point_cloud_array['xyz']
+        # point_cloud_array_xyz = point_cloud_array['xyz']
+        print("point_cloud_array:", point_cloud_array)
         # print(type(point_cloud_array))
         # print("point_cloud_array:", point_cloud_array_xyz)
-        pcd.points = o3d.utility.Vector3dVnumpifyector(point_cloud_array_xyz)
+        # pcd.points = o3d.utility.Vector3dVnumpifyector(point_cloud_array_xyz)
         # o3d.visualization.draw_geometries([pcd])
         self.publish_point_cloud()
 
@@ -84,7 +85,7 @@ class PointCloudPreprocessorNode(Node):
         self.get_logger().info("width:"+str(self.width))
         self.get_logger().info("point step:"+str(self.point_step))
         self.get_logger().info("row step:"+str(self.row_step))
-        out_msg = PointCloud2()
+        out_msg = PointCloud2() # @Shalini TODO
         out_msg.header = self.pcd_header
         out_msg.height = self.height
         out_msg.width = self.width

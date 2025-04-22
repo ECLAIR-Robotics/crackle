@@ -7,39 +7,6 @@ import open3d as o3d
 import numpy as np
 import scipy
 
-# # Test icosahedron point cloud
-# test_ico = o3d.geometry.TriangleMesh.create_icosahedron(1)
-# test_ico_pcd = test_ico.sample_points_uniformly(number_of_points=1500)
-
-# # Weird dumbbell pcd
-# sph = o3d.geometry.TriangleMesh.create_sphere(1)
-# sph_pcd = sph.sample_points_uniformly(number_of_points=10000)
-# sph_points = np.asarray(sph_pcd.points)
-
-# sph2 = o3d.geometry.TriangleMesh.create_sphere(1)
-# sph2 = sph2.translate(np.array([1.5, 0, 0]))
-# sph2_pcd = sph2.sample_points_uniformly(number_of_points=10000)
-# sph2_points = np.asarray(sph2_pcd.points)
-
-# db_points = np.append(sph_points, sph2_points, axis=0)
-# db_pcd = o3d.geometry.PointCloud()
-# db_pcd.points = o3d.utility.Vector3dVector(db_points)
-
-# # Test sphere pcd
-# test_sphere = o3d.geometry.TriangleMesh.create_sphere(1)
-# test_sphere_pcd = test_sphere.sample_points_uniformly(number_of_points=10000)
-
-# # Test octahedron pcd
-# test_oct = o3d.geometry.TriangleMesh.create_octahedron(1)
-# test_oct_pcd = test_oct.sample_points_uniformly(number_of_points=10000)
-
-# # Stretched capsule pcd
-# test_weird_capsule = o3d.geometry.TriangleMesh.create_sphere(1).transform(np.array([[1, 0, 0, 0], 
-#                                                                                     [0, 5, 0, 0], 
-#                                                                                     [0, 0, 1, 0],
-#                                                                                     [0, 0, 0, 1]]))
-# test_weird_capsule_pcd = test_weird_capsule.sample_points_uniformly(number_of_points=10000)
-
 def sum_of_pcd_distances(source: o3d.geometry.PointCloud, target: o3d.geometry.PointCloud) -> float:
     return np.sum(source.compute_point_cloud_distance(target))
 

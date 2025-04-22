@@ -34,6 +34,7 @@ setup(
         "console_scripts": [
             "yolo_segment_node = crackle_vision.yolo_segment_node:main",
             "camera_publisher_node = crackle_vision.camera_publisher:main",
+            "vision_server_node = crackle_vision.vision_server:main",
         ],
     },
 )

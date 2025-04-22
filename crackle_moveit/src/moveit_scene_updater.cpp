@@ -43,16 +43,15 @@ int main(int argc, char **argv) {
     box_pose.orientation.w = 1.0;    
     box_pose.position.x = 0.0;
     box_pose.position.y = 0.0;
-    box_pose.position.z = -0.1;
+    box_pose.position.z = -0.05;
     collision_object.primitive_poses.push_back(box_pose);
     collision_object.operation = collision_object.ADD;
 
-    moveit_msgs::msg::PlanningScene planning_scene;
-    planning_scene.world.collision_objects.push_back(collision_object);
-    planning_scene.is_diff = true;
-    crackle_moveit_scene_updater->planning_scene_diff_publisher_->publish(planning_scene);
-    RCLCPP_INFO(node->get_logger(), "Add collision object: box1");
-    
+    // Adds the table on which the arm is placed as a collision object
+    RCLCPP_INFO(node->get_logger(), "Add collision object: table1");
+    moveit::planning_interface::PlanningSceneInterface planning_scene_interface; 
+    planning_scene_interface.applyCollisionObject(collision_object);
+
     rclcpp::shutdown();
     return 0;    
 }
