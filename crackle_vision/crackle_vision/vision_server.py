@@ -240,6 +240,25 @@ class VisionServerNode(Node):
                         radius = diameter * 100
                         _, pt_map = pcd.hidden_point_removal(camera, radius)
 
+                        
+                        # with o3d.utility.VerbosityContextManager(
+                        #         o3d.utility.VerbosityLevel.Debug) as cm:
+                        #     labels = pcd.cluster_dbscan(eps=0.02, min_points=10, print_progress=True)
+
+                        # max_label = labels.max().item()
+                        # print(f"point cloud has {max_label + 1} clusters")
+                        # colors = plt.get_cmap("tab20")(
+                        #         labels.numpy() / (max_label if max_label > 0 else 1))
+                        # colors = o3c.Tensor(colors[:, :3], o3c.float32)
+                        # colors[labels < 0] = 0
+                        # pcd.point.colors = colors
+                        # o3d.visualization.draw_geometries([pcd.to_legacy()],
+                        #                                 zoom=0.455,
+                        #                                 front=[-0.4999, -0.1659, -0.8499],
+                        #                                 lookat=[2.1813, 2.0619, 2.0999],
+                        #                                 up=[0.1204, -0.9852, 0.1215])
+
+                        # visualize the point cloud
                         o3d.visualization.draw_geometries([pcd])
             response.names = names
             response.objects = []
