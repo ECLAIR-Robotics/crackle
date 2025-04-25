@@ -1,5 +1,6 @@
-from planner_lib._keys import openai_key
-from planner_lib.ros_interface import RosInterface
+from crackle_planning._keys import key
+from crackle_planning.ros_interface import RosInterface
+from crackle_planning._llm import GptAPI
 import rclpy
 from rclpy.node import Node
 
@@ -16,7 +17,12 @@ class PlannerNode(Node):
 
 def main():
     print('Hi from crackle_planning.')
-    print(openai_key)
+    api=GptAPI(key)
+    print('Works')
+    prompt='Pick up the object'
+    response=api.get_command(prompt)
+    print(response)
+    print(key)
 
 
 if __name__ == '__main__':
