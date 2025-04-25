@@ -1,4 +1,5 @@
 emotion-raylib/game/build/**
 **/data
 **/.venv/
-*.pt
+**/*.pt
+**/*.pth
