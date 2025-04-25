@@ -15,7 +15,8 @@
 #define MAX_DEGREE 70
 
 #define BAUD_RATE 9600
-#define LOG_READOUTS true
+#define LOG_READOUTS false
+#define PUBLISH_DEGREES true
 
 // how far below baseline we consider to be resistance
 #define BASE_THRESHOLD 15
@@ -97,6 +98,18 @@ ClawFinger clawFingerLookup[NUMBER_OF_SERVOS] = {
     ClawFinger(14, 27, 13, 1810),
     ClawFinger(26, 25, 43, 1815)};
 
+void publishClawDegrees() {
+    String clawDegreesString = "ClawDegs(";
+    for (int i = 0; i < NUMBER_OF_SERVOS; i++) {
+        clawDegreesString += String(clawFingerLookup[i].location);
+        if (i != NUMBER_OF_SERVOS - 1) {
+            clawDegreesString += ",";
+        }
+    }
+    clawDegreesString += ")";
+    Serial.println(clawDegreesString);
+}
+
 // moves an individual servo w/out reacting to resistance
 bool moveServo(int servoID, int degree)
 {
@@ -133,6 +146,11 @@ bool zero()
     {
         moveServo(i, 0);
     }
+
+    if (PUBLISH_DEGREES) {
+        publishClawDegrees();
+    }
+
     return true;
 }
 
@@ -171,15 +189,15 @@ void closeClawToResistance()
                 clawFingerLookup[i].appendSensorReading(reading);
                 if (i == 0)
                 {
-                    servo_0 += ", " + String(reading);
+                    servo_0 += String(reading) + ", ";
                 }
                 else if (i == 1)
                 {
-                    servo_1 += ", " + String(reading);
+                    servo_1 += String(reading) + ", ";
                 }
                 else
                 {
-                    servo_2 += ", " + String(reading);
+                    servo_2 += String(reading) + ", ";
                 }
             }
 
@@ -192,7 +210,11 @@ void closeClawToResistance()
             }
         }
 
-        delay(50);
+        if (PUBLISH_DEGREES) {
+            publishClawDegrees();
+        } else {
+            delay(50);
+        }
     }
 
     if (LOG_READOUTS)
@@ -200,14 +222,6 @@ void closeClawToResistance()
         Serial.println("0, " + servo_0);
         Serial.println("1, " + servo_1);
         Serial.println("2, " + servo_2);
-
-        String stop_degrees = "";
-        for (int i = 0; i < NUMBER_OF_SERVOS; i++)
-        {
-            stop_degrees += clawFingerLookup[i].location;
-            stop_degrees += ", ";
-        }
-        Serial.println(stop_degrees);
     }
 
     return;
@@ -219,6 +233,11 @@ bool openClaw()
     {
         moveServo(i, MAX_DEGREE);
     }
+
+    if (PUBLISH_DEGREES) {
+        publishClawDegrees();
+    }
+
     return true;
 }
 
@@ -252,6 +271,10 @@ bool commandInput(String command)
         int servoId = command.substring(spaceOne + 1, spaceTwo).toInt();
         int degree = command.substring(spaceTwo + 1).toInt();
         return moveServo(servoId, degree);
+        
+        if (PUBLISH_DEGREES) {
+            publishClawDegrees();
+        }
     }
 
     return false;
@@ -261,8 +284,8 @@ bool commandInput(String command)
 void setup()
 {
     Serial.begin(BAUD_RATE);
-    zero();
     setThresholds();
+    zero();
 }
 
 void loop()
