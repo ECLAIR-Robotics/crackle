@@ -264,6 +264,20 @@ bool commandInput(String command)
         return true;
     }
 
+    // OPEN
+    if (commandId.equals("open"))
+    {
+        openClaw();
+        return true;
+    }
+
+    // CLOSE
+    if (commandId.equals("close"))
+    {
+        closeClawToResistance();
+        return true;
+    }
+
     // MOVE <ServoID> <Degree>
     if (commandId.equals("move"))
     {
@@ -294,11 +308,11 @@ void loop()
     {
         commandInput(Serial.readString());
     }
-    openClaw();
-    Serial.println("open");
-    delay(5000);
-    Serial.println("closing");
-    closeClawToResistance();
-    Serial.println("closed");
-    delay(5000);
+    // openClaw();
+    // Serial.println("open");
+    // delay(5000);
+    // Serial.println("closing");
+    // closeClawToResistance();
+    // Serial.println("closed");
+    // delay(5000);
 }
