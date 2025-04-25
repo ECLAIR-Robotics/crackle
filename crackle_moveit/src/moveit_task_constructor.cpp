@@ -1,106 +1,114 @@
+#include <crackle_moveit/moveit_task_constructor.hpp>
+#include "example_interfaces/srv/add_two_ints.hpp"
+#include <chrono>
+#include <functional>
 #include <memory>
+#include <string>
 
-#include <rclcpp/rclcpp.hpp>
-#include <moveit/move_group_interface/move_group_interface.h>
-#include <moveit/planning_scene_interface/planning_scene_interface.h>
-#include <moveit/task_constructor/task.h>
-#include <moveit/task_constructor/solvers.h>
-#include <moveit/task_constructor/stages.h>
-
-
-// #include "crackle_moveit/moveit_task_constructor.hpp"
-
-// CrackleMoveitTaskConstructorNode::CrackleMoveitTaskConstructorNode(const rclcpp::Node::SharedPtr& node, const std::string& group_name)
-//     : node_(node)
-// {
-//     init(group_name);
-// }
-
-// CrackleMoveitTaskConstructorNode::CrackleMoveitTaskConstructorNode(const std::string& group_name)
-// {
-//     node_ = rclcpp::Node::make_shared("xarm_planner_move_group_node");
-//     init(group_name);
-// }
-
-// void CrackleMoveitTaskConstructorNode::init(const std::string& group_name) 
-// {
-//     is_trajectory_ = false;
-//     move_group_ = std::make_shared<moveit::planning_interface::MoveGroupInterface>(node_, group_name);
-//     RCLCPP_INFO(node_->get_logger(), "Planning frame: %s", move_group_->getPlanningFrame().c_str());
-//     RCLCPP_INFO(node_->get_logger(), "End effector link: %s", move_group_->getEndEffectorLink().c_str());
-//     RCLCPP_INFO(node_->get_logger(), "Available Planning Groups:");
-//     std::copy(move_group_->getJointModelGroupNames().begin(), move_group_->getJointModelGroupNames().end(), std::ostream_iterator<std::string>(std::cout, ", "));
-// }
-
-// bool CrackleMoveitTaskConstructorNode::planPoseTarget(const geometry_msgs::msg::Pose& pose_target)
-// {
-//     bool success = move_group_->setPoseTarget(pose_target);
-//     if (!success)
-//         RCLCPP_WARN(node_->get_logger(), "setPoseTarget: out of bounds");
-//     success = (move_group_->plan(xarm_plan_) == moveit::core::MoveItErrorCode::SUCCESS);
-//     if (!success)
-//         RCLCPP_ERROR(node_->get_logger(), "planPoseTarget: plan failed");
-//     is_trajectory_ = false;
-//     return success;
-// }
-
-// bool CrackleMoveitTaskConstructorNode::planCartesianPath(const std::vector<geometry_msgs::msg::Pose>& pose_target_vector)
-// {
-//     move_group_->setStartStateToCurrentState();
-//     move_group_->setMaxVelocityScalingFactor(0.1);
-//     move_group_->setMaxAccelerationScalingFactor(0.1);
-//     moveit::planning_interface::MoveGroupInterface::Plan plan;
-//     double fraction = move_group_->computeCartesianPath(pose_target_vector, 0.01, 0.0, plan.trajectory_);
-//     if (fraction < 1.0)
-//         RCLCPP_ERROR(node_->get_logger(), "planCartesianPath: plan failed");
-//     is_trajectory_ = true;
-//     return fraction >= 1.0;
-// }
-// bool CrackleMoveitTaskConstructorNode::executePath(bool wait)
-// {
-//     if (is_trajectory_) {
-//         move_group_->execute(xarm_plan_, wait);
-//     } else {
-//         move_group_->move();
-//     }
-//     return true;
-// }
-
-// mtc::Task CrackleMoveitTaskConstructorNode::createTask(const std::string& group_name)
-// {
-//     mtc::Task task;
-//     task.setRobotModel(move_group_->getRobotModel());
-//     task.setName("xarm_planner_task");
-//     task.setMaxTime(10.0);
-//     task.setMaxAttempts(5);
-//     task.setMaxCost(1000.0);
-//     task.setMaxPlanningTime(5.0);
-//     task.setMaxVelocityScalingFactor(0.1);
-//     task.setMaxAccelerationScalingFactor(0.1);
-
-//     return task;
-// }
+#include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/string.hpp"
 
 namespace mtc = moveit::task_constructor;
+
+using namespace std::chrono_literals;
+
+using moveit::planning_interface::MoveGroupInterface;
+class MinimalPublisher : public rclcpp::Node
+{
+  public:
+    MinimalPublisher()
+    : Node("minimal_publisher"), count_(0)
+    {
+      publisher_ = this->create_publisher<std_msgs::msg::String>("topic", 10);
+      timer_ = this->create_wall_timer(
+      500ms, std::bind(&MinimalPublisher::timer_callback, this));
+      init("lite6");
+    }
+
+    void pickupCallback(const std::shared_ptr<crackle_interfaces::srv::PickupObject::Request> request,
+                        std::shared_ptr<crackle_interfaces::srv::PickupObject::Response> response)
+    {
+      RCLCPP_INFO(this->get_logger(), "Pickup object: %s", request->object_name.c_str());
+       
+      response->success = true;
+    }
+
+    void init(const std::string& group_name)
+    {
+      const rclcpp::Node::SharedPtr node = this->shared_from_this();
+      // Initialize the MoveGroupInterface
+      move_group_ = std::make_shared<moveit::planning_interface::MoveGroupInterface>(node, group_name);
+      planning_scene_ = std::make_shared<moveit::planning_interface::PlanningSceneInterface>();
+      
+      // Create a service for the pickup object
+      pickup_service_ = this->create_service<crackle_interfaces::srv::PickupObject>(
+        "pickup_object", std::bind(&MinimalPublisher::pickupCallback, this, _1, _2));
+    }
+
+  private:
+    void timer_callback()
+    {
+      auto message = std_msgs::msg::String();
+      message.data = "Hello, world! " + std::to_string(count_++);
+      RCLCPP_INFO(this->get_logger(), "Publishing: '%s'", message.data.c_str());
+      publisher_->publish(message);
+    }
+
+    rclcpp::TimerBase::SharedPtr timer_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr publisher_;
+    rclcpp::Service<crackle_interfaces::srv::PickupObject>::SharedPtr pickup_service_;
+
+    std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group_;
+    std::shared_ptr<moveit::planning_interface::PlanningSceneInterface> planning_scene_;
+
+    moveit_msgs::msg::RobotTrajectory trajectory_;
+
+    size_t count_;
+};
+
+void add(const std::shared_ptr<example_interfaces::srv::AddTwoInts::Request> request,
+          std::shared_ptr<example_interfaces::srv::AddTwoInts::Response>      response)
+{
+  response->sum = request->a + request->b;
+  RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "Incoming request\na: %ld" " b: %ld",
+                request->a, request->b);
+  RCLCPP_INFO(rclcpp::get_logger("rclcpp"), "sending back response: [%ld]", (long int)response->sum);
+
+}
+
 
 int main(int argc, char** argv)
 {
     // Initialize ROS and create the Node
   rclcpp::init(argc, argv);
   auto const node = std::make_shared<rclcpp::Node>(
-    "hello_moveit",
+    "crackle_moveit_task_constructor_node",
     rclcpp::NodeOptions().automatically_declare_parameters_from_overrides(true)
   );
 
-  // Create a ROS logger
-  auto const logger = rclcpp::get_logger("hello_moveit");
-  RCLCPP_INFO(logger, "Hello MoveIt!");
+  auto minimal_publisher = std::make_shared<MinimalPublisher>();
+  auto logger = rclcpp::get_logger("crackle_moveit_task_constructor_node");
+  RCLCPP_INFO(logger, "crackle_moveit_task_constructor_node start");
 
+
+
+  rclcpp::shutdown();
+  return 0;
+  
+  
+
+  // Create a ROS logger
+  RCLCPP_INFO(logger, "crackle_moveit_task_constructor_node start");
 
   // Create the MoveIt MoveGroup Interface
   using moveit::planning_interface::MoveGroupInterface;
   auto move_group_interface = MoveGroupInterface(node, "lite6");
 
+
+  rclcpp::Service<example_interfaces::srv::AddTwoInts>::SharedPtr service =
+    node->create_service<example_interfaces::srv::AddTwoInts>("add_two_ints", &add);
+
+  
   // Set a target Pose
   auto const target_pose = []{
     geometry_msgs::msg::Pose msg;
@@ -173,12 +181,14 @@ int main(int argc, char** argv)
   move_to->setGroup(arm_group_name);
   move_to->setGoal(target_pose_2);
   move_to->setProperty("group", arm_group_name);
-  
+ 
   task.add(std::move(move_to));
   
   
   RCLCPP_INFO(logger, "Task created!");
   task.init();
+
+  auto error_code = task.plan();
 
   rclcpp::spin(node);
 

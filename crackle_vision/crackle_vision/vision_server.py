@@ -1,6 +1,6 @@
 from typing import List, Tuple
 import os
-
+import math
 import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
@@ -10,7 +10,7 @@ from std_srvs.srv import Empty
 from sensor_msgs.msg import Image, PointCloud2, CameraInfo
 from crackle_interfaces.srv import FindObjects
 from shape_msgs.msg import SolidPrimitive
-from crackle_vision.pcd_tools import get_best_approx
+from crackle_vision.pcd_tools import get_best_approx # @ Shalini
 
 import cv2
 import matplotlib.pyplot as plt
@@ -207,10 +207,6 @@ class VisionServerNode(Node):
                     # apply segment mask to color image 
                     masked_image = cv2.bitwise_and(color_image, color_image, mask=segment_mask.astype(np.uint8))
 
-                    cv2.imshow("color_image", cv2_color_image)
-
-                    cv2.imshow("masked_image", masked_image)
-                    cv2.waitKey(1)                       
 
                     pcd = self.depth_to_pcd(segment_mask)
 
@@ -226,38 +222,45 @@ class VisionServerNode(Node):
                         # remove statistical outliers
                         pcd, ind = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
 
-                        # @ TODO: Add code to get the closest cluster only
+                        # find clusters - labels each point.
+                        with o3d.utility.VerbosityContextManager(
+                                o3d.utility.VerbosityLevel.Debug) as cm:
+                            labels = pcd.cluster_dbscan(eps=0.02, min_points=10, print_progress=True)
+
+                        # get largest cluster (hopefully the closest cluster, i.e. object)
+                        unique_labels, counts = np.unique(labels, return_counts=True)
+                        largest_cluster_label = unique_labels[np.argmax(counts)]
+                        largest_cluster = pcd.select_by_index(np.where(labels == largest_cluster_label)[0])
+                        pcd = largest_cluster 
+
+                        # TODO @Shalini
+                        shape_mesh = get_best_approx(pcd)[0] # We only get the triangle mesh in this
+                        shape = get_best_approx(pcd)[1] 
+                        object = SolidPrimitive(2)
+                        radius = 0
+                        if (shape == 2):
+                            surf_area = shape_mesh.get_surface_area()
+                            radius = math.sqrt(surf_area/(4*3.14))
+                            object.type = 2
+                            object.dimensions = [radius]
+                        else:
+                            # Compute the axis-aligned bounding box
+                            aabb = mesh.get_axis_aligned_bounding_box()
+                            object.type = 1
+
+                            # Get the min and max bounds
+                            min_bound = aabb.get_min_bound()
+                            max_bound = aabb.get_max_bound()
+
+                            # Calculate extents along each axis
+                            extents = max_bound - min_bound  # [x, y, z] dimensions
+
+                            # Sort dimensions from largest to smallest (optional, for consistency)
+                            sorted_dims = np.sort(extents)[::-1]  # [length, width, height]
+                            object.dimensions = [sorted_dims[0], sorted_dims[1], sorted_dims[2]]
+
                         
-                        # # might remove
-                        # # point cloud cropping 
-                        # crop_data = o3d.data.DemoCropPointCloud()
-                        # pcd_crop = o3d.io.read_point_cloud(crop_data.point_cloud_path)
-                        # # vol = o3d.visualization.read_selection_polygon_volume(crop_data.cropped_json_path)
-
-                        # Hidden point removal 
-                        diameter = np.linalg.norm(np.asarray(pcd.get_max_bound()) - np.asarray(pcd.get_min_bound()))
-                        camera = [0, 0, diameter]
-                        radius = diameter * 100
-                        _, pt_map = pcd.hidden_point_removal(camera, radius)
-
-                        
-                        # with o3d.utility.VerbosityContextManager(
-                        #         o3d.utility.VerbosityLevel.Debug) as cm:
-                        #     labels = pcd.cluster_dbscan(eps=0.02, min_points=10, print_progress=True)
-
-                        # max_label = labels.max().item()
-                        # print(f"point cloud has {max_label + 1} clusters")
-                        # colors = plt.get_cmap("tab20")(
-                        #         labels.numpy() / (max_label if max_label > 0 else 1))
-                        # colors = o3c.Tensor(colors[:, :3], o3c.float32)
-                        # colors[labels < 0] = 0
-                        # pcd.point.colors = colors
-                        # o3d.visualization.draw_geometries([pcd.to_legacy()],
-                        #                                 zoom=0.455,
-                        #                                 front=[-0.4999, -0.1659, -0.8499],
-                        #                                 lookat=[2.1813, 2.0619, 2.0999],
-                        #                                 up=[0.1204, -0.9852, 0.1215])
-
+                                                
                         # visualize the point cloud
                         o3d.visualization.draw_geometries([pcd])
             response.names = names

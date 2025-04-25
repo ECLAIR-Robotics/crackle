@@ -10,7 +10,7 @@
   <!-- =========================
        Macro: Gripper Base Link
        ========================= -->
-  <xacro:macro name="gripper_base_macro" params="link_name base_mesh:='ClawBase.stl'">
+  <xacro:macro name="gripper_base_macro" params="link_name base_mesh:='damn.stl'">
     <link name="${link_name}">
       <visual>
         <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -133,24 +133,24 @@
   <!-- 3) Three claws, each with a revolute joint -->
   <!-- <xacro:claw_macro 
     claw_name="claw_1" 
-    claw_mesh="ClawArm.stl"
-    pivot_xyz="0 -0.035 0.04"
-    pivot_rpy="0 1.0 0.34"
-    pivot_axis="0 1 0"/>
+    claw_mesh="elArmo.stl"
+    pivot_xyz=".002 .025 0.009"
+    pivot_rpy="1.0 2.0 2.0"
+    pivot_axis="0 1 0"/> -->
 
-   <xacro:claw_macro 
+   <!-- <xacro:claw_macro 
     claw_name="claw_2" 
-    claw_mesh="ClawArm.stl"
-    pivot_xyz="0.03 0.01 0.04"
+    claw_mesh="elArmo.stl"
+    pivot_xyz="-.025 0.019 0.013"
     pivot_rpy="0 1.57 2.34"
     pivot_axis="0 1 0"/>
 
   <xacro:claw_macro 
     claw_name="claw_3" 
-    claw_mesh="ClawArm.stl"
-    pivot_xyz="-0.03 0.01 0.04"
+    claw_mesh="elArmo.stl"
+    pivot_xyz=".025 0.015 0.013"
     pivot_rpy="0 1.0 -1.57"
-    pivot_axis="0 1 0"/> -->
+    pivot_axis="0 1 0"/>  -->
   </xacro:macro> 
 
 </robot>

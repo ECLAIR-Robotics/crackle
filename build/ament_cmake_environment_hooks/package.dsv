@@ -1,0 +1,4 @@
+source;share/crackle_description/local_setup.bash
+source;share/crackle_description/local_setup.dsv
+source;share/crackle_description/local_setup.sh
+source;share/crackle_description/local_setup.zsh

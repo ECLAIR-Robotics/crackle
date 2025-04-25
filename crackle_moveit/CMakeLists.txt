@@ -17,6 +17,7 @@ find_package(moveit_ros_planning_interface REQUIRED)
 find_package(moveit_task_constructor_core REQUIRED)
 find_package(moveit_msgs REQUIRED)
 find_package(xarm_msgs REQUIRED)
+find_package(example_interfaces REQUIRED)
 
 
 set(dependencies "rclcpp" "std_msgs" "shape_msgs" "geometry_msgs" "moveit_msgs" "xarm_msgs" "xarm_planner" "moveit")
@@ -34,6 +35,8 @@ add_executable(moveit_scene_updater src/moveit_scene_updater.cpp)
 ament_target_dependencies(moveit_task_constructor
   moveit_ros_planning_interface
   moveit_task_constructor_core
+  crackle_interfaces
+  example_interfaces
   ${dependencies}
 )
 

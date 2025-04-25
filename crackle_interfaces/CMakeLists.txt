@@ -18,6 +18,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/YoloSegment.msg"
   "msg/AudioData.msg"
   "srv/FindObjects.srv"
+  "srv/PickupObject.srv"
 
   DEPENDENCIES shape_msgs
   )
