@@ -21,6 +21,7 @@ setup(
         "rclpy",
         "sensor_msgs",
         "std_msgs",
+        "tf_transformations",
         "crackle_interfaces",
     ],
     zip_safe=True,

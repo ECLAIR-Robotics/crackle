@@ -7,12 +7,20 @@ endif()
 
 # find dependencies
 find_package(ament_cmake REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(shape_msgs REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/YoloInferences.msg"
   "msg/YoloSegment.msg"
   "msg/AudioData.msg"
+  "srv/FindObjects.srv"
+  "srv/PickupObject.srv"
+
+  DEPENDENCIES shape_msgs
   )
 # uncomment the following section in order to fill in
 # further dependencies manually.

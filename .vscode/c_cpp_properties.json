@@ -1,0 +1,43 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/tanay24/crackle_ws/install/crackle_moveit/include/**",
+        "/home/tanay24/crackle_ws/install/xarm_planner/include/**",
+        "/home/tanay24/crackle_ws/install/xarm_gazebo/include/**",
+        "/home/tanay24/crackle_ws/install/xarm_controller/include/**",
+        "/home/tanay24/crackle_ws/install/xarm_api/include/**",
+        "/home/tanay24/crackle_ws/install/xarm_msgs/include/**",
+        "/home/tanay24/crackle_ws/install/realsense_gazebo_plugin/include/**",
+        "/home/tanay24/crackle_ws/install/realsense2_camera/include/**",
+        "/home/tanay24/crackle_ws/install/realsense2_camera_msgs/include/**",
+        "/home/tanay24/crackle_ws/install/py_binding_tools/include/**",
+        "/home/tanay24/crackle_ws/install/crackle_interfaces/include/**",
+        "/opt/ros/humble/include/**",
+        "/home/tanay24/crackle_ws/src/crackle/crackle_bringup/include/**",
+        "/home/tanay24/crackle_ws/src/crackle/crackle_description/include/**",
+        "/home/tanay24/crackle_ws/src/crackle/crackle_moveit/include/**",
+        "/home/tanay24/crackle_ws/src/crackle/octomap_server2/include/**",
+        "/home/tanay24/crackle_ws/src/crackle/py_binding_tools/include/**",
+        "/home/tanay24/crackle_ws/src/crackle/realsense-ros/realsense2_camera/include/**",
+        "/home/tanay24/crackle_ws/src/crackle/xarm_ros2/thirdparty/realsense_gazebo_plugin/include/**",
+        "/home/tanay24/crackle_ws/src/crackle/xarm_ros2/xarm_api/include/**",
+        "/home/tanay24/crackle_ws/src/crackle/xarm_ros2/xarm_controller/include/**",
+        "/home/tanay24/crackle_ws/src/crackle/xarm_ros2/xarm_gazebo/include/**",
+        "/home/tanay24/crackle_ws/src/crackle/xarm_ros2/xarm_moveit_servo/include/**",
+        "/home/tanay24/crackle_ws/src/crackle/xarm_ros2/xarm_planner/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}
