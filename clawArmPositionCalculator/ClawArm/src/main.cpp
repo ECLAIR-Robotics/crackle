@@ -17,6 +17,9 @@
 #define BAUD_RATE 9600
 #define LOG_READOUTS true
 
+// how far below baseline we consider to be resistance
+#define BASE_THRESHOLD 15
+
 // class for claw fingers
 class ClawFinger
 {
@@ -29,32 +32,40 @@ public:
     int sensorReadings[TRAILING_AVERAGE];
     int readingIndex;
     bool readingFull = false;
-    void resetSensorReadings() {
+    void resetSensorReadings()
+    {
         readingIndex = 0;
         readingFull = false;
     }
-    void appendSensorReading(int sensorReading) {
+    void appendSensorReading(int sensorReading)
+    {
         sensorReadings[readingIndex] = sensorReading;
-        if ((readingFull == false) && (readingIndex == TRAILING_AVERAGE-1)) {
+        if ((readingFull == false) && (readingIndex == TRAILING_AVERAGE - 1))
+        {
             readingFull = true;
         }
-        readingIndex = (readingIndex + 1)%TRAILING_AVERAGE;
+        readingIndex = (readingIndex + 1) % TRAILING_AVERAGE;
     }
-    int averageSensorReadings() {
+    int averageSensorReadings()
+    {
         int sumUpTo = readingIndex;
-        if (readingFull) {
+        if (readingFull)
+        {
             sumUpTo = TRAILING_AVERAGE;
         }
         int sensorReadingSum = 0;
-        for (int i = 0; i < sumUpTo; i++) {
+        for (int i = 0; i < sumUpTo; i++)
+        {
             sensorReadingSum += sensorReadings[i];
         }
-        return (int)sensorReadingSum/sumUpTo;
+        return (int)sensorReadingSum / sumUpTo;
     }
-    void attachServo(int servoPin) {
+    void attachServo(int servoPin)
+    {
         servo.attach(servoPin);
     }
-    void setupSensor(int sensorPin) {
+    void setupSensor(int sensorPin)
+    {
         pinMode(sensorPin, INPUT);
         sensor = sensorPin;
     }
@@ -99,26 +110,46 @@ bool moveServo(int servoID, int degree)
     return true;
 }
 
+void setThresholds()
+{
+    int readings = 50;
+    int readingAvg = 0;
+    for (int i = 0; i < NUMBER_OF_SERVOS; i++)
+    {
+        for (int x = 0; x < readings; x++)
+        {
+            readingAvg += analogRead(clawFingerLookup[i].sensor);
+        }
+        readingAvg /= readings;
+        clawFingerLookup[i].threshold = readingAvg - BASE_THRESHOLD;
+        readingAvg = 0;
+    }
+}
+
 // TODO: code with a usable zero routine
 bool zero()
 {
-    for(int i = 0; i < NUMBER_OF_SERVOS; i++)
+    for (int i = 0; i < NUMBER_OF_SERVOS; i++)
     {
         moveServo(i, 0);
     }
     return true;
 }
 
-int sign(int x) {
-    if (x > 0) return 1;
-    if (x < 0) return -1;
+int sign(int x)
+{
+    if (x > 0)
+        return 1;
+    if (x < 0)
+        return -1;
     return 0;
 }
 
-void closeClawToResistance() {
+void closeClawToResistance()
+{
     bool allResistanceOrZero = false;
 
-    for(int i = 0; i < NUMBER_OF_SERVOS; i++)
+    for (int i = 0; i < NUMBER_OF_SERVOS; i++)
     {
         clawFingerLookup[i].resetSensorReadings();
     }
@@ -131,54 +162,62 @@ void closeClawToResistance() {
     {
         allResistanceOrZero = true;
 
-        for(int i = 0; i < NUMBER_OF_SERVOS; i++)
+        for (int i = 0; i < NUMBER_OF_SERVOS; i++)
         {
 
-            for (int j = 0; j < READING_PER_MOVE; j++) {
+            for (int j = 0; j < READING_PER_MOVE; j++)
+            {
                 int reading = analogRead(clawFingerLookup[i].sensor);
                 clawFingerLookup[i].appendSensorReading(reading);
-                if(i == 0) {
-                    servo_0 +=  ", " + String(reading);
-                } else if (i == 1) {
-                    servo_1 +=  ", " + String(reading);
-                } else {
+                if (i == 0)
+                {
+                    servo_0 += ", " + String(reading);
+                }
+                else if (i == 1)
+                {
+                    servo_1 += ", " + String(reading);
+                }
+                else
+                {
                     servo_2 += ", " + String(reading);
                 }
             }
 
             int averageSensorReading = clawFingerLookup[i].averageSensorReadings();
             int newLocation = clawFingerLookup[i].location - 1;
-            if (averageSensorReading >= clawFingerLookup[i].threshold && newLocation > 0) {
+            if (averageSensorReading >= clawFingerLookup[i].threshold && newLocation > 0)
+            {
                 allResistanceOrZero = false;
                 moveServo(i, newLocation);
             }
-
         }
 
         delay(50);
     }
 
-    if (LOG_READOUTS) {
+    if (LOG_READOUTS)
+    {
         Serial.println("0, " + servo_0);
         Serial.println("1, " + servo_1);
         Serial.println("2, " + servo_2);
 
         String stop_degrees = "";
-        for(int i = 0; i < NUMBER_OF_SERVOS; i++) {
+        for (int i = 0; i < NUMBER_OF_SERVOS; i++)
+        {
             stop_degrees += clawFingerLookup[i].location;
             stop_degrees += ", ";
         }
         Serial.println(stop_degrees);
     }
-    
+
     return;
 }
 
 bool openClaw()
 {
-    for(int i = 0; i < NUMBER_OF_SERVOS; i++)
+    for (int i = 0; i < NUMBER_OF_SERVOS; i++)
     {
-       moveServo(i, MAX_DEGREE);
+        moveServo(i, MAX_DEGREE);
     }
     return true;
 }
@@ -189,9 +228,12 @@ bool commandInput(String command)
     int spaceOne = command.indexOf(" ");
     String commandId;
 
-    if (spaceOne == -1) {
+    if (spaceOne == -1)
+    {
         commandId = command;
-    } else {
+    }
+    else
+    {
         commandId = command.substring(0, spaceOne);
     }
     commandId.toLowerCase();
@@ -206,9 +248,9 @@ bool commandInput(String command)
     // MOVE <ServoID> <Degree>
     if (commandId.equals("move"))
     {
-        int spaceTwo = command.indexOf(" ", spaceOne+1);
-        int servoId = command.substring(spaceOne+1, spaceTwo).toInt();
-        int degree = command.substring(spaceTwo+1).toInt();
+        int spaceTwo = command.indexOf(" ", spaceOne + 1);
+        int servoId = command.substring(spaceOne + 1, spaceTwo).toInt();
+        int degree = command.substring(spaceTwo + 1).toInt();
         return moveServo(servoId, degree);
     }
 
@@ -220,13 +262,15 @@ void setup()
 {
     Serial.begin(BAUD_RATE);
     zero();
+    setThresholds();
 }
 
 void loop()
 {
-    if (Serial.available()) {
+    if (Serial.available())
+    {
         commandInput(Serial.readString());
-    } 
+    }
     openClaw();
     Serial.println("open");
     delay(5000);
