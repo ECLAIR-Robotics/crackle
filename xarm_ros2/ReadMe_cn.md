@@ -6,12 +6,14 @@
 - Ubuntu 20.04 + ROS Foxy
 - Ubuntu 20.04 + ROS Galactic
 - Ubuntu 22.04 + ROS Humble
+- Ubuntu 24.04 + ROS Jazzy
 - Ubuntu 22.04 + ROS Rolling
 
 &ensp;&ensp;&ensp;&ensp;请根据不同ros2版本切换到对应的代码分支（没有对应的代码分支表示未在该版本测试过）
 - Foxy: [foxy](https://github.com/xArm-Developer/xarm_ros2/tree/foxy)
 - Galactic: [galactic](https://github.com/xArm-Developer/xarm_ros2/tree/galactic)
 - Humble: [humble](https://github.com/xArm-Developer/xarm_ros2/tree/humble)
+- Jazzy: [jazzy](https://github.com/xArm-Developer/xarm_ros2/tree/jazzy)
 - Rolling: [rolling](https://github.com/xArm-Developer/xarm_ros2/tree/rolling)
 
 
@@ -36,6 +38,9 @@
 - (2024-01-17) 新增对xarm7_mirror型号机械臂的支持
 - (2024-02-27) 新增对Bio Gripper的支持(参数`add_bio_gripper`, Lite6不支持)
 - (2024-04-12) 新增 __uf_ros_lib__ 封装某些功能以供调用(包括 __MoveItConfigsBuilder__)，参见[文档](./uf_ros_lib/Readme.md)
+- (2024-10-11) 增加[mbot_demo](demo/mbot_demo/readme.md)演示如何建立xarm机械臂在底盘之上
+- (2024-11-05) 支持Ros Jazzy版本
+- (2024-12-02) 新增xarm_api封装的sdk服务的详细使用说明  
 
 ## 3. 准备工作
 
@@ -43,6 +48,7 @@
   - [Foxy](https://docs.ros.org/en/ros2_documentation/foxy/Installation.html)
   - [Galactic](https://docs.ros.org/en/ros2_documentation/galactic/Installation.html)
   - [Humble](https://docs.ros.org/en/ros2_documentation/humble/Installation.html)
+  - [Jazzy](https://docs.ros.org/en/ros2_documentation/jazzy/Installation.html)
 
 - ### 3.2 安装 [Moveit2](https://moveit.ros.org/install-moveit2/binary/)
 
@@ -97,18 +103,19 @@
 
 
 ## 5. 模块说明
-__注意1： 如果当前局域网有多人使用ros2，为避免相互间发生干扰，请设置一下 ROS_DOMAIN_ID__
+__注意1： 如果当前局域网有多人使用ros2，为避免相互间发生干扰，请设置一下 ROS_DOMAIN_ID__  
   - [Foxy](https://docs.ros.org/en/ros2_documentation/foxy/Concepts/About-Domain-ID.html)
   - [Galactic](https://docs.ros.org/en/ros2_documentation/galactic/Concepts/About-Domain-ID.html)
   - [Humble](https://docs.ros.org/en/ros2_documentation/humble/Concepts/About-Domain-ID.html)
+  - [Jazzy](https://docs.ros.org/en/ros2_documentation/jazzy/Concepts/About-Domain-ID.html)
 
-__注意2： 运行xarm_ros2中的程序或启动脚本之前请先source当前工作区环境__
+__注意2： 运行xarm_ros2中的程序或启动脚本之前请先source当前工作区环境__  
 ```bash
 $ cd ~/dev_ws/
 $ source install/setup.bash
 ```
-__注意3： 以下启动说明以6轴为例，5轴和7轴的用法只需找到对应的启动文件或指定对应的参数__
-__注意4: 以下描述的<hw_ns>用实际的替换，xarm系列默认为xarm, 其余的默认为ufactory__
+__注意3： 以下启动说明以6轴为例，5轴和7轴的用法只需找到对应的启动文件或指定对应的参数__  
+__注意4: 以下描述的<hw_ns>用实际的替换，xarm系列默认为xarm, 其余的默认为ufactory__  
 
 - ### 5.1 xarm_description
     此模块包含机械臂的描述文件，通过以下启动脚本可以在rviz中显示对应的机械臂模型
@@ -228,6 +235,7 @@ __注意4: 以下描述的<hw_ns>用实际的替换，xarm系列默认为xarm, �
         ```
 
     注: 请在使用真机测试之前仔细研究[Mode](https://github.com/xArm-Developer/xarm_ros#6-mode-change), State和可用运动指令的含义。注意**Lite 6与xArm系列提供的服务所在的命名空间不同**。  
+    **更详细的服务使用介绍**, 请参考`xarm_api`目录内的[ReadMe](./xarm_api/ReadMe.md)文档!  
 
 - ### 5.5 xarm_controller
     此模块是ros2_control和机械臂通信的硬件接口模块

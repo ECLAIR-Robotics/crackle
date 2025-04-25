@@ -1,0 +1,53 @@
+#!/bin/bash
+
+cbuild() {
+	colcon build
+}
+
+cbuild-symlink() {
+	colcon build --symlink-install
+}
+
+cbuild-select() {
+	if [ $# -eq 0]; then 
+		echo "Usage: build-select <package-name>"
+		return 1
+	fi
+
+	colcon build --packages-select "$@"
+}
+
+cclean() {
+	TARGET="${HOME}/crackle_ws/install"
+    if [ -d "$TARGET" ]; then
+        echo "Removing $TARGET..."
+        rm -rf "$TARGET"
+        echo "Cleaned successfully!"
+    else
+        echo "Nothing to clean: $TARGET does not exist."
+    fi
+
+	TARGET="${HOME}/crackle_ws/log"
+    if [ -d "$TARGET" ]; then
+        echo "Removing $TARGET..."
+        rm -rf "$TARGET"
+        echo "Cleaned successfully!"
+    else
+        echo "Nothing to clean: $TARGET does not exist."
+    fi
+
+	TARGET="${HOME}/crackle_ws/build"
+    if [ -d "$TARGET" ]; then
+        echo "Removing $TARGET..."
+        rm -rf "$TARGET"
+        echo "Cleaned successfully!"
+    else
+        echo "Nothing to clean: $TARGET does not exist."
+    fi
+}
+
+export -f cbuild
+export -f cbuild-symlink
+export -f cbuild-select
+export -f cclean
+

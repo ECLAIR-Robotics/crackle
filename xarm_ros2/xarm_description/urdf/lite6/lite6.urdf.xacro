@@ -209,36 +209,9 @@
         velocity="3.14"/>
       <dynamics damping="1.0" friction="1.0"/>
     </joint>
-     
-    <link name="camera_depth_optical_frame">
-      <inertial>
-        <origin xyz="0 0 0" rpy="0 0 0" />
-        <mass value="0.01" />
-        <inertia
-          ixx="0" ixy="0" ixz="0"
-          iyy="0" iyz="0" izz="0" />
-      </inertial>
-      <visual>
-        <origin xyz="0 0 0" rpy="0 0 0" />
-        <geometry>
-          <box size="0.03 0.01 0.01" />
-        </geometry>
-        <material name="camera_depth_optical_frame_color">
-          <color rgba="0.0 0.0 1.0 1.0" />
-        </material>
-      </visual>
-      <collision>
-        <origin xyz="0 0 0" rpy="0 0 0" />
-        <geometry>
-          <box size="0.01 0.01 0.01" />
-        </geometry>
-      </collision>
-    </link>
-    <joint name="joint_link6_camera_link" type="fixed">
-      <origin xyz="-0.06 0.01 0.01" rpy="0 0 4.71" />
-      <parent link="${prefix}link6" />
-      <child link="camera_depth_optical_frame" />
-    </joint>
+
+    <!-- <xacro:include filename="$(find crackle_description)/urdf/crackle_gripper.urdf.xacro" /> -->
+    <!-- <xacro:three_claw_gripper arm_link="${prefix}link6" /> -->
 
     <!-- <link name="${prefix}link_eef" />
     <joint name="${prefix}joint_eef" type="fixed">
