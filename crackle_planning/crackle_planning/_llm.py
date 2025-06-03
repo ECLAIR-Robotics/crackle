@@ -11,6 +11,41 @@ class GptAPI:
         self.api_key = key
         openai.api_key = key  # Set API key once in the constructor
 
+
+    def getTalkBack(self, prompt):
+        promptPt1 = "you are a helpful (but slightly sarcastic) robot assistant having a conversation with a user. The user has just given you the following prompt: "
+        promptPt2 = " Please return a response to this, including the intended emotion (chosen from 'happy', 'sad', 'angry', 'bored', 'not impressed', 'evil', 'flirty', 'aww', and 'wtf'')  as a word at the end of the response string"
+        fullPrompt = promptPt1 + prompt + promptPt2
+        description = []
+        response = openai.chat.completions.create(
+        model="gpt-4",
+        messages=[
+            {
+                "role": "system",
+                "content": "you are a helpful (but somewhat sarcastic and slightly offensive) robot assistant "
+            },
+            {"role": "user", "content": fullPrompt}
+        ],
+        functions=description,
+        function_call="auto"
+        )
+
+        response_message = response.choices[0].message.content
+        return response_message
+
+    # calls getTalkBack, returns an array where item 0 is the response and item 1 is the emotion
+    # recalls itself if item 1 is not a valid emotion
+    def parseTalkResponse(self, prompt):
+        response = self.getTalkBack(prompt)
+        splitResponse = response.split()
+        emotion = splitResponse[1]
+        emotLen = len(emotion)
+        fullLen = len(response)
+        retLen = fullLen - emotLen
+        responseWords = response[0: retLen]
+        return [responseWords, emotion]
+
+
     
     def get_command(self, prompt: str):
         #client = OpenAI()

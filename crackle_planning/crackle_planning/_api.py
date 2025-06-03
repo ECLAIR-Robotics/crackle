@@ -20,3 +20,12 @@ class PlannerAPI:
     
     def wave(self):
         pass
+    
+    def set_emotion(self, emotion: str):
+        pass
+    
+    def close_gripper(self):
+        pass
+
+    def open_gripper(self):
+        pass

@@ -234,30 +234,30 @@ class VisionServerNode(Node):
                         pcd = largest_cluster 
 
                         # TODO @Shalini
-                        shape_mesh = get_best_approx(pcd)[0] # We only get the triangle mesh in this
-                        shape = get_best_approx(pcd)[1] 
-                        object = SolidPrimitive(2)
-                        radius = 0
-                        if (shape == 2):
-                            surf_area = shape_mesh.get_surface_area()
-                            radius = math.sqrt(surf_area/(4*3.14))
-                            object.type = 2
-                            object.dimensions = [radius]
-                        else:
-                            # Compute the axis-aligned bounding box
-                            aabb = mesh.get_axis_aligned_bounding_box()
-                            object.type = 1
+                        # shape_mesh = get_best_approx(pcd)[0] # We only get the triangle mesh in this
+                        # shape = get_best_approx(pcd)[1] 
+                        # object = SolidPrimitive(2)
+                        # radius = 0
+                        # if (shape == 2):
+                        #     surf_area = shape_mesh.get_surface_area()
+                        #     radius = math.sqrt(surf_area/(4*3.14))
+                        #     object.type = 2
+                        #     object.dimensions = [radius]
+                        # else:
+                        #     # Compute the axis-aligned bounding box
+                        #     aabb = mesh.get_axis_aligned_bounding_box()
+                        #     object.type = 1
 
-                            # Get the min and max bounds
-                            min_bound = aabb.get_min_bound()
-                            max_bound = aabb.get_max_bound()
+                        #     # Get the min and max bounds
+                        #     min_bound = aabb.get_min_bound()
+                        #     max_bound = aabb.get_max_bound()
 
-                            # Calculate extents along each axis
-                            extents = max_bound - min_bound  # [x, y, z] dimensions
+                        #     # Calculate extents along each axis
+                        #     extents = max_bound - min_bound  # [x, y, z] dimensions
 
-                            # Sort dimensions from largest to smallest (optional, for consistency)
-                            sorted_dims = np.sort(extents)[::-1]  # [length, width, height]
-                            object.dimensions = [sorted_dims[0], sorted_dims[1], sorted_dims[2]]
+                        #     # Sort dimensions from largest to smallest (optional, for consistency)
+                        #     sorted_dims = np.sort(extents)[::-1]  # [length, width, height]
+                        #     object.dimensions = [sorted_dims[0], sorted_dims[1], sorted_dims[2]]
 
                         
                                                 
