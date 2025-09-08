@@ -71,62 +71,44 @@ def login():
 @login_required
 def move_mouse():
 
-    global current_pose, target_pose
-
-    data = request.json
-    dx = data['dx']
-    dy = data['dy']
-    
-    # Scale the movement (adjust these values as needed)
-    scale_factor = 0.0005
-    dx_scaled = float(dx * scale_factor)
-    dy_scaled = float(dy * scale_factor * -1)
-    
-    # Move the mouse relative to its current position
-
-    target_pose.position.x += dx_scaled
-    target_pose.position.y += dy_scaled
-    print(f"current_pose: {target_pose}")
-
     return jsonify({"status": "success"})
 
 @app.route('/click_mouse', methods=['POST'])
 @login_required
 def click_mouse():
-    global current_pose, target_pose
-    plan_resp = arm_api.plan_to_pose(target_pose)
-    resp = arm_api.execute_plan()
-    if plan_resp.success and resp.success:
-        current_pose = target_pose
-    else:
-        target_pose = current_pose
     return jsonify({"status": "success"})
 
 # Route to handle key press events
 @app.route('/press_key', methods=['POST'])
 @login_required
 def press_key():
-    key = request.form['key']
+    print(request.form)
+    value = request.form['key'] 
 
-    if key == 'Off':
-        keyboard.press_and_release('win+r')
-        time.sleep(0.5)  # Wait for the Run dialog to appear
-        keyboard.write('shutdown /h')
-        keyboard.press_and_release('enter')
-        return redirect(url_for('home'))
+    global current_pose, target_pose
+    DELTA = 0.01
+    if value == 'right':
+        target_pose.position.x += DELTA
+        target_pose.position.y += 0
 
-    # Handle toggleable keys (Shift, Control, Escape)
-    if key in toggle_keys:
-        if toggle_keys[key]:
-            keyboard.release(key.lower())
-            toggle_keys[key] = False
-        else:
-            keyboard.press(key.lower())
-            toggle_keys[key] = True
+    elif value == 'left':
+        target_pose.position.x -= DELTA
+        target_pose.position.y += 0
+    elif value == 'up':
+        target_pose.position.x += 0
+        target_pose.position.y += DELTA
+    elif value == 'down':
+        target_pose.position.x += 0
+        target_pose.position.y -= DELTA
+    arm_api.plan_to_pose(target_pose)
+    resp = arm_api.execute_plan()
+    print("Current Pose: ", current_pose)
+    print("Target Pose: ", target_pose)
+    if resp:
+        current_pose = target_pose
     else:
-        keyboard.press_and_release(key.lower())
-    
-    return redirect(url_for('home'))
+        target_pose = current_pose
+    return jsonify({"status": "success"})
 
 @app.route('/get_toggle_states', methods=['GET'])
 @login_required
@@ -143,16 +125,31 @@ def play_pause():
 @app.route('/volume_up', methods=['POST'])
 @login_required
 def volume_up():
+    global current_pose, target_pose
     delta = 0.01
     target_pose.position.z += delta
+
+    arm_api.plan_to_pose(target_pose)
+    resp = arm_api.execute_plan()
+    if resp:
+        current_pose = target_pose
+    else:
+        target_pose = current_pose
 
     return jsonify({"status": "success"})
 
 @app.route('/volume_down', methods=['POST'])
 @login_required
 def volume_down():
+    global current_pose, target_pose
     delta = -0.01
     target_pose.position.z += delta
+    arm_api.plan_to_pose(target_pose)
+    resp = arm_api.execute_plan()
+    if resp:
+        current_pose = target_pose
+    else:
+        target_pose = current_pose
     return jsonify({"status": "success"})
 
 @app.route('/brightness_up', methods=['POST'])

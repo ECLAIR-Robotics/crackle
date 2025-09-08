@@ -143,10 +143,28 @@ def launch_setup(context, *args, **kwargs):
         ],
     )
 
+    moveit_manipulation_node = Node(
+        name='crackle_moveit_manipulation',
+        package='crackle_moveit',
+        executable='moveit_manipulation',
+        output="screen",
+        parameters=[
+            move_group_interface_params,
+            {
+                'robot_type': robot_type,
+                'dof': dof,
+                'prefix': prefix
+            },
+            xarm_planner_parameters,
+        ],
+    )
 
 
     
-    return [moveit_scene_updater_node, crackle_task_constructor_node]
+    return [moveit_scene_updater_node,
+            # crackle_task_constructor_node
+            moveit_manipulation_node
+            ]
 
 
 def generate_launch_description():

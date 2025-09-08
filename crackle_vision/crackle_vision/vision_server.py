@@ -5,6 +5,8 @@ import rclpy
 from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
+from ament_index_python import get_package_share_directory
+
 
 from std_srvs.srv import Empty
 from sensor_msgs.msg import Image, PointCloud2, CameraInfo
@@ -22,9 +24,11 @@ import open3d as o3d
 
 class VisionServerNode(Node):
 
+    DATA_DIRECTORY = os.path.join(get_package_share_directory("crackle_vision"),"data")
+
     def __init__(self, node_name):
         super().__init__(node_name)
-        self._vision_callback_group = MutuallyExclusiveCallbackGroup()
+        self._vision_callback_group = ReentrantCallbackGroup()
         self._service_callback_group = MutuallyExclusiveCallbackGroup()
         self.depth_image: Image = None
         self.color_image: Image = None
@@ -34,14 +38,17 @@ class VisionServerNode(Node):
         self.camera_model = PinholeCameraModel()
 
         self.bridge = CvBridge()
-        self.model = YOLOE("yoloe-11l-seg-pf.pt")
-        self.model_prompt = YOLOE("yoloe-11l-seg.pt")
+        self.model = YOLOE(os.path.join(VisionServerNode.DATA_DIRECTORY, "yoloe-11l-seg-pf.pt"))
+        self.model_prompt = YOLOE(os.path.join(VisionServerNode.DATA_DIRECTORY, "yoloe-11l-seg.pt"))
 
         self.camera_link = "camera_depth_optical_frame"
         self.link_base = "link_base"
 
         self.class_names = []
         self.segments = []
+
+        self.initial_depth = True
+        self.initial_pcd = True
 
         self.depth_image_sub = self.create_subscription(
             Image,
@@ -61,12 +68,11 @@ class VisionServerNode(Node):
 
         self.pcd_sub = self.create_subscription(
             PointCloud2,
-            "camera/camera/depth/color/points",
+            "/camera/camera/depth/color/points",
             self.pcd_callback,
             1,
             callback_group=self._vision_callback_group,
         )
-
 
 
         self.info_sub = self.create_subscription(
@@ -168,7 +174,7 @@ class VisionServerNode(Node):
         # Convert to Open3D point cloud
         pcd = o3d.geometry.PointCloud()   
         pcd.points = o3d.utility.Vector3dVector(points_arr)
-
+        print(pcd)
         return pcd
 
 
@@ -207,10 +213,10 @@ class VisionServerNode(Node):
                     # apply segment mask to color image 
                     masked_image = cv2.bitwise_and(color_image, color_image, mask=segment_mask.astype(np.uint8))
 
-
                     pcd = self.depth_to_pcd(segment_mask)
 
                     if pcd is None:
+                        self.get_logger().info(str(self.depth_image is None))
                         self.get_logger().info("No point cloud available")
                         response.names = []
                         response.objects = []
@@ -234,33 +240,13 @@ class VisionServerNode(Node):
                         pcd = largest_cluster 
 
                         # TODO @Shalini
-                        # shape_mesh = get_best_approx(pcd)[0] # We only get the triangle mesh in this
-                        # shape = get_best_approx(pcd)[1] 
-                        # object = SolidPrimitive(2)
-                        # radius = 0
-                        # if (shape == 2):
-                        #     surf_area = shape_mesh.get_surface_area()
-                        #     radius = math.sqrt(surf_area/(4*3.14))
-                        #     object.type = 2
-                        #     object.dimensions = [radius]
-                        # else:
-                        #     # Compute the axis-aligned bounding box
-                        #     aabb = mesh.get_axis_aligned_bounding_box()
-                        #     object.type = 1
+                        shape_mesh, shape_type = get_best_approx(pcd)
+                        o3d.visualization.draw_geometries([shape_mesh])
 
-                        #     # Get the min and max bounds
-                        #     min_bound = aabb.get_min_bound()
-                        #     max_bound = aabb.get_max_bound()
-
-                        #     # Calculate extents along each axis
-                        #     extents = max_bound - min_bound  # [x, y, z] dimensions
-
-                        #     # Sort dimensions from largest to smallest (optional, for consistency)
-                        #     sorted_dims = np.sort(extents)[::-1]  # [length, width, height]
-                        #     object.dimensions = [sorted_dims[0], sorted_dims[1], sorted_dims[2]]
-
+                        object_solid_primitive = SolidPrimitive()
+                        object_solid_primitive.type = shape_type
                         
-                                                
+
                         # visualize the point cloud
                         o3d.visualization.draw_geometries([pcd])
             response.names = names
@@ -298,7 +284,8 @@ class VisionServerNode(Node):
         if result is None or result.boxes is None or result.masks is None:
             self.get_logger().info("No objects found")
             return [], [], []
-
+        
+        self.get_logger().info(f"Found {len(result.boxes)} objects")
 
         boxes = result.boxes.cpu()
         segments = result.masks.cpu()
@@ -308,6 +295,7 @@ class VisionServerNode(Node):
         self.segments = segments 
 
         result_plot = result.plot()
+        print("Result plot shape:", result_plot.shape)
         self.plot_pub.publish(self.bridge.cv2_to_imgmsg(result_plot, encoding="bgr8"))
         return boxes, segments, self.class_names
 

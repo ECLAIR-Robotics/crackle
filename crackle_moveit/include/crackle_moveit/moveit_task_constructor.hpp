@@ -30,37 +30,13 @@ namespace mtc = moveit::task_constructor;
 using std::placeholders::_1;
 using std::placeholders::_2;
 
-// class CrackleMoveitTaskConstructorNode : rclcpp::Node{
-//     public:
-//         CrackleMoveitTaskConstructorNode(const rclcpp::Node::SharedPtr& node, const std::string& group_name);
-//         ~CrackleMoveitTaskConstructorNode() {};
+class CrackleManipulation {
+public:
+    CrackleManipulation(const rclcpp::Node::SharedPtr& node);
+    ~CrackleManipulation();
+private:
+    // Add member variables and methods as needed
+    void initialize(const rclcpp::Node::SharedPtr& node_, const rclcpp::Logger& logger);
+};
 
-//         std::shared_ptr<moveit::planning_interface::MoveGroupInterface> getMoveGroup() const { return move_group_; }
-
-//         mtc::Task createTask(const std::string& group_name);
-//         // bool planJointTarget(const std::vector<double>& joint_target);
-//         bool planPoseTarget(const geometry_msgs::msg::Pose& pose_target);
-//         // bool planPoseTargets(const std::vector<geometry_msgs::msg::Pose>& pose_target_vector);
-//         bool planCartesianPath(const std::vector<geometry_msgs::msg::Pose>& pose_target_vector);
-
-//         bool executePath(bool wait = true);
-
-        
-//         private:
-//         void init(const std::string& group_name);
-        
-//         rclcpp::Node::SharedPtr node_;
-//         std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group_;
-//         moveit::planning_interface::MoveGroupInterface::Plan xarm_plan_;
-//         moveit_msgs::msg::RobotTrajectory trajectory_;
-        
-//         // define services 
-//         rclcpp::Service<crackle_interfaces::srv::PickupObject>::SharedPtr pickup_service;
-        
-//         void pickupServiceCallback (
-//         const std::shared_ptr<crackle_interfaces::srv::PickupObject::Request> request,
-//         std::shared_ptr<crackle_interfaces::srv::PickupObject::Response> response);
-
-//         bool is_trajectory_;
-// };
 #endif // __XARM_PLANNER_H__

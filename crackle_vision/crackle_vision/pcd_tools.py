@@ -3,14 +3,16 @@
 - best approximate a point cloud, either as a sphere or cuboid. 
 - return the points of the boundary curve of a point cloud as seen from above"""  
 
+from typing import Tuple
 import open3d as o3d
 import numpy as np
 import scipy
+from shape_msgs.msg import SolidPrimitive
 
 def sum_of_pcd_distances(source: o3d.geometry.PointCloud, target: o3d.geometry.PointCloud) -> float:
     return np.sum(source.compute_point_cloud_distance(target))
 
-def get_best_approx(pcd: o3d.geometry.PointCloud) -> o3d.geometry.TriangleMesh:
+def get_best_approx(pcd: o3d.geometry.PointCloud) -> Tuple[o3d.geometry.TriangleMesh, int]:
     """
     Returns the mesh, either a cuboid or sphere, that best approximates the point cloud
     
@@ -22,6 +24,8 @@ def get_best_approx(pcd: o3d.geometry.PointCloud) -> o3d.geometry.TriangleMesh:
 
     """
     pcd_hull, _ = pcd.compute_convex_hull()
+    pcd_hull.compute_vertex_normals()
+    o3d.visualization.draw_geometries([pcd, pcd_hull])
     min_cuboid = get_min_cuboid(pcd)[1]
     avg_sphere = get_avg_sphere_2(pcd)[0]
 
@@ -30,9 +34,11 @@ def get_best_approx(pcd: o3d.geometry.PointCloud) -> o3d.geometry.TriangleMesh:
     sphere_accuracy = np.abs(pcd_hull.get_volume() - avg_sphere.get_volume())
 
     if (cuboid_accuracy < sphere_accuracy):
-        return min_cuboid
+        min_cuboid.compute_vertex_normals()
+        return min_cuboid, SolidPrimitive.BOX
     else:
-        return avg_sphere
+        avg_sphere.compute_vertex_normals()
+        return avg_sphere, SolidPrimitive.SPHERE
 
 def crop_point_cloud(pcd: o3d.geometry.PointCloud, min_bounds: np.ndarray, max_bounds: np.ndarray) -> tuple[o3d.geometry.PointCloud, o3d.geometry.AxisAlignedBoundingBox]:
     """ "
@@ -75,7 +81,10 @@ def get_min_cuboid(pcd: o3d.geometry.PointCloud) -> tuple[o3d.geometry.OrientedB
         (min_volume_bounding_box, min_volume_bounding_box_mesh): The best-approximation cuboid as an o3d.geometry.OrientedBoundingBox and o3d.geometry.TriangleMesh object respectively
 
     """
+    # TODO @Tanay understand what this function returns and return the dimensions of the cuboid
     min_volume_bounding_box = pcd.get_minimal_oriented_bounding_box()
+    dimensions = min_volume_bounding_box.get_extent()
+    o3d.visualization.draw_geometries([pcd, min_volume_bounding_box])
     min_volume_bounding_box_mesh = o3d.geometry.TriangleMesh.create_from_oriented_bounding_box(min_volume_bounding_box)
     return (min_volume_bounding_box, min_volume_bounding_box_mesh)
 

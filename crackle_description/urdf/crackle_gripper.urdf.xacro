@@ -10,7 +10,7 @@
   <!-- =========================
        Macro: Gripper Base Link
        ========================= -->
-  <xacro:macro name="gripper_base_macro" params="link_name base_mesh:='damn.stl'">
+  <xacro:macro name="gripper_base_macro" params="link_name base_mesh:='ClawBase.stl'">
     <link name="${link_name}">
       <visual>
         <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -33,46 +33,6 @@
       </inertial>
       <color rgba="0.0 0.0 0.5 1"/>
     </link>
-  </xacro:macro>
-
-
-  <!-- =========================
-       Macro: Claw Link + Joint
-       =========================
-       params:
-         claw_name, claw_mesh
-         pivot_xyz, pivot_rpy, pivot_axis
-  -->
-  <xacro:macro name="claw_macro" params="claw_name claw_mesh pivot_xyz:='0 0 0' pivot_rpy:='0 0 0' pivot_axis:='0 0 1'">
-    <link name="${claw_name}">
-      <visual>
-        <origin xyz="0 0 0" rpy="0 0 0"/>
-        <geometry>
-          <mesh filename="${pkg_path}/${claw_mesh}" scale="${mesh_scale}"/>
-        </geometry>
-      </visual>
-      <!-- <collision>
-        <origin xyz="0 0 0" rpy="0 0 0"/>
-        <geometry>
-          <mesh filename="${pkg_path}/${claw_mesh}" scale="${mesh_scale}"/>
-        </geometry>
-      </collision> -->
-      <inertial>
-        <origin xyz="0 0 0" rpy="0 0 0"/>
-        <mass value="0.05"/>
-        <inertia ixx="0.0001" ixy="0.0" ixz="0.0"
-                 iyy="0.0001" iyz="0.0"
-                 izz="0.0001"/>
-      </inertial>
-    </link>
-
-    <joint name="${claw_name}_joint" type="revolute">
-      <parent link="gripper_base"/>
-      <child link="${claw_name}"/>
-      <origin xyz="${pivot_xyz}" rpy="${pivot_rpy}"/>
-      <axis xyz="${pivot_axis}"/>
-      <limit effort="1.0" velocity="1.0" lower="0" upper="1.57"/>
-    </joint>
   </xacro:macro>
 
   <!-- =========================
@@ -114,43 +74,6 @@
     <origin xyz="-0.08 0 0.03" rpy="0 0 -1.57"/>
   </joint>
 
-
-  <link name="leapmotion_link">
-    <!-- <visual>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
-      <geometry>
-        <box size="0.1 0.1 0.1"/>
-      </geometry>
-    </visual> -->
-  </link>
-
-  <joint name="leapmotion_link_joint" type="fixed">
-    <parent link="gripper_base"/>
-    <child link="leapmotion_link"/>
-    <origin xyz="0 0 0" rpy="0 0 0"/>
-  </joint>
-
-  <!-- 3) Three claws, each with a revolute joint -->
-  <!-- <xacro:claw_macro 
-    claw_name="claw_1" 
-    claw_mesh="elArmo.stl"
-    pivot_xyz=".002 .025 0.009"
-    pivot_rpy="1.0 2.0 2.0"
-    pivot_axis="0 1 0"/> -->
-
-   <!-- <xacro:claw_macro 
-    claw_name="claw_2" 
-    claw_mesh="elArmo.stl"
-    pivot_xyz="-.025 0.019 0.013"
-    pivot_rpy="0 1.57 2.34"
-    pivot_axis="0 1 0"/>
-
-  <xacro:claw_macro 
-    claw_name="claw_3" 
-    claw_mesh="elArmo.stl"
-    pivot_xyz=".025 0.015 0.013"
-    pivot_rpy="0 1.0 -1.57"
-    pivot_axis="0 1 0"/>  -->
   </xacro:macro> 
 
 </robot>

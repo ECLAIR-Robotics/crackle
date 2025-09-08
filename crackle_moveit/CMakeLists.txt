@@ -31,6 +31,15 @@ include_directories(
 add_executable(moveit_task_constructor src/moveit_task_constructor.cpp)
 
 add_executable(moveit_scene_updater src/moveit_scene_updater.cpp)
+add_executable(moveit_manipulation src/moveit_manipulation.cpp)
+
+ament_target_dependencies(moveit_manipulation
+  moveit_ros_planning_interface
+  moveit_task_constructor_core
+  crackle_interfaces
+  example_interfaces
+  ${dependencies}
+)
 
 ament_target_dependencies(moveit_task_constructor
   moveit_ros_planning_interface
@@ -82,6 +91,11 @@ install(TARGETS moveit_task_constructor
 
 install(TARGETS moveit_scene_updater
   DESTINATION lib/${PROJECT_NAME})
+
+install(TARGETS moveit_manipulation
+  DESTINATION lib/${PROJECT_NAME})
+
+
 
 install( DIRECTORY
   launch
