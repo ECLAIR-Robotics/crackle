@@ -40,4 +40,4 @@ echo 'eval "$(starship init bash)"' >> $HOME/.bashrc
 # Configure starship
 mkdir -p $HOME/.config && touch $HOME/.config/starship.toml
 
-cp $HOME/crackle_ws/src/crackle/bash_scripts/starship.toml $HOME/.config/
+cp bash_scripts/starship.toml $HOME/.config/
