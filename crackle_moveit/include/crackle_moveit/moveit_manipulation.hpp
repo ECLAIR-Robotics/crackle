@@ -13,7 +13,9 @@
 
 #include <moveit_msgs/msg/display_robot_state.hpp>
 #include <moveit_msgs/msg/display_trajectory.hpp>
-// #include <moveit_visual_tools/moveit_visual_tools.h>
+#include <shape_msgs/msg/solid_primitive.hpp>
+#include <shape_msgs/msg/mesh.hpp>
+#include <moveit_msgs/msg/collision_object.hpp>
 
 #include <std_msgs/msg/bool.hpp>
 #include <xarm_msgs/srv/plan_pose.hpp>
@@ -24,24 +26,25 @@
 class CrackleManipulation
 {
     public:
-        rclcpp::Logger logger_;
-        CrackleManipulation(const std::string& group_name);
-        ~CrackleManipulation() {};
+    CrackleManipulation(const std::string& group_name);
+    ~CrackleManipulation() {};
     
-        moveit::planning_interface::MoveGroupInterface& getMoveGroup() { return *move_group_; }
-        bool move_to_pose(const geometry_msgs::msg::Pose& target_pose);
-
-        // Return logger
-        rclcpp::Logger& getLogger() { return logger_; }
-
+    moveit::planning_interface::MoveGroupInterface& getMoveGroup() { return *move_group_; }
+    bool plan_to_pose(const geometry_msgs::msg::Pose& target_pose);
+    bool execute_plan(bool wait);
+    bool plan_cartesian_path(const std::vector<geometry_msgs::msg::Pose>& pose_target_vector);
+    bool reach_for_object(const std::string& object_name);
+    rclcpp::Logger& getLogger() { return logger_; }
+    
     private:
-        void initialize(const std::string& group_name);
-    
-        rclcpp::Node::SharedPtr node_;
-        std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group_;
-        std::shared_ptr<moveit::planning_interface::PlanningSceneInterface> planning_scene_;
-        moveit_msgs::msg::RobotTrajectory trajectory_;
-        bool is_trajectory_;
+    void initialize(const std::string& group_name);
+    rclcpp::Logger logger_;
+    rclcpp::Node::SharedPtr node_;
+    std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group_;
+    std::shared_ptr<moveit::planning_interface::PlanningSceneInterface> planning_scene_;
+    moveit::planning_interface::MoveGroupInterface::Plan plan_;
+    moveit_msgs::msg::RobotTrajectory trajectory_;
+    bool is_trajectory_;
 };
 
 #endif // __CRACKLE_PLANNER_H__
