@@ -5,49 +5,54 @@ from launch import LaunchDescription
 from launch_ros.actions import Node
 import xacro
 import os
-from launch.actions import IncludeLaunchDescription, GroupAction
+from launch.substitutions import LaunchConfiguration
+from launch.conditions import IfCondition, UnlessCondition
+from launch.actions import IncludeLaunchDescription, GroupAction, LogInfo, DeclareLaunchArgument
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import SetRemap
-from uf_ros_lib.moveit_configs_builder import MoveItConfigsBuilder
 
 def generate_launch_description():
-    
-    # Realsense D435i file
-    realsense_launch_file = os.path.join(
-        get_package_share_directory('realsense2_camera'),
-        'launch',
-        'rs_launch.py'
-    )
 
-    realsense_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(realsense_launch_file),
-        launch_arguments={
-            'depth_module.depth_profile': '1280x720x30',
-            'pointcloud.enable': 'true',
-            }.items()
+    use_simulated_robot = LaunchConfiguration('simulated', default='false')
+    simulate_vision = LaunchConfiguration('simulate_vision', default='false')
+    user_simulated_robot_launch_arg = DeclareLaunchArgument(
+        'simulated',
+        default_value='false',
+        description='Use simulated robot if true, else use real robot'
     )
-
-    xarm_moveit_config_dir = get_package_share_directory('xarm_moveit_config')
-    xarm_moveit_config_file = os.path.join(
-        xarm_moveit_config_dir,
-        'launch',
-        'lite6_moveit_realmove.launch.py'
+    user_simulate_vision_launch_arg = DeclareLaunchArgument(
+        'simulate_vision',
+        default_value='true',
+        description='Use simulated vision if true, else use real vision'
     )
+    log_choice = LogInfo(msg=['Use Simulated Robot: ', use_simulated_robot])
+    log_vision_choice = LogInfo(msg=['Use Simulated Vision: ', simulate_vision])
 
-    xarm_realmove_include = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(xarm_moveit_config_file),
-        launch_arguments={
-            'robot_ip': '192.168.1.166',
-        }.items()
+    moveit_bringup = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(get_package_share_directory("crackle_moveit"), "launch", "moveit_bringup.launch.py")
+        ),
+        launch_arguments={'simulated': use_simulated_robot}.items(),
+    )
+    vision_bringup = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(get_package_share_directory("crackle_vision"), "launch", "crackle_vision_launch.py")
+        ),
+        condition=UnlessCondition(simulate_vision)
     )
 
     group = GroupAction([
         SetRemap(src='/camera/camera/depth/color/points', dst='/cloud_in'),
-        realsense_launch
-    ])
+    ]) # Revisit this for the octomap
 
 
 
     return LaunchDescription([
-        group
+        user_simulated_robot_launch_arg,
+        user_simulate_vision_launch_arg,
+        log_choice,
+        log_vision_choice,
+        moveit_bringup,
+        vision_bringup,
+        # group
     ])

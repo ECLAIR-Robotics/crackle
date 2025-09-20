@@ -1,5 +1,7 @@
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, RegisterEventHandler, TimerAction
+from launch.substitutions import LaunchConfiguration
+from launch.actions import IncludeLaunchDescription, TimerAction, DeclareLaunchArgument, LogInfo
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 
@@ -7,9 +9,9 @@ from ament_index_python.packages import get_package_share_directory
 
 import os
 
-namespace = "crackle_vision"
 
 def generate_launch_description():
+
 
     realsense_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -33,7 +35,6 @@ def generate_launch_description():
         actions=[
             Node(
                 package="crackle_vision",
-                namespace=namespace,
                 executable="vision_server_node",
                 name="vision_server",
                 output="screen",
@@ -43,6 +44,6 @@ def generate_launch_description():
 
     return LaunchDescription([
         # include the realsense camera launch 
-        # realsense_launch,
+        realsense_launch,
         vision_server_node
     ])
