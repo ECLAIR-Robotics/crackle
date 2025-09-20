@@ -25,6 +25,7 @@ class CrackleMoveitSceneUpdater {
         void updateObject();
 
         rclcpp::Publisher<moveit_msgs::msg::PlanningScene>::SharedPtr planning_scene_diff_publisher_;
+        rclcpp::Subscription<moveit_msgs::msg::CollisionObject>::SharedPtr collision_object_subscription_;
     private:
         void init();
 

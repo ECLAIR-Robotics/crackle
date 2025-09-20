@@ -6,14 +6,14 @@ from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from ament_index_python import get_package_share_directory
-
+from geometry_msgs.msg import Pose
 
 from std_srvs.srv import Empty
 from sensor_msgs.msg import Image, PointCloud2, CameraInfo
 from crackle_interfaces.srv import FindObjects
 from shape_msgs.msg import SolidPrimitive
 from crackle_vision.pcd_tools import get_best_approx # @ Shalini
-
+from moveit_msgs.msg import CollisionObject
 import cv2
 import matplotlib.pyplot as plt
 from cv_bridge import CvBridge
@@ -101,6 +101,12 @@ class VisionServerNode(Node):
             Image,
             "vision/results/image_raw",
             10,
+        )
+
+        self.collision_object_pub = self.create_publisher(
+            CollisionObject,
+            "crackle_moveit/publish_collision_object",
+            10
         )
 
     def set_camera_model(self, msg: CameraInfo):
@@ -239,18 +245,38 @@ class VisionServerNode(Node):
                         largest_cluster = pcd.select_by_index(np.where(labels == largest_cluster_label)[0])
                         pcd = largest_cluster 
 
-                        # TODO @Shalini
                         shape_mesh, shape_type = get_best_approx(pcd)
-                        o3d.visualization.draw_geometries([shape_mesh])
+                        if shape_type == SolidPrimitive.BOX:
+                            self.get_logger().info(f"Object {name} approximated as a box")
+                        elif shape_type == SolidPrimitive.SPHERE:
+                            self.get_logger().info(f"Object {name} approximated as a sphere")
 
+                        # o3d.visualization.draw_geometries([shape_mesh])
                         object_solid_primitive = SolidPrimitive()
                         object_solid_primitive.type = shape_type
-                        
-
+                        object_solid_primitive.dimensions = shape_mesh.get_max_bound() - shape_mesh.get_min_bound()
+                        print("Object dimensions:", object_solid_primitive.dimensions)
+                        pose = Pose()
+                        pose.position.x = (shape_mesh.get_max_bound()[0] + shape_mesh.get_min_bound()[0]) / 2
+                        pose.position.y = (shape_mesh.get_max_bound()[1] + shape_mesh.get_min_bound()[1]) / 2
+                        pose.position.z = (shape_mesh.get_max_bound()[2] + shape_mesh.get_min_bound()[2]) / 2
+                        pose.orientation.w = 1.0
+                        print("Object position:", pose.position)
+                        print("Object orientation:", pose.orientation)
                         # visualize the point cloud
-                        o3d.visualization.draw_geometries([pcd])
+                        o3d.visualization.draw_geometries([pcd]) 
+                        output.append(object_solid_primitive)
+
+                        # Construct collision object and publish to MoveIt (Untested)
+                        collision_object = CollisionObject()
+                        collision_object.header.frame_id = "camera_depth_optical_frame"
+                        collision_object.id = name
+                        collision_object.primitives.push_back(object_solid_primitive)
+                        collision_object.primitive_poses.push_back(pose)
+                        collision_object.operation = CollisionObject.ADD
+                        self.collision_object_pub.publish(collision_object)
             response.names = names
-            response.objects = []
+            response.objects = output
 
         else:
             self.get_logger().info("No Image available")

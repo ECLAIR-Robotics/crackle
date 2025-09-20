@@ -9,6 +9,16 @@ void CrackleMoveitSceneUpdater::init() {
     move_group_ = std::make_shared<moveit::planning_interface::MoveGroupInterface>(node_, PLANNING_GROUP);
     planning_scene_ = std::make_shared<moveit::planning_interface::PlanningSceneInterface>();
     planning_scene_diff_publisher_ = node_->create_publisher<moveit_msgs::msg::PlanningScene>("planning_scene", 1);
+    collision_object_subscription_ = node_->create_subscription<moveit_msgs::msg::CollisionObject>(
+        "crackle_moveit/publish_collision_object", 10, 
+        [this](const moveit_msgs::msg::CollisionObject::SharedPtr msg) -> void {
+            RCLCPP_INFO(node_->get_logger(), "Received collision object message with id: %s", msg->id.c_str());
+            std::vector<moveit_msgs::msg::CollisionObject> collision_objects;
+            collision_objects.push_back(*msg);
+            planning_scene_->applyCollisionObjects(collision_objects);
+            RCLCPP_INFO(node_->get_logger(), "Applied collision object with id: %s to the planning scene", msg->id.c_str());
+        }
+    );
     while(planning_scene_diff_publisher_->get_subscription_count() < 1) {
         RCLCPP_INFO(node_->get_logger(), "Waiting for subscriber to connect");
         rclcpp::sleep_for(std::chrono::seconds(1));
