@@ -21,11 +21,12 @@
 
 ## Setup Script
 
-[setup.sh](attachment:2f4cc41d-ce9f-4767-985b-272c6fe213f8:setup.sh)
+[setup.sh](https://github.com/ECLAIR-Robotics/crackle/blob/main/bash_scripts/setup.sh)
 
 <aside>
 ⚠️
 
-Only the run the script above inside your Ubuntu 22.04 machine in your home directory
+Only the run the script above inside your Ubuntu 22.04 machine in your home directory `~`
 
 </aside>
+
