@@ -7,12 +7,13 @@ from typing import Tuple
 import open3d as o3d
 import numpy as np
 import scipy
+from scipy.spatial.transform import Rotation as R
 from shape_msgs.msg import SolidPrimitive
 
 def sum_of_pcd_distances(source: o3d.geometry.PointCloud, target: o3d.geometry.PointCloud) -> float:
     return np.sum(source.compute_point_cloud_distance(target))
 
-def get_best_approx(pcd: o3d.geometry.PointCloud) -> Tuple[o3d.geometry.TriangleMesh, int]:
+def get_best_approx(pcd: o3d.geometry.PointCloud) -> Tuple[o3d.geometry.TriangleMesh, int, np.ndarray]:
     """
     Returns the mesh, either a cuboid or sphere, that best approximates the point cloud
     
@@ -20,14 +21,25 @@ def get_best_approx(pcd: o3d.geometry.PointCloud) -> Tuple[o3d.geometry.Triangle
         pcd: Point cloud to be approximated
 
     Returns:
-        approx_shape: TriangleMesh of best approximating shape
+        shape_mesh: The best-approximation mesh as an o3d.geometry.TriangleMesh object
+        shape_type: The type of shape as a shape_msgs.msg.SolidPrimitive type (either
+                    SolidPrimitive.BOX or SolidPrimitive.SPHERE)
+        quaternion: The orientation of the shape as a (4,) np array representing a quaternion (x, y, z, w)        
 
     """
     pcd_hull, _ = pcd.compute_convex_hull()
     pcd_hull.compute_vertex_normals()
-    o3d.visualization.draw_geometries([pcd, pcd_hull])
-    min_cuboid = get_min_cuboid(pcd)[1]
+    # o3d.visualization.draw_geometries([pcd, pcd_hull])
+
+    orientated_bounding_box, min_cuboid = get_min_cuboid(pcd)
     avg_sphere = get_avg_sphere_2(pcd)[0]
+    rotation_matrix = orientated_bounding_box.R.copy()
+    
+    print("Rotation matrix:\n", rotation_matrix)
+    z_axis_rotation = R.from_euler('z', float(90), degrees=True)
+    rotated_angle = R.from_matrix(rotation_matrix) * z_axis_rotation
+    quaternion = rotated_angle.as_quat()
+    print("Quaternion (x, y, z, w):", quaternion)
 
     # Accuracy is being taken as the difference in volume between pcd and approx...
     cuboid_accuracy = np.abs(pcd_hull.get_volume() - min_cuboid.get_volume())
@@ -35,10 +47,10 @@ def get_best_approx(pcd: o3d.geometry.PointCloud) -> Tuple[o3d.geometry.Triangle
 
     if (cuboid_accuracy < sphere_accuracy):
         min_cuboid.compute_vertex_normals()
-        return min_cuboid, SolidPrimitive.BOX
+        return min_cuboid, SolidPrimitive.BOX, quaternion
     else:
         avg_sphere.compute_vertex_normals()
-        return avg_sphere, SolidPrimitive.SPHERE
+        return avg_sphere, SolidPrimitive.SPHERE, np.array([0, 0, 0, 1])  # Identity quaternion
 
 def crop_point_cloud(pcd: o3d.geometry.PointCloud, min_bounds: np.ndarray, max_bounds: np.ndarray) -> tuple[o3d.geometry.PointCloud, o3d.geometry.AxisAlignedBoundingBox]:
     """ "
@@ -83,8 +95,8 @@ def get_min_cuboid(pcd: o3d.geometry.PointCloud) -> tuple[o3d.geometry.OrientedB
     """
     # TODO @Tanay understand what this function returns and return the dimensions of the cuboid
     min_volume_bounding_box = pcd.get_minimal_oriented_bounding_box()
-    dimensions = min_volume_bounding_box.get_extent()
-    o3d.visualization.draw_geometries([pcd, min_volume_bounding_box])
+    # dimensions = min_volume_bounding_box.get_extent()
+    # o3d.visualization.draw_geometries([pcd, min_volume_bounding_box])
     min_volume_bounding_box_mesh = o3d.geometry.TriangleMesh.create_from_oriented_bounding_box(min_volume_bounding_box)
     return (min_volume_bounding_box, min_volume_bounding_box_mesh)
 

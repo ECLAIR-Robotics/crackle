@@ -61,7 +61,8 @@ int main(int argc, char **argv) {
     RCLCPP_INFO(node->get_logger(), "Add collision object: table1");
     moveit::planning_interface::PlanningSceneInterface planning_scene_interface; 
     planning_scene_interface.applyCollisionObject(collision_object);
-
+    
+    rclcpp::spin(node);
     rclcpp::shutdown();
     return 0;    
 }
