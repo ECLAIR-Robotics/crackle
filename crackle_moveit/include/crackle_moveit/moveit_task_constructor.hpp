@@ -7,9 +7,6 @@
 
 #include <moveit/move_group_interface/move_group_interface.h>
 #include <moveit/planning_scene_interface/planning_scene_interface.h>
-#include <moveit/task_constructor/task.h>
-#include <moveit/task_constructor/solvers.h>
-#include <moveit/task_constructor/stages.h>
 #include <crackle_interfaces/srv/pickup_object.hpp>
 
 #include <std_srvs/srv/trigger.hpp>
