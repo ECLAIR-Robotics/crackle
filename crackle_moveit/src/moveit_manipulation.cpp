@@ -20,6 +20,7 @@
  * @date 09/08/2025
  */
 #include <crackle_moveit/moveit_manipulation.hpp>
+#include <cmath>
 
 const double jump_threshold = 0.0;
 const double eef_step = 0.005;
@@ -265,6 +266,147 @@ geometry_msgs::msg::Pose CrackleManipulation::construct_reach_pose(geometry_msgs
     return target_pose;
 }
 
+std::vector<Vector3> CrackleManipulation::compute_grip_points_for_box(const std::vector<double>& dimensions, const geometry_msgs::msg::Pose& object_pose)
+{
+    std::vector<Vector3> grip_points;
+    
+    // Box dimensions: [width (x), depth (y), height (z)]
+    double width = dimensions[0];
+    double depth = dimensions[1]; 
+    double height = dimensions[2];
+    
+    // Define safe approach distances based on gripper size (assuming ~5cm gripper width)
+    const double safe_distance = 0.08; // 8cm approach distance
+    const double min_grip_size = 0.04; // 4cm minimum grip dimension
+    
+    // Priority order: top -> sides (prefer larger faces)
+    // Top approach (highest priority for pick-up operations)
+    grip_points.push_back({0.0, 0.0, height/2 + safe_distance});
+    
+    // Side approaches - only if object dimensions allow gripper to fit
+    if (depth > min_grip_size) {
+        // Approach from +X side
+        grip_points.push_back({width/2 + safe_distance, 0.0, height/4});
+        // Approach from -X side  
+        grip_points.push_back({-(width/2 + safe_distance), 0.0, height/4});
+    }
+    
+    if (width > min_grip_size) {
+        // Approach from +Y side
+        grip_points.push_back({0.0, depth/2 + safe_distance, height/4});
+        // Approach from -Y side
+        grip_points.push_back({0.0, -(depth/2 + safe_distance), height/4});
+    }
+    
+    // If object is very flat, add angled approaches
+    if (height < min_grip_size) {
+        grip_points.push_back({width/3, depth/3, safe_distance});
+        grip_points.push_back({-width/3, -depth/3, safe_distance});
+    }
+    
+    RCLCPP_INFO(node_->get_logger(), "Computed %zu grip points for box [%.3f x %.3f x %.3f]", 
+                grip_points.size(), width, depth, height);
+    
+    return grip_points;
+}
+
+std::vector<Vector3> CrackleManipulation::compute_grip_points_for_sphere(double radius, const geometry_msgs::msg::Pose& object_pose)
+{
+    std::vector<Vector3> grip_points;
+    
+    const double safe_distance = 0.08; // 8cm approach distance
+    const double approach_radius = radius + safe_distance;
+    
+    // For spheres, approach from multiple angles around the equator and from top
+    // Top approach (highest priority)
+    grip_points.push_back({0.0, 0.0, approach_radius});
+    
+    // Equatorial approaches at 45-degree intervals for good coverage
+    const int num_approaches = 8;
+    for (int i = 0; i < num_approaches; ++i) {
+        double angle = 2.0 * M_PI * i / num_approaches;
+        double x = approach_radius * cos(angle);
+        double y = approach_radius * sin(angle);
+        double z = radius * 0.3; // Slightly above center for better grip
+        grip_points.push_back({x, y, z});
+    }
+    
+    // If sphere is small enough, add angled top approaches
+    if (radius < 0.05) { // 5cm radius threshold
+        grip_points.push_back({approach_radius * 0.5, 0.0, approach_radius * 0.866}); // 60 degrees
+        grip_points.push_back({0.0, approach_radius * 0.5, approach_radius * 0.866});
+        grip_points.push_back({-approach_radius * 0.5, 0.0, approach_radius * 0.866});
+        grip_points.push_back({0.0, -approach_radius * 0.5, approach_radius * 0.866});
+    }
+    
+    RCLCPP_INFO(node_->get_logger(), "Computed %zu grip points for sphere with radius %.3f", 
+                grip_points.size(), radius);
+    
+    return grip_points;
+}
+
+std::vector<Vector3> CrackleManipulation::compute_shape_aware_grip_points(const moveit_msgs::msg::CollisionObject& obj)
+{
+    std::vector<Vector3> grip_points;
+    
+    if (obj.primitives.empty()) {
+        RCLCPP_WARN(node_->get_logger(), "Object has no primitive shapes, using default grip points");
+        // Fallback to simple default points
+        grip_points.push_back({0.0, 0.0, 0.1});
+        grip_points.push_back({0.1, 0.1, 0.1});
+        return grip_points;
+    }
+    
+    const auto& primitive = obj.primitives[0];
+    
+    switch (primitive.type) {
+        case shape_msgs::msg::SolidPrimitive::BOX: {
+            if (primitive.dimensions.size() >= 3) {
+                grip_points = compute_grip_points_for_box(primitive.dimensions, obj.primitive_poses[0]);
+                RCLCPP_INFO(node_->get_logger(), "Using box-specific grip computation");
+            } else {
+                RCLCPP_WARN(node_->get_logger(), "Invalid box dimensions, using default grip points");
+                grip_points.push_back({0.0, 0.0, 0.1});
+            }
+            break;
+        }
+        case shape_msgs::msg::SolidPrimitive::SPHERE: {
+            if (!primitive.dimensions.empty()) {
+                double radius = primitive.dimensions[0]; // For sphere, dimensions[0] is radius
+                grip_points = compute_grip_points_for_sphere(radius, obj.primitive_poses[0]);
+                RCLCPP_INFO(node_->get_logger(), "Using sphere-specific grip computation");
+            } else {
+                RCLCPP_WARN(node_->get_logger(), "Invalid sphere dimensions, using default grip points");
+                grip_points.push_back({0.0, 0.0, 0.1});
+            }
+            break;
+        }
+        case shape_msgs::msg::SolidPrimitive::CYLINDER: {
+            // Treat cylinder similar to box but with circular cross-section
+            if (primitive.dimensions.size() >= 2) {
+                double radius = primitive.dimensions[0];
+                double height = primitive.dimensions[1];
+                // Create box-like dimensions for cylinder
+                std::vector<double> cylinder_dims = {radius * 2, radius * 2, height};
+                grip_points = compute_grip_points_for_box(cylinder_dims, obj.primitive_poses[0]); 
+                RCLCPP_INFO(node_->get_logger(), "Using cylinder-specific grip computation (as box)");
+            } else {
+                RCLCPP_WARN(node_->get_logger(), "Invalid cylinder dimensions, using default grip points");
+                grip_points.push_back({0.0, 0.0, 0.1});
+            }
+            break;
+        }
+        default: {
+            RCLCPP_WARN(node_->get_logger(), "Unknown primitive type %d, using default grip points", primitive.type);
+            grip_points.push_back({0.0, 0.0, 0.1});
+            grip_points.push_back({0.1, 0.1, 0.1});
+            break;
+        }
+    }
+    
+    return grip_points;
+}
+
 bool CrackleManipulation::reach_for_object(const std::string &object_name)
 {
 
@@ -288,12 +430,24 @@ bool CrackleManipulation::reach_for_object(const std::string &object_name)
         RCLCPP_INFO(node_->get_logger(), "Object Orientation: [%f, %f, %f, %f]", obj.primitive_poses[0].orientation.x, obj.primitive_poses[0].orientation.y, obj.primitive_poses[0].orientation.z, obj.primitive_poses[0].orientation.w);
         RCLCPP_INFO(node_->get_logger(), "Object Dimensions: [%f, %f, %f]", obj.primitives[0].dimensions[0], obj.primitives[0].dimensions[1], obj.primitives[0].dimensions[2]);
 
+        // Compute shape-aware grip points instead of using hardcoded offsets
+        std::vector<Vector3> shape_aware_grip_points = compute_shape_aware_grip_points(obj);
+        
         // Add possible reach poses to this vector from lowest costing to highest costing
         std::vector<geometry_msgs::msg::Pose> target_reach_poses;
         std::vector<bool> reach_success;
 
-        target_reach_poses.push_back(construct_reach_pose(obj.pose, {0.1, 0.1, 0.1}));   // above object
-        target_reach_poses.push_back(construct_reach_pose(obj.pose, {-0.1, -0.1, 0.1})); // above object
+        // Convert shape-aware grip points to reach poses
+        for (const auto& grip_point : shape_aware_grip_points) {
+            target_reach_poses.push_back(construct_reach_pose(obj.pose, grip_point));
+        }
+        
+        // If no shape-aware points generated, fall back to default approach
+        if (target_reach_poses.empty()) {
+            RCLCPP_WARN(node_->get_logger(), "No shape-aware grip points generated, using fallback approach");
+            target_reach_poses.push_back(construct_reach_pose(obj.pose, {0.0, 0.0, 0.1}));   // above object
+            target_reach_poses.push_back(construct_reach_pose(obj.pose, {0.1, 0.0, 0.1}));   // side approach
+        }
 
         bool success = false;
         for (const auto &pose : target_reach_poses)
