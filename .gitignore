@@ -6,7 +6,7 @@ __pycache__/
 # C extensions
 *.so
 
-
+crackle_rosbag/rosbags/
 # Distribution / packaging
 .Python
 build/

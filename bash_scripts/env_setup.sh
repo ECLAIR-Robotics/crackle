@@ -26,6 +26,7 @@ sudo apt install ros-humble-librealsense2* -y
 sudo apt install ros-humble-hardware-interface* -y
 sudo apt install ros-humble-controller-manager* -y
 sudo apt-get install ros-humble-gazebo-* -y
+sudo apt-get install ros-humble-rosbag2* -y
 sudo apt install ros-humble-moveit -y && sudo apt install ros-humble-moveit-* -y
 
 # setup .bashrc
