@@ -428,10 +428,21 @@ bool CrackleManipulation::reach_for_object(const std::string &object_name)
         RCLCPP_INFO(node_->get_logger(), "Object Pose: [%f, %f, %f]", obj.pose.position.x, obj.pose.position.y, obj.pose.position.z);
         RCLCPP_INFO(node_->get_logger(), "Object Primitive Pose: [%f, %f, %f]", obj.primitive_poses[0].position.x, obj.primitive_poses[0].position.y, obj.primitive_poses[0].position.z);
         RCLCPP_INFO(node_->get_logger(), "Object Orientation: [%f, %f, %f, %f]", obj.primitive_poses[0].orientation.x, obj.primitive_poses[0].orientation.y, obj.primitive_poses[0].orientation.z, obj.primitive_poses[0].orientation.w);
-        RCLCPP_INFO(node_->get_logger(), "Object Dimensions: [%f, %f, %f]", obj.primitives[0].dimensions[0], obj.primitives[0].dimensions[1], obj.primitives[0].dimensions[2]);
+        
+        // Check if object has valid dimensions before printing
+        if (!obj.primitives.empty() && obj.primitives[0].dimensions.size() >= 3) {
+            RCLCPP_INFO(node_->get_logger(), "Object Dimensions: [%f, %f, %f]", obj.primitives[0].dimensions[0], obj.primitives[0].dimensions[1], obj.primitives[0].dimensions[2]);
+        } else if (!obj.primitives.empty() && obj.primitives[0].dimensions.size() >= 1) {
+            RCLCPP_INFO(node_->get_logger(), "Object has %zu dimension(s): [%f]", obj.primitives[0].dimensions.size(), obj.primitives[0].dimensions[0]);
+        } else {
+            RCLCPP_WARN(node_->get_logger(), "Object has no valid dimensions");
+        }
 
         // Compute shape-aware grip points instead of using hardcoded offsets
         std::vector<Vector3> shape_aware_grip_points = compute_shape_aware_grip_points(obj);
+        
+        RCLCPP_INFO(node_->get_logger(), "Generated %zu shape-aware grip points for object '%s'", 
+                    shape_aware_grip_points.size(), object_name.c_str());
         
         // Add possible reach poses to this vector from lowest costing to highest costing
         std::vector<geometry_msgs::msg::Pose> target_reach_poses;
