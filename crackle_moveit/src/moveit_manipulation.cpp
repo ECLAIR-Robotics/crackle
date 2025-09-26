@@ -336,56 +336,6 @@ int main(int argc, char *argv[])
     // Next step goes here
     RCLCPP_INFO(manipulation.getLogger(), "Moveit Manipulation is running...");
 
-    // Define a target pose
-    auto const target_pose = []
-    {
-        geometry_msgs::msg::Pose msg;
-        msg.orientation.x = 0.0;
-        msg.orientation.y = 1.0;
-        msg.orientation.z = 0.0;
-        msg.orientation.w = 0.0;
-        msg.position.x = 0.17;
-        msg.position.y = 0.24;
-        msg.position.z = 0.5;
-        return msg;
-    }();
-
-    // manipulation.reach_for_object("Box_0");
-
-    // Move to the target pose
-    // bool success = manipulation.plan_to_pose(target_pose);
-    // if (success) {
-    //     RCLCPP_INFO(manipulation.getLogger(), "Pose planned successfully.");
-    //     success = manipulation.execute_plan(true);
-    //     if (success) {
-    //         RCLCPP_INFO(manipulation.getLogger(), "Pose executed successfully.");
-    //     } else {
-    //         RCLCPP_ERROR(manipulation.getLogger(), "Failed to execute pose.");
-    //     }
-    // } else {
-    //     RCLCPP_ERROR(manipulation.getLogger(), "Failed to plan pose.");
-    // }
-
-    // Plan a cartesian path around the target pose
-    // std::vector<geometry_msgs::msg::Pose> waypoints;
-    // waypoints.push_back(target_pose);
-    // geometry_msgs::msg::Pose target_pose_2 = target_pose;
-    // target_pose_2.position.y += 0.1;
-    // waypoints.push_back(target_pose_2);
-
-    // bool success = manipulation.plan_cartesian_path(waypoints);
-    // if (success) {
-    //     RCLCPP_INFO(manipulation.getLogger(), "Cartesian path planned successfully.");
-    //     success = manipulation.execute_plan(true);
-    //     if (success) {
-    //         RCLCPP_INFO(manipulation.getLogger(), "Cartesian path executed successfully.");
-    //     } else {
-    //         RCLCPP_ERROR(manipulation.getLogger(), "Failed to execute Cartesian path.");
-    //     }
-    // } else {
-    //     RCLCPP_ERROR(manipulation.getLogger(), "Failed to plan Cartesian path.");
-    // }
-
     // Shutdown ROS
     rclcpp::spin(manipulation.node_);
     rclcpp::shutdown();
