@@ -56,6 +56,11 @@ public:
     );
     geometry_msgs::msg::Pose construct_reach_pose(geometry_msgs::msg::Pose object_pose, Vector3 tool_offset);
     
+    // Shape-aware grip point computation functions
+    std::vector<Vector3> compute_grip_points_for_box(const std::vector<double>& dimensions, const geometry_msgs::msg::Pose& object_pose);
+    std::vector<Vector3> compute_grip_points_for_sphere(double radius, const geometry_msgs::msg::Pose& object_pose);
+    std::vector<Vector3> compute_shape_aware_grip_points(const moveit_msgs::msg::CollisionObject& obj);
+    
 private:
 
     void initialize(const std::string& group_name);
