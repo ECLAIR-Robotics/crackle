@@ -16,17 +16,17 @@ sudo apt update
 sudo apt upgrade
 
 # Install ROS dependencies
-sudo apt install python3-colcon-common-extensions
-sudo apt install ros-humble-desktop
-sudo apt install ros-humble-ros-base
-sudo apt install ros-dev-tools
-sudo apt install ros-humble-diagnostic-updater*
-sudo apt install ros-humble-control-msgs*
-sudo apt install ros-humble-librealsense2*
-sudo apt install ros-humble-hardware-interface*
-sudo apt install ros-humble-controller-manager*
-sudo apt-get install ros-humble-gazebo-*
-sudo apt install ros-humble-moveit && sudo apt install ros-humble-moveit-*
+sudo apt install python3-colcon-common-extensions -y
+sudo apt install ros-humble-desktop -y
+sudo apt install ros-humble-ros-base -y
+sudo apt install ros-dev-tools -y
+sudo apt install ros-humble-diagnostic-updater* -y
+sudo apt install ros-humble-control-msgs* -y
+sudo apt install ros-humble-librealsense2* -y
+sudo apt install ros-humble-hardware-interface* -y
+sudo apt install ros-humble-controller-manager* -y
+sudo apt-get install ros-humble-gazebo-* -y
+sudo apt install ros-humble-moveit -y && sudo apt install ros-humble-moveit-* -y
 
 # setup .bashrc
 echo "source /opt/ros/humble/setup.bash" >> $HOME/.bashrc
