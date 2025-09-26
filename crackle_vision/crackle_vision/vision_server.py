@@ -255,6 +255,7 @@ class VisionServerNode(Node):
                         object_solid_primitive = SolidPrimitive()
                         object_solid_primitive.type = shape_type
                         print("Shape mesh bounds:", (shape_mesh.get_min_bound() - shape_mesh.get_max_bound()))
+                        
                         object_solid_primitive.dimensions = (shape_mesh.get_max_bound() - shape_mesh.get_min_bound()).tolist()
                         print("Object dimensions:", object_solid_primitive.dimensions)
                         pose = Pose()

@@ -6,26 +6,37 @@
 #include <rclcpp/rclcpp.hpp>
 
 #include <moveit/move_group_interface/move_group_interface.h>
+#include <moveit/planning_scene/planning_scene.h>
 #include <moveit/planning_scene_interface/planning_scene_interface.h>
 #include <crackle_interfaces/srv/pickup_object.hpp>
-
+#include <tf2_ros/transform_listener.h>
 #include <std_srvs/srv/trigger.hpp>
-
 #include <moveit_msgs/msg/display_robot_state.hpp>
 #include <moveit_msgs/msg/display_trajectory.hpp>
 #include <shape_msgs/msg/solid_primitive.hpp>
 #include <shape_msgs/msg/mesh.hpp>
 #include <moveit_msgs/msg/collision_object.hpp>
-
+#include <geometry_msgs/msg/pose.hpp>
+#include <geometry_msgs/msg/quaternion.hpp>
+#include <geometry_msgs/msg/point.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <tf2/LinearMath/Quaternion.h>
 #include <xarm_msgs/srv/plan_pose.hpp>
 #include <xarm_msgs/srv/plan_joint.hpp>
 #include <xarm_msgs/srv/plan_exec.hpp>
 #include <xarm_msgs/srv/plan_single_straight.hpp>
+#include <tf2_eigen/tf2_eigen.hpp>
+#include <Eigen/Geometry>
 
+struct Vector3
+{
+    double x;
+    double y;
+    double z;
+};
 class CrackleManipulation
 {
-    public:
+public:
     CrackleManipulation(const std::string& group_name);
     ~CrackleManipulation() {};
     
@@ -38,8 +49,15 @@ class CrackleManipulation
                         crackle_interfaces::srv::PickupObject::Response::SharedPtr response);
     rclcpp::Logger& getLogger() { return logger_; }
     rclcpp::Node::SharedPtr node_;
+    geometry_msgs::msg::Quaternion lookAtQuat(
+        const Eigen::Vector3d& to_dir_world,
+        const Eigen::Vector3d& world_up,
+        const Eigen::Vector3d& tool_forward_in_tool
+    );
+    geometry_msgs::msg::Pose construct_reach_pose(geometry_msgs::msg::Pose object_pose, Vector3 tool_offset);
     
-    private:
+private:
+
     void initialize(const std::string& group_name);
     rclcpp::Logger logger_;
     rclcpp::Service<crackle_interfaces::srv::PickupObject>::SharedPtr pickup_service_;
