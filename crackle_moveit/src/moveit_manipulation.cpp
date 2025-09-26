@@ -31,8 +31,32 @@ CrackleManipulation::CrackleManipulation(const std::string& group_name)
 : logger_(rclcpp::get_logger("crackle_moveit_manipulation_node"))
 {
     node_ = rclcpp::Node::make_shared("crackle_moveit_manipulation_node");
-
+    pickup_service_ = node_->create_service<crackle_interfaces::srv::PickupObject>(
+        "crackle_manipulation/pickup_object",
+        std::bind(&CrackleManipulation::pick_up_object, this, std::placeholders::_1, std::placeholders::_2)
+        );
     initialize(group_name);
+}
+
+bool CrackleManipulation::pick_up_object(crackle_interfaces::srv::PickupObject::Request::SharedPtr request,
+                                         crackle_interfaces::srv::PickupObject::Response::SharedPtr response) {
+    std::string object_name = request->object_name;
+    RCLCPP_INFO(node_->get_logger(), "pick_up_object: requested to pick up");
+
+    // First, reach for the object
+    bool success = reach_for_object(object_name);
+    if (!success) {
+        RCLCPP_ERROR(node_->get_logger(), "pick_up_object: failed to reach for object '%s'", object_name.c_str());
+        return false;
+    }
+
+    // Next, close the gripper (this is a placeholder, actual gripper control code needed)
+    RCLCPP_INFO(node_->get_logger(), "pick_up_object: closing gripper to pick up object '%s'", object_name.c_str());
+
+    // TODO: Implement actual gripper control logic here
+    response->success = true;
+    return true;
+    
 }
 
 void CrackleManipulation::initialize(const std::string& group_name) {
@@ -211,7 +235,7 @@ int main(int argc, char * argv[])
         return msg;
     }();
 
-    manipulation.reach_for_object("Box_0");
+    // manipulation.reach_for_object("Box_0");
 
     // Move to the target pose
     // bool success = manipulation.plan_to_pose(target_pose);
@@ -250,6 +274,7 @@ int main(int argc, char * argv[])
 
 
     // Shutdown ROS
+    rclcpp::spin(manipulation.node_);
     rclcpp::shutdown();
     return 0;
 }

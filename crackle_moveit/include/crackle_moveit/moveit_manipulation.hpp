@@ -34,12 +34,15 @@ class CrackleManipulation
     bool execute_plan(bool wait);
     bool plan_cartesian_path(const std::vector<geometry_msgs::msg::Pose>& pose_target_vector);
     bool reach_for_object(const std::string& object_name);
+    bool pick_up_object(crackle_interfaces::srv::PickupObject::Request::SharedPtr request,
+                        crackle_interfaces::srv::PickupObject::Response::SharedPtr response);
     rclcpp::Logger& getLogger() { return logger_; }
+    rclcpp::Node::SharedPtr node_;
     
     private:
     void initialize(const std::string& group_name);
     rclcpp::Logger logger_;
-    rclcpp::Node::SharedPtr node_;
+    rclcpp::Service<crackle_interfaces::srv::PickupObject>::SharedPtr pickup_service_;
     std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group_;
     std::shared_ptr<moveit::planning_interface::PlanningSceneInterface> planning_scene_;
     moveit::planning_interface::MoveGroupInterface::Plan plan_;
