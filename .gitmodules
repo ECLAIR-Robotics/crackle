@@ -5,6 +5,3 @@
 	path = py_binding_tools
 	url = git@github.com:moveit/py_binding_tools.git
 	branch = ros2
-[submodule "octomap_server2"]
-	path = octomap_server2
-	url = git@github.com:iKrishneel/octomap_server2.git
