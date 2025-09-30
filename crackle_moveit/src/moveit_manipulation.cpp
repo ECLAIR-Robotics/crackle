@@ -286,39 +286,48 @@ std::vector<geometry_msgs::msg::Pose> get_grasp_poses(moveit_msgs::msg::Collisio
         double width = primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Y];
         double height = primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Z];
 
-        std::vector<double> dims = {length, width, height};
-
-        for (double side: dims) {
-            if (side <= 0) {
-                RCLCPP_WARN(rclcpp::get_logger("crackle_moveit_manipulation_node"), "get_grasp_poses: invalid box dimension");
-                return grasp_poses;
-            }
-            if (side > tool_width) { // Skip sides bigger than tool width
-                continue;
-            }
-
-
+        // Basic validation
+        if (length <= 0.0 || width <= 0.0 || height <= 0.0)
+        {
+            RCLCPP_WARN(rclcpp::get_logger("crackle_moveit_manipulation_node"), "get_grasp_poses: invalid box dimension");
+            return grasp_poses;
         }
-        // Define potential grasp positions around the box
-        std::vector<Eigen::Vector3d> offsets = {
-            {length / 2 + tool_width / 2, 0, 0},  // Right side
-            {-length / 2 - tool_width / 2, 0, 0}, // Left side
-            {0, width / 2 + tool_width / 2, 0},   // Front side
-            {0, -width / 2 - tool_width / 2, 0}   // Back side
-        };
+
+        std::vector<Eigen::Vector3d> offsets;
+        // Define potential grasp positions around the box (offsets are in the object frame)
+        if (length < tool_width) {
+            offsets.push_back({0.0, 0.0, height / 2.0 + approach_dist}); // Top side only
+            // orient gripper to face down and align the fingers to be along the object's X axis
+        } 
+        if (width < tool_width) {
+            offsets.push_back({0.0, 0.0, height / 2.0 + approach_dist}); // Top side only
+            // orient gripper to face down and align the fingers to be along the object's Y axis
+        }
+        if (height < approach_dist) {
+            offsets.push_back({length / 2.0 + tool_width / 2.0, 0.0, 0.0});  // Right side
+            offsets.push_back({-length / 2.0 - tool_width / 2.0, 0.0, 0.0}); // Left side
+            offsets.push_back({0.0, width / 2.0 + tool_width / 2.0, 0.0});   // Front side
+            offsets.push_back({0.0, -width / 2.0 - tool_width / 2.0, 0.0});  // Back side
+            // orient gripper to face the object from the side
+        }
 
         for (const auto &offset : offsets)
         {
             geometry_msgs::msg::Pose grasp_pose;
             grasp_pose.position.x = obj_pose.position.x + offset.x();
             grasp_pose.position.y = obj_pose.position.y + offset.y();
-            grasp_pose.position.z = obj_pose.position.z + offset.z() + height / 2; // Grasp at mid-height
+            grasp_pose.position.z = obj_pose.position.z + offset.z() + height / 2.0; // Grasp at mid-height
 
-            Eigen::Vector3d to_dir_world = (Eigen::Vector3d(obj_pose.position.x, obj_pose.position.y, obj_pose.position.z) -
-                                            Eigen::Vector3d(grasp_pose.position.x, grasp_pose.position.y, grasp_pose.position.z))
-                                               .normalized();
+            // Use the object's orientation as a reasonable default for the grasp orientation
+            grasp_pose.orientation = obj_pose.orientation;
+
+
+
+            grasp_poses.push_back(grasp_pose);
         }
     }
+
+    return grasp_poses;
 }
 
 bool CrackleManipulation::reach_for_object(const std::string &object_name)
