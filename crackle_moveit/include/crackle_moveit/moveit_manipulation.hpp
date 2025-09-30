@@ -55,6 +55,7 @@ public:
         const Eigen::Vector3d& tool_forward_in_tool
     );
     geometry_msgs::msg::Pose construct_reach_pose(geometry_msgs::msg::Pose object_pose, Vector3 tool_offset);
+    std::vector<geometry_msgs::msg::Pose> get_grasp_poses(moveit_msgs::msg::CollisionObject object, double approach_dist, double tool_width); 
     
 private:
 

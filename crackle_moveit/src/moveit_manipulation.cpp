@@ -265,6 +265,62 @@ geometry_msgs::msg::Pose CrackleManipulation::construct_reach_pose(geometry_msgs
     return target_pose;
 }
 
+std::vector<geometry_msgs::msg::Pose> get_grasp_poses(moveit_msgs::msg::CollisionObject object, double approach_dist, double tool_width)
+{
+    std::vector<geometry_msgs::msg::Pose> grasp_poses;
+
+    // Assuming the object has a single primitive shape and pose for simplicity
+    if (object.primitives.empty() || object.primitive_poses.empty())
+    {
+        RCLCPP_WARN(rclcpp::get_logger("crackle_moveit_manipulation_node"), "get_grasp_poses: object has no primitives or poses");
+        return grasp_poses;
+    }
+
+    const shape_msgs::msg::SolidPrimitive &primitive = object.primitives[0];
+    const geometry_msgs::msg::Pose &obj_pose = object.primitive_poses[0];
+
+    // Calculate grasp poses based on the object's dimensions and pose
+    if (primitive.type == shape_msgs::msg::SolidPrimitive::BOX)
+    {
+        double length = primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_X];
+        double width = primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Y];
+        double height = primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Z];
+
+        std::vector<double> dims = {length, width, height};
+
+        for (double side: dims) {
+            if (side <= 0) {
+                RCLCPP_WARN(rclcpp::get_logger("crackle_moveit_manipulation_node"), "get_grasp_poses: invalid box dimension");
+                return grasp_poses;
+            }
+            if (side > tool_width) { // Skip sides bigger than tool width
+                continue;
+            }
+
+
+        }
+        // Define potential grasp positions around the box
+        std::vector<Eigen::Vector3d> offsets = {
+            {length / 2 + tool_width / 2, 0, 0},  // Right side
+            {-length / 2 - tool_width / 2, 0, 0}, // Left side
+            {0, width / 2 + tool_width / 2, 0},   // Front side
+            {0, -width / 2 - tool_width / 2, 0}   // Back side
+        };
+
+        for (const auto &offset : offsets)
+        {
+            geometry_msgs::msg::Pose grasp_pose;
+            grasp_pose.position.x = obj_pose.position.x + offset.x();
+            grasp_pose.position.y = obj_pose.position.y + offset.y();
+            grasp_pose.position.z = obj_pose.position.z + offset.z() + height / 2; // Grasp at mid-height
+
+            Eigen::Vector3d to_dir_world = (Eigen::Vector3d(obj_pose.position.x, obj_pose.position.y, obj_pose.position.z) -
+                                            Eigen::Vector3d(grasp_pose.position.x, grasp_pose.position.y, grasp_pose.position.z))
+                                               .normalized();
+        }
+    }
+}
+
 bool CrackleManipulation::reach_for_object(const std::string &object_name)
 {
 
@@ -299,11 +355,12 @@ bool CrackleManipulation::reach_for_object(const std::string &object_name)
         for (const auto &pose : target_reach_poses)
         {
             std::vector<geometry_msgs::msg::Pose> pose_vector = {pose};
-            geometry_msgs::msg::Pose target_approach_pose = construct_reach_pose(obj.pose, {(obj.pose.position.x - pose.position.x)/2, (obj.pose.position.y - pose.position.y)/2, 0.05});
+            geometry_msgs::msg::Pose target_approach_pose = construct_reach_pose(obj.pose, {(obj.pose.position.x - pose.position.x) / 2, (obj.pose.position.y - pose.position.y) / 2, 0.05});
 
             pose_vector.push_back(target_approach_pose); // add approach pose to the end of the vector
             // success = plan_to_pose(pose);
-            success = plan_cartesian_path(pose_vector);
+            // success = plan_cartesian_path(pose_vector);
+            success = plan_to_pose(pose);
             reach_success.push_back(success);
         }
 
