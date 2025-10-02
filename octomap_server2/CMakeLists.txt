@@ -66,7 +66,28 @@ ament_target_dependencies(octomap_server2
   rclcpp_components
   )
 
+  add_executable(mapping src/mapping.cpp)
+  ament_target_dependencies (mapping 
+    sensor_msgs
+    std_msgs
+    geometry_msgs
+    octomap_msgs
+    octomap
+    tf2_ros
+    tf2_msgs 
+    tf2
+    ${dependencies}
+  )
+
 target_link_libraries(octomap_server2 ${PCL_LIBRARIES} ${OCTOMAP_LIBRARIES})
+
+target_link_libraries(mapping 
+  ${ament_LIBRARIES}
+)
+
+install (TARGETS mapping
+DESTINATION lib/${PROJECT_NAME}
+)
 
 rclcpp_components_register_node(octomap_server2
   PLUGIN "octomap_server::OctomapServer"
