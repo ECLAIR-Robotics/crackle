@@ -20,7 +20,6 @@ class PlannerAPI:
         else:
             print(f"Simulating pick up of object '{object_name}' without ROS.")
 
-
     def place(self, x : float, y : float, z : float):
         pass
 
