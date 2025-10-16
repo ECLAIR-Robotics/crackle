@@ -280,25 +280,38 @@ bool commandInput(String command)
     return false;
 }
 
+Servo testServo;
+
 // setup stuff
 void setup()
 {
     Serial.begin(BAUD_RATE);
-    setThresholds();
-    zero();
+    // setThresholds();
+    // zero();
+    testServo.attach(21);
+    testServo.write(0);
+    delay(1000);
+    testServo.write(180);
+    delay(1000);
 }
 
 void loop()
 {
-    if (Serial.available())
-    {
-        commandInput(Serial.readString());
-    }
-    openClaw();
-    Serial.println("open");
-    delay(5000);
-    Serial.println("closing");
-    closeClawToResistance();
-    Serial.println("closed");
-    delay(5000);
+    Serial.println("Moving to 180");
+    testServo.write(180);
+    delay(2000);
+    Serial.println("Moving to 0");
+    testServo.write(45);
+    delay(2000);
+    // if (Serial.available())
+    // {
+    //     commandInput(Serial.readString());
+    // }
+    // openClaw();
+    // Serial.println("open");
+    // delay(5000);
+    // Serial.println("closing");
+    // closeClawToResistance();
+    // Serial.println("closed");
+    // delay(5000);
 }

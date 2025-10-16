@@ -2,5 +2,41 @@
     "files.associations": {
         "map": "cpp",
         "*.tcc": "cpp"
-    }
+    },
+    "python.autoComplete.extraPaths": [
+        "/home/tanay24/crackle_ws/install/xarm_msgs/local/lib/python3.10/dist-packages",
+        "/home/tanay24/crackle_ws/install/uf_ros_lib/lib/python3.10/site-packages",
+        "/home/tanay24/crackle_ws/install/tf_pub/lib/python3.10/site-packages",
+        "/home/tanay24/crackle_ws/install/sound_direction_publisher/lib/python3.10/site-packages",
+        "/home/tanay24/crackle_ws/install/ros2_numpy/local/lib/python3.10/dist-packages",
+        "/home/tanay24/crackle_ws/install/realsense2_camera_msgs/local/lib/python3.10/dist-packages",
+        "/home/tanay24/crackle_ws/install/py_binding_tools/local/lib/python3.10/dist-packages",
+        "/home/tanay24/crackle_ws/install/crackle_vision/lib/python3.10/site-packages",
+        "/home/tanay24/crackle_ws/install/crackle_testing/lib/python3.10/site-packages",
+        "/home/tanay24/crackle_ws/install/crackle_planning/lib/python3.10/site-packages",
+        "/home/tanay24/crackle_ws/install/crackle_interfaces/local/lib/python3.10/dist-packages",
+        "/home/tanay24/crackle_ws/install/crackle_3d/lib/python3.10/site-packages",
+        "/home/tanay24/crackle_ws/install/claw_degree_publisher/lib/python3.10/site-packages",
+        "/home/tanay24/crackle_ws/install/audio_serial_reader/lib/python3.10/site-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/tanay24/crackle_ws/install/xarm_msgs/local/lib/python3.10/dist-packages",
+        "/home/tanay24/crackle_ws/install/uf_ros_lib/lib/python3.10/site-packages",
+        "/home/tanay24/crackle_ws/install/tf_pub/lib/python3.10/site-packages",
+        "/home/tanay24/crackle_ws/install/sound_direction_publisher/lib/python3.10/site-packages",
+        "/home/tanay24/crackle_ws/install/ros2_numpy/local/lib/python3.10/dist-packages",
+        "/home/tanay24/crackle_ws/install/realsense2_camera_msgs/local/lib/python3.10/dist-packages",
+        "/home/tanay24/crackle_ws/install/py_binding_tools/local/lib/python3.10/dist-packages",
+        "/home/tanay24/crackle_ws/install/crackle_vision/lib/python3.10/site-packages",
+        "/home/tanay24/crackle_ws/install/crackle_testing/lib/python3.10/site-packages",
+        "/home/tanay24/crackle_ws/install/crackle_planning/lib/python3.10/site-packages",
+        "/home/tanay24/crackle_ws/install/crackle_interfaces/local/lib/python3.10/dist-packages",
+        "/home/tanay24/crackle_ws/install/crackle_3d/lib/python3.10/site-packages",
+        "/home/tanay24/crackle_ws/install/claw_degree_publisher/lib/python3.10/site-packages",
+        "/home/tanay24/crackle_ws/install/audio_serial_reader/lib/python3.10/site-packages",
+        "/opt/ros/humble/lib/python3.10/site-packages",
+        "/opt/ros/humble/local/lib/python3.10/dist-packages"
+    ]
 }
