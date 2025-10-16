@@ -19,7 +19,7 @@
 #define PUBLISH_DEGREES true
 
 // how far below baseline we consider to be resistance
-#define BASE_THRESHOLD 15
+#define BASE_THRESHOLD 10
 
 // class for claw fingers
 class ClawFinger
@@ -294,6 +294,8 @@ void loop()
     {
         commandInput(Serial.readString());
     }
+
+  
     openClaw();
     Serial.println("open");
     delay(5000);
