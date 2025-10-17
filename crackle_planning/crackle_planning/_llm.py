@@ -1,15 +1,15 @@
 # from crackle_planning.planner_lib._keys import key
 import openai
 
-from crackle_planning._keys import key
+from crackle_planning._keys import openai_key
 from crackle_planning._api import PlannerAPI
 from crackle_planning.parse import parse_functions_to_json
 
 
 class GptAPI:
-    def __init__(self, key: str):
-        self.api_key = key
-        openai.api_key = key  # Set API key once in the constructor
+    def __init__(self, key: str | None):
+        self.api_key = key or openai_key
+        openai.api_key = self.api_key # Set API key once in the constructor
 
 
     def getTalkBack(self, prompt):
@@ -49,7 +49,7 @@ class GptAPI:
     
     def get_command(self, prompt: str):
         #client = OpenAI()
-        openai.api_key=key
+        # openai.api_key=opena
         description=[]
         pickup={
             "name": "pick_up",
