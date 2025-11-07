@@ -17,16 +17,17 @@ class SoundDirectionPublisherNode(Node):
 
         for p in list(list_ports.comports()):
             if p.description.strip() == "Arduino Mega":
+                self.get_logger().info(f"Found device: {p.device} - {p.description}")
                 serial_port = p.device
 
         if serial_port == None:
-            print("Arduino Mega not found")
+            self.get_logger().error("Arduino Mega not found")
 
-        self.ser = serial.Serial(serial_port, baudrate=19200)
+        self.ser = serial.Serial(serial_port, baudrate=115200, timeout=1)
 
     def read_serial(self):
         while self.ser.in_waiting > 0:
-            # print("Raw data:", self.ser.readline())
+            print("Raw data:", self.ser.readline())
             serial_output = self.ser.readline().decode('utf-8').strip()
             if serial_output.startswith("Vector"):
                 open_parenthesis = serial_output.find("(") + 1
@@ -77,7 +78,7 @@ class SoundDirectionPublisherNode(Node):
                 self.sound_direction_publisher.publish(sound_direction_stamped)
                 self.sound_direction_marker_publisher.publish(marker)
 
-                print("published")
+                self.get_logger().info("published")
 
 def main(args=None):
     rclpy.init(args=args)

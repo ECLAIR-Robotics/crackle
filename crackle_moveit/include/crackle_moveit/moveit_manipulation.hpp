@@ -62,6 +62,7 @@ private:
     void initialize(const std::string& group_name);
     rclcpp::Logger logger_;
     rclcpp::Service<crackle_interfaces::srv::PickupObject>::SharedPtr pickup_service_;
+    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr gripper_command_publisher_;
     std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group_;
     std::shared_ptr<moveit::planning_interface::PlanningSceneInterface> planning_scene_;
     moveit::planning_interface::MoveGroupInterface::Plan plan_;

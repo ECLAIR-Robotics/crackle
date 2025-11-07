@@ -46,7 +46,7 @@
   <joint name="gripper_base_joint" type="fixed">
     <parent link="${arm_last_link}"/>
     <child link="gripper_base"/>
-    <origin xyz="0 0 0.005" rpy="0.0 0 0.78"/>
+    <origin xyz="0 0 0.025" rpy="0.0 0 -0.78"/> <!-- 0.78 -->
   </joint>
 
   <link name="camera_depth_optical_frame">

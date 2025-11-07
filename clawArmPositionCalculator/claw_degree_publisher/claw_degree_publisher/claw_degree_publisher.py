@@ -1,6 +1,6 @@
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import JointState
+from std_msgs.msg import Bool, String
 import serial
 from serial.tools import list_ports
 
@@ -8,7 +8,8 @@ class ClawDegreePublisherNode(Node):
     def __init__(self):
         super().__init__('ClawDegreePublisherNode')
 
-        self.claw_degs_publisher = self.create_publisher(JointState, "/claw_deg_pub/joint_state", 10)
+        self.claw_close_subscription = self.create_subscription(Bool, '/claw/command', self.claw_close_callback, 10)
+        self.claw_degs_publisher = self.create_publisher(String, "/claw/joint_state", 10)
 
         serial_port = None
 
@@ -24,29 +25,32 @@ class ClawDegreePublisherNode(Node):
 
         self.timer = self.create_timer(0.1, self.read_serial)
 
+    def claw_close_callback(self, msg):
+        print("Claw command received:", msg.data)
+        if msg.data:
+            self.ser.write("1".encode())
+        else:
+            self.ser.write("0".encode())
+
     def read_serial(self):
         while self.ser.in_waiting > 0:
             print("Raw data:", self.ser.readline())
             serial_output = self.ser.readline().decode('utf-8').strip()
-            if serial_output.startswith("ClawDegs"):
-                open_parenthesis = serial_output.find("(") + 1
-                end_parenthesis = serial_output.find(")", open_parenthesis)
-                claw_degs = serial_output[open_parenthesis:end_parenthesis].split(",")
-
-                claw_degs_state = JointState()
-                claw_degs_state.name.append("0")
-                claw_degs_state.position.append(float(claw_degs[0]))
-                claw_degs_state.name.append("1")
-                claw_degs_state.position.append(float(claw_degs[1]))
-                claw_degs_state.name.append("2")
-                claw_degs_state.position.append(float(claw_degs[2]))
-
-                self.claw_degs_publisher.publish(claw_degs_state)
-
-                print("publishning")
+            try:
+                serial_output = int(serial_output)
+            except ValueError:
+                print("Invalid data received:", serial_output)
+                return
+            out = String()
+            if serial_output == 0:
+                out.data = "claw_closed"
+            elif serial_output == 1:
+                out.data = "claw_opened"
+            self.claw_degs_publisher.publish(out)
 
 def main(args=None):
     rclpy.init(args=args)
+    print("Claw Degree Publisher Node is starting...")
     node = ClawDegreePublisherNode()
     rclpy.spin(node)
     rclpy.shutdown()
