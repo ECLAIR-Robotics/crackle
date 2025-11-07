@@ -143,12 +143,11 @@ void loop()
         if (code == OPEN) {
             gripperServo.write(0);
         } else if (code == CLOSED) {
-            gripperServo.write(150);
+            gripperServo.write(120);
         }
     }
 
     // Send the current state every 10ms
-    Serial.print("Current state: ");
-    Serial.println(currentState);
+    Serial.println(currentState == OPEN ? "0" : "1");
     delay(10);
 }

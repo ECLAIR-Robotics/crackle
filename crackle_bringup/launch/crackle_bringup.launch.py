@@ -46,10 +46,25 @@ def generate_launch_description():
         condition=UnlessCondition(simulate_vision)
     )
 
+    face_node = Node(
+        package='crackle_face_node',
+        executable='face_node',
+        name='face_node',
+        output='screen',
+        parameters=[]
+    )
+
+    audio_localization_node = Node(
+        package='sound_direction_publisher',
+        executable='sound_direction_publisher',
+        name='sound_direction_publisher',
+        output='screen',
+        parameters=[{'use_sim_time': use_simulated_robot}]
+    )
+
     group = GroupAction([
         SetRemap(src='/camera/camera/depth/color/points', dst='/cloud_in'),
     ]) # Revisit this for the octomap
-
 
 
     return LaunchDescription([
@@ -59,5 +74,7 @@ def generate_launch_description():
         log_vision_choice,
         vision_bringup,
         moveit_bringup,
+        face_node,
+        audio_localization_node,
         # group
     ])

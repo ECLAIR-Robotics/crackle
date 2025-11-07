@@ -35,6 +35,7 @@ CrackleManipulation::CrackleManipulation(const std::string &group_name)
     pickup_service_ = node_->create_service<crackle_interfaces::srv::PickupObject>(
         "crackle_manipulation/pickup_object",
         std::bind(&CrackleManipulation::pick_up_object, this, std::placeholders::_1, std::placeholders::_2));
+    gripper_command_publisher_ = node_->create_publisher<std_msgs::msg::Bool>("/claw/command", 10);
     initialize(group_name);
 }
 
@@ -56,6 +57,7 @@ bool CrackleManipulation::pick_up_object(crackle_interfaces::srv::PickupObject::
     RCLCPP_INFO(node_->get_logger(), "pick_up_object: closing gripper to pick up object '%s'", object_name.c_str());
 
     // TODO: Implement actual gripper control logic here
+    gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(true));
     response->success = true;
     return true;
 }
@@ -357,14 +359,14 @@ bool CrackleManipulation::reach_for_object(const std::string &object_name)
         std::vector<geometry_msgs::msg::Pose> target_reach_poses;
         std::vector<bool> reach_success;
 
-        target_reach_poses.push_back(construct_reach_pose(obj.pose, {0.1, 0.1, 0.1}));   // above object
-        target_reach_poses.push_back(construct_reach_pose(obj.pose, {-0.1, -0.1, 0.1})); // above object
+        target_reach_poses.push_back(construct_reach_pose(obj.pose, {0.2, 0.2, 0.2}));   // above object
+        target_reach_poses.push_back(construct_reach_pose(obj.pose, {-0.2, -0.2, 0.2})); // above object
 
         bool success = false;
         for (const auto &pose : target_reach_poses)
         {
             std::vector<geometry_msgs::msg::Pose> pose_vector = {pose};
-            geometry_msgs::msg::Pose target_approach_pose = construct_reach_pose(obj.pose, {(obj.pose.position.x - pose.position.x) / 2, (obj.pose.position.y - pose.position.y) / 2, 0.05});
+            geometry_msgs::msg::Pose target_approach_pose = construct_reach_pose(obj.pose, {(obj.pose.position.x - pose.position.x) / 2, (obj.pose.position.y - pose.position.y) / 2, 0.2});
 
             pose_vector.push_back(target_approach_pose); // add approach pose to the end of the vector
             // success = plan_to_pose(pose);
