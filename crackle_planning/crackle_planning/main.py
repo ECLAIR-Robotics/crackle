@@ -104,11 +104,11 @@ class CrackleFSM:
 
                             output_string_header += f"""{mdl}{" "*(16 - len(mdl))}   | {curr_score[0:5]} | {"--"+" "*20 if scores[-1] <= 0.5 else "Wakeword Detected!"}
                             """
-                # if prediction:
-                #     print("Command received, interrupting scanning...")
-                #     self._state = CrackleState.LISTENING
-                #     stop_event.set()
-                #     break
+                if prediction["hey_jarvis"]:
+                    print("Command received, interrupting scanning...")
+                    self._state = CrackleState.LISTENING
+                    stop_event.set()
+                    break
 
         stop_event_scanning = asyncio.Event()
         scan_task = asyncio.create_task(scanning_thread("Scanner", stop_event_scanning))
@@ -133,16 +133,26 @@ class CrackleFSM:
         print("Entering FAILURE state: Handling failure...")
         await asyncio.sleep(2)  # Simulate failure handling time
         pass
+    async def handle_listening(self):
+        print("Entering LISTENING state: Listening for instructions")
+        #listen task  
+        #send to chat to get code for task 
+        self._state = CrackleState.TASK
+        pass
 
     async def main_loop(self):
         # Consume the latest asyncio task in the queue
-
         while True:
             if self._state == CrackleState.IDLE:
                 # Create a task to run handle_idle without blocking
                 print("State is IDLE")
                 t = asyncio.create_task(self.handle_idle())
                 await t
+            if self._state == CrackleState.LISTENING:
+                print("State is LISTENING")
+                t = asyncio.create_task(self.handle_listening())
+                await t 
+
 
 
 async def func1():
