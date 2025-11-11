@@ -20,8 +20,6 @@ setup(
         "sensor_msgs", 
         "geometry_msgs",
         "moveit_msgs",
-        "moveit_commander", 
-        "ruckig"
     ],
     zip_safe=True,
     maintainer='tanay',
@@ -33,6 +31,7 @@ setup(
         'console_scripts': [
             'planner = crackle_planning.planner:main',
             'arm_planner = crackle_planning.arm_planner:main',
+            'main_node = crackle_planning.main:main',
         ],
     },
 )

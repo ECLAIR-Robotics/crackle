@@ -16,6 +16,8 @@ from openwakeword.model import Model
 import multiprocessing
 from typing import List, Dict
 import pyaudio
+import os
+from crackle_planning._api import PlannerAPI
 
 openwakeword.utils.download_models()
 
@@ -24,6 +26,8 @@ CHANNELS = 1
 RATE = 16000
 CHUNK = 1280
 
+ROS_ENABLED = os.getenv("ROS_ENABLED", "false").lower() == "true"
+print(f"ROS_ENABLED: {ROS_ENABLED}")
 
 class CrackleState(Enum):
     IDLE = "idle"
@@ -39,6 +43,8 @@ class CrackleFSM:
         self._event_loop = asyncio.get_event_loop()
         self._stop_event = asyncio.Event()
         self._model = Model()
+        self.planner_api = PlannerAPI(use_ros=ROS_ENABLED)
+        
         self._running_threads = []
         self.handlers: Dict[CrackleState, List[callable]] = {
             CrackleState.IDLE: [CrackleState.TASK],
@@ -64,24 +70,19 @@ class CrackleFSM:
             t.cancel()
         self._running_threads = []
 
-    def __wakeup_callback(self, indata, frames, time, status):
-        if status:
-            print(status)
-        # Check if the wake word is detected
-        if self._model.detect(indata):
-            print("Wake word detected!")
-            self._state = CrackleState.LISTENING
-            self.interrupt_current_tasks()
-            self._stop_event.set()
+    def look_at_sound_direction(self):
+        if (ROS_ENABLED):
+            # use ros interface to get latest sound direction
+            pass
+        else:
+            print("ROS not enabled, cannot look at sound direction")
+            pass
 
     async def handle_idle(self):
         # Create two threads: one for listening to commands and one for scanning
         # Listening thread interrupts the scanning thread and then processes the command
         print("Entering IDLE state: Scanning and Listening for commands...")
-        time.sleep(1)  # Simulate setup time
-        print("Setup complete, starting scanning and listening threads.")
-        await asyncio.sleep(2)  # Simulate idle time
-
+        self._mic_stream.start_stream()
         async def scanning_thread(name: str, stop_event: asyncio.Event):
             while self._state == CrackleState.IDLE and not stop_event.is_set():
                 print("Scanning for commands...")
@@ -92,23 +93,20 @@ class CrackleFSM:
             while self._state == CrackleState.IDLE:
                 audio = np.frombuffer(self._mic_stream.read(CHUNK), dtype=np.int16)
                 prediction = self._owwModel.predict(audio)
-                print(prediction["hey_jarvis"])
-                output_string_header = """
-                Model Name         | Score | Wakeword Status
-                --------------------------------------
-                """
-                for mdl in self._owwModel.prediction_buffer.keys():
-                            # Add scores in formatted table
-                            scores = list(self._owwModel.prediction_buffer[mdl])
-                            curr_score = format(scores[-1], '.20f').replace("-", "")
+                if prediction["hey_jarvis"] > 0.8:
+                    self._state = CrackleState.LISTENING
+                    wake_wall_time = time.time()  # seconds float
 
-                            output_string_header += f"""{mdl}{" "*(16 - len(mdl))}   | {curr_score[0:5]} | {"--"+" "*20 if scores[-1] <= 0.5 else "Wakeword Detected!"}
-                            """
-                # if prediction:
-                #     print("Command received, interrupting scanning...")
-                #     self._state = CrackleState.LISTENING
-                #     stop_event.set()
-                #     break
+                    # Trigger immediately; ROS will wait up to ~0.5s for a fresh sample at/after this time
+                    self.planner_api.look_at_sound_direction(wake_wall_time)
+
+                    # Optionally flush model state
+                    for _ in range(15):
+                        audio = np.frombuffer(self._mic_stream.read(CHUNK), dtype=np.int16)
+                        _ = self._owwModel.predict(audio)
+
+                    stop_event.set()
+                    break
 
         stop_event_scanning = asyncio.Event()
         scan_task = asyncio.create_task(scanning_thread("Scanner", stop_event_scanning))
@@ -143,6 +141,11 @@ class CrackleFSM:
                 print("State is IDLE")
                 t = asyncio.create_task(self.handle_idle())
                 await t
+            elif self._state == CrackleState.LISTENING:
+                print("State is LISTENING")
+                time.sleep(3)  # Simulate listening time
+                # For simplicity, we transition back to IDLE after listening
+                self._state = CrackleState.IDLE
 
 
 async def func1():
