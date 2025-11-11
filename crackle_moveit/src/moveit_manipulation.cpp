@@ -32,11 +32,62 @@ CrackleManipulation::CrackleManipulation(const std::string &group_name)
     : logger_(rclcpp::get_logger("crackle_moveit_manipulation_node"))
 {
     node_ = rclcpp::Node::make_shared("crackle_moveit_manipulation_node");
+
     pickup_service_ = node_->create_service<crackle_interfaces::srv::PickupObject>(
         "crackle_manipulation/pickup_object",
         std::bind(&CrackleManipulation::pick_up_object, this, std::placeholders::_1, std::placeholders::_2));
+    look_at_service_ = node_->create_service<crackle_interfaces::srv::LookAt>(
+        "crackle_manipulation/look_at",
+        std::bind(&CrackleManipulation::look_at, this, std::placeholders::_1, std::placeholders::_2));
     gripper_command_publisher_ = node_->create_publisher<std_msgs::msg::Bool>("/claw/command", 10);
     initialize(group_name);
+}
+
+// Assumption: This will be the exact point the arm needs to look at
+bool CrackleManipulation::look_at(crackle_interfaces::srv::LookAt::Request::SharedPtr request,
+                                  crackle_interfaces::srv::LookAt::Response::SharedPtr response)
+{
+    const double OFFSET = 0.05; // meters
+    geometry_msgs::msg::Vector3Stamped look_point = request->look_direction;
+    Eigen::Vector3d offsetted_position = Eigen::Vector3d(look_point.vector.x,
+                                                         look_point.vector.y,
+                                                         look_point.vector.z);
+    if (offsetted_position.x() > 0)
+        offsetted_position.x() -= OFFSET;
+    else
+        offsetted_position.x() += OFFSET;
+    if (offsetted_position.y() > 0)
+        offsetted_position.y() -= OFFSET;
+    else
+        offsetted_position.y() += OFFSET;
+
+    Eigen::Vector3d to_dir_world(look_point.vector.x - offsetted_position.x(),
+                                 look_point.vector.y - offsetted_position.y(),
+                                 look_point.vector.z - offsetted_position.z());
+    to_dir_world.normalize();
+    Eigen::Vector3d forward_dir_world = kToolForwardInTool; // Assuming tool frame aligns with world frame
+    geometry_msgs::msg::Pose target_pose;
+    target_pose.position.x = offsetted_position.x();
+    target_pose.position.y = offsetted_position.y();
+    target_pose.position.z = offsetted_position.z();
+    target_pose.orientation = lookAtQuat(to_dir_world, Eigen::Vector3d::UnitZ(), kToolForwardInTool);
+
+    bool success = plan_to_pose(target_pose);
+    if (!success)
+    {
+        RCLCPP_ERROR(node_->get_logger(), "look_at: planning to look at point failed");
+        response->success = false;
+        return false;
+    }
+    moveit::core::MoveItErrorCode exec_status = move_group_->execute(plan_);
+    if (exec_status != moveit::core::MoveItErrorCode::SUCCESS)
+    {
+        RCLCPP_ERROR(node_->get_logger(), "look_at: execution to look at point failed");
+        response->success = false;
+        return false;
+    }
+    response->success = true;
+    return true;
 }
 
 bool CrackleManipulation::pick_up_object(crackle_interfaces::srv::PickupObject::Request::SharedPtr request,
@@ -297,15 +348,18 @@ std::vector<geometry_msgs::msg::Pose> get_grasp_poses(moveit_msgs::msg::Collisio
 
         std::vector<Eigen::Vector3d> offsets;
         // Define potential grasp positions around the box (offsets are in the object frame)
-        if (length < tool_width) {
+        if (length < tool_width)
+        {
             offsets.push_back({0.0, 0.0, height / 2.0 + approach_dist}); // Top side only
             // orient gripper to face down and align the fingers to be along the object's X axis
-        } 
-        if (width < tool_width) {
+        }
+        if (width < tool_width)
+        {
             offsets.push_back({0.0, 0.0, height / 2.0 + approach_dist}); // Top side only
             // orient gripper to face down and align the fingers to be along the object's Y axis
         }
-        if (height < approach_dist) {
+        if (height < approach_dist)
+        {
             offsets.push_back({length / 2.0 + tool_width / 2.0, 0.0, 0.0});  // Right side
             offsets.push_back({-length / 2.0 - tool_width / 2.0, 0.0, 0.0}); // Left side
             offsets.push_back({0.0, width / 2.0 + tool_width / 2.0, 0.0});   // Front side
@@ -322,8 +376,6 @@ std::vector<geometry_msgs::msg::Pose> get_grasp_poses(moveit_msgs::msg::Collisio
 
             // Use the object's orientation as a reasonable default for the grasp orientation
             grasp_pose.orientation = obj_pose.orientation;
-
-
 
             grasp_poses.push_back(grasp_pose);
         }
