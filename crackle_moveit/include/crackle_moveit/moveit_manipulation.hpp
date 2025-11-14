@@ -7,6 +7,9 @@
 
 #include <moveit/move_group_interface/move_group_interface.h>
 #include <moveit/planning_scene/planning_scene.h>
+#include <moveit/trajectory_processing/iterative_time_parameterization.h>
+#include <moveit/robot_trajectory/robot_trajectory.h>
+#include <moveit/robot_state/robot_state.h>
 #include <moveit/planning_scene_interface/planning_scene_interface.h>
 #include <crackle_interfaces/srv/pickup_object.hpp>
 #include <crackle_interfaces/srv/look_at.hpp>
@@ -39,34 +42,35 @@ struct Vector3
 class CrackleManipulation
 {
 public:
-    CrackleManipulation(const std::string& group_name);
+    CrackleManipulation(const std::string &group_name);
     ~CrackleManipulation() {};
-    
-    moveit::planning_interface::MoveGroupInterface& getMoveGroup() { return *move_group_; }
-    bool plan_to_pose(const geometry_msgs::msg::Pose& target_pose);
+
+    moveit::planning_interface::MoveGroupInterface &getMoveGroup() { return *move_group_; }
+    bool plan_to_pose(const geometry_msgs::msg::Pose &target_pose);
     bool execute_plan(bool wait);
-    bool plan_cartesian_path(const std::vector<geometry_msgs::msg::Pose>& pose_target_vector);
-    bool reach_for_object(const std::string& object_name);
+    bool plan_cartesian_path(const std::vector<geometry_msgs::msg::Pose> &pose_target_vector);
+    bool reach_for_object(const std::string &object_name);
     bool pick_up_object(crackle_interfaces::srv::PickupObject::Request::SharedPtr request,
                         crackle_interfaces::srv::PickupObject::Response::SharedPtr response);
     bool look_at(crackle_interfaces::srv::LookAt::Request::SharedPtr request,
                  crackle_interfaces::srv::LookAt::Response::SharedPtr response);
-    rclcpp::Logger& getLogger() { return logger_; }
+    rclcpp::Logger &getLogger() { return logger_; }
     rclcpp::Node::SharedPtr node_;
     geometry_msgs::msg::Quaternion lookAtQuat(
-        const Eigen::Vector3d& to_dir_world,
-        const Eigen::Vector3d& world_up,
-        const Eigen::Vector3d& tool_forward_in_tool
-    );
+        const Eigen::Vector3d &to_dir_world,
+        const Eigen::Vector3d &world_up,
+        const Eigen::Vector3d &tool_forward_in_tool);
     geometry_msgs::msg::Pose construct_reach_pose(geometry_msgs::msg::Pose object_pose, Vector3 tool_offset);
-    std::vector<geometry_msgs::msg::Pose> get_grasp_poses(moveit_msgs::msg::CollisionObject object, double approach_dist, double tool_width); 
-    
-private:
+    std::vector<geometry_msgs::msg::Pose> get_grasp_poses(moveit_msgs::msg::CollisionObject object, double approach_dist, double tool_width);
+    bool dance_dance(std_srvs::srv::Trigger::Request::SharedPtr request,
+                     std_srvs::srv::Trigger::Response::SharedPtr response);
 
-    void initialize(const std::string& group_name);
+private:
+    void initialize(const std::string &group_name);
     rclcpp::Logger logger_;
     rclcpp::Service<crackle_interfaces::srv::PickupObject>::SharedPtr pickup_service_;
     rclcpp::Service<crackle_interfaces::srv::LookAt>::SharedPtr look_at_service_;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr dance_service_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr gripper_command_publisher_;
     std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group_;
     std::shared_ptr<moveit::planning_interface::PlanningSceneInterface> planning_scene_;

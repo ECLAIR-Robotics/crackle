@@ -4,6 +4,7 @@ decides what actions to take based on the current state and inputs.
 
 """
 
+from fileinput import filename
 import time
 from enum import Enum
 import threading
@@ -18,6 +19,11 @@ from typing import List, Dict
 import pyaudio
 import os
 from crackle_planning._api import PlannerAPI
+import wave
+from openai import OpenAI
+from crackle_planning._llm import GptAPI
+from playsound import playsound
+from crackle_planning._keys import openai_key
 
 openwakeword.utils.download_models()
 
@@ -57,6 +63,8 @@ class CrackleFSM:
         self._mic_stream = self._audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, frames_per_buffer=CHUNK, input=True)
         self._owwModel = Model(inference_framework=self.INFERENCE_FRAMEWORK)
         self._n_models = len(self._owwModel.models.keys())
+
+        self.gpt_api = GptAPI(key=openai_key)  # Replace with your actual key
  
         print(f"Initialized FSM in state: {self._state}")
 
@@ -132,6 +140,29 @@ class CrackleFSM:
         await asyncio.sleep(2)  # Simulate failure handling time
         pass
 
+    def record_output(self, seconds, samplerate=16000, chunk=1024):
+        """records audio from the microphone for a set number of seconds"""
+        frames = int(seconds * samplerate / chunk)
+        buf = []
+
+        for _ in range(frames):
+            data = self._mic_stream.read(chunk, exception_on_overflow=False)
+            buf.append(np.frombuffer(data, dtype=np.int16))
+
+        return np.concatenate(buf)
+    
+    def save_as_wav(self, samples: np.ndarray, sample_rate=16000, filename="capture.wav"):
+        """saves an audio sample as a wav file"""
+        with wave.open(filename, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)  # int16
+            wf.setframerate(sample_rate)
+            wf.writeframes(samples.tobytes())
+
+        print(f"Saved WAV: {filename}")
+
+
+
     async def main_loop(self):
         # Consume the latest asyncio task in the queue
 
@@ -142,8 +173,33 @@ class CrackleFSM:
                 t = asyncio.create_task(self.handle_idle())
                 await t
             elif self._state == CrackleState.LISTENING:
-                print("State is LISTENING")
-                time.sleep(3)  # Simulate listening time
+                print("Crackle is Listening now...")
+                # start listening for a command (call function)
+                samples = self.record_output(5)          # record 5 seconds
+                print("Recording complete.")
+                self.save_as_wav(samples, 16000, "out.wav")  # save it
+                transcribed_words = self.gpt_api.speech_to_text("out.wav")
+                print(f"Transcribed words: {transcribed_words}")
+
+
+                # Convert speech to text
+                text = self.gpt_api.speech_to_text("out.wav")
+                responseWords, emotion = self.gpt_api.parseTalkResponse(text)
+                print("Crackle's response: ", responseWords)
+                print("Crackle's emotion: ", emotion)
+                # self.gpt_api.speakText(responseWords, output_path="response.mp3")
+                self.gpt_api.speak_text_eleven_labs(responseWords, output_path="response.mp3")
+                playsound("response.mp3", block=True)
+                self.planner_api.set_emotion(emotion)
+                if "dance" in text.lower():
+                    print("Command recognized: Dance")
+                    # Execute dance action
+                    print("Crackle is dancing now!")
+                    self.planner_api.dance_dance()
+                    print("Crackle finished dancing.")
+
+                print(f"Transcribed text: {text}")
+
                 # For simplicity, we transition back to IDLE after listening
                 self._state = CrackleState.IDLE
 

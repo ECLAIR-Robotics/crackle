@@ -4,7 +4,9 @@ import rclpy
 import numpy as np
 from crackle_interfaces.srv import PickupObject, LookAt
 from geometry_msgs.msg import Vector3Stamped
+from std_msgs.msg import String 
 from visualization_msgs.msg import Marker
+from std_srvs.srv import Trigger
 from rclpy.node import Node
 from rclpy.time import Time
 
@@ -49,18 +51,28 @@ class RosInterface:
         self.latest_audio_direction = AudioDirectionWindow(
             50
         )  # 50 sample window that consists of a timestamp and a Vector
+
         self.__audio_direction_subscriber = node.create_subscription(
             Vector3Stamped,
             "/sound_direction_pub/vector",
             self.update_audio_direction,
             10,
         )
+
         self.__look_at_client = node.create_client(
             LookAt, "crackle_manipulation/look_at"
         )
 
         self.__look_at_marker_publisher = node.create_publisher(
             Marker, "planner/look_at_marker", 10
+        )
+
+        self.__dance_client = node.create_client(
+            Trigger, "/crackle_manipulation/dance"
+        )
+
+        self.__emotion_publisher = node.create_publisher(
+            String, "/face/emotion", 10
         )
 
     def spin_internal_node(self):
@@ -180,3 +192,19 @@ class RosInterface:
 
         future = self.__look_at_client.call_async(req)
         return self._wait_for_future(future, timeout=10.0)
+    
+    def dance(self):
+        self._node.get_logger().info("Executing dance maneuver...")
+        # Implement dance maneuver logic here
+        while not self.__dance_client.wait_for_service(timeout_sec=1.0):
+            self._node.get_logger().info('Dance service not available, waiting again...')
+        req = Trigger.Request()
+        future = self.__dance_client.call_async(req)
+        return self._wait_for_future(future, timeout=20.0)
+    
+    def set_emotion(self, emotion: str):
+        self._node.get_logger().info(f"Setting robot emotion to: {emotion}")
+        # Implement emotion setting logic here
+        msg = String()
+        msg.data = emotion
+        self.__emotion_publisher.publish(msg)

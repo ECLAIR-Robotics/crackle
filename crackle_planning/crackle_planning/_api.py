@@ -70,10 +70,19 @@ class PlannerAPI:
         pass
     
     def set_emotion(self, emotion: str):
-        pass
+        if self.use_ros:
+            self.ros_interface.set_emotion(emotion)
+        else:
+            print(f"Simulating setting emotion to '{emotion}' without ROS.")
     
     def close_gripper(self):
         pass
 
     def open_gripper(self):
         pass
+
+    def dance_dance(self):
+        if self.use_ros:
+            self.ros_interface.dance()
+        else:
+            print("Simulating dance maneuver without ROS.")

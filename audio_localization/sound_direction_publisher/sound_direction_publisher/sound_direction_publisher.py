@@ -78,14 +78,6 @@ class SoundDirectionPublisherNode(Node):
 
                 marker.points.append(start_point)
                 marker.points.append(end_point)
-
-                # marker.pose.position.x = float(0.0)
-                # marker.pose.position.y = float(0.0)
-                # marker.pose.position.z = float(0.0)
-                # marker.pose.orientation.x = float(sound_direction_cross_z_axis[0])
-                # marker.pose.orientation.y = float(sound_direction_cross_z_axis[1])
-                # marker.pose.orientation.z = -1.0 * float(sound_direction_cross_z_axis[2])
-                # marker.pose.orientation.w = float(float(sound_direction[2]))
                 marker.scale.x = 0.1
                 marker.scale.y = 0.01
                 marker.scale.z = 0.01
