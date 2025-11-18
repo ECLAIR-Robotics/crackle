@@ -3,9 +3,9 @@ from numpy import save
 import openai
 from openai import OpenAI
 
-from crackle_planning._keys import openai_key
-from crackle_planning._api import PlannerAPI
-from crackle_planning.parse import parse_functions_to_json
+from _keys import openai_key
+from _api import PlannerAPI
+from parse import parse_functions_to_json
 import os
 from elevenlabs import ElevenLabs
 
