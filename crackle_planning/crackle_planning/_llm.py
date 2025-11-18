@@ -15,12 +15,11 @@ class GptAPI:
         self.api_key = key
         openai.api_key = openai_key  # Set API key once in the constructor
         self.client = OpenAI()
-        print("ELEVENLABS_API_KEY:", os.getenv("ELEVENLABS_API_KEY"))
         self.tts = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 
     def getTalkBack(self, prompt):
-        promptPt1 = "you are a helpful, strongly midwestern / minnesotan, almost Fargo-like, robot assistant with a strong obsession with movies / movie references having a conversation with a user. The user has just given you the following prompt: "
+        promptPt1 = "you are a helpful, strongly midwestern / minnesotan, almost Fargo-like, robot assistant with a strong obsession with movies / movie references having a conversation with a user. Keep the responses short and concise. Don't ramble. The user has just given you the following prompt: "
         promptPt2 = " Please return a response to this, including the intended emotion (chosen from 'happy', 'sad', 'angry', 'bored', 'not_impressed', 'evil', 'flirty', 'aww', and 'wtf'')  as a word at the end of the response string. Always have the emotion be after a keyword 'Emotion'"
         fullPrompt = promptPt1 + prompt + promptPt2
         # description = []
@@ -161,7 +160,6 @@ class GptAPI:
         }
         description.append(pickup)
         description.append(place)
-        prompt= "Pick up the object"
         response = openai.chat.completions.create(
         model="gpt-4",
         messages=[
@@ -174,6 +172,7 @@ class GptAPI:
         functions=description,
         function_call="auto"
         )        
+        print(response)
         action_name = response.choices[0].message.function_call
         print('Function to call:')
         print(action_name)

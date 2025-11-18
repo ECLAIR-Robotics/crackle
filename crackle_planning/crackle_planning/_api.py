@@ -1,6 +1,7 @@
 import os
 import threading
 import atexit
+from typing import Dict, List
 
 ROS_ENABLED = os.getenv("ROS_ENABLED", "false").lower() == "true"
 if ROS_ENABLED:
@@ -16,6 +17,7 @@ class PlannerAPI:
             self._crackle_node = Node("crackle_node")
             self._crackle_node.get_logger().info("Initialized PlannerAPI with ROS interface.")
             self.ros_interface = RosInterface(self._crackle_node)
+            self.global_state: Dict[str, object] = {}
             self._executor = MultiThreadedExecutor()
             self._executor.add_node(self._crackle_node)
             self._spin_thread = threading.Thread(target=self._executor.spin, daemon=True)
@@ -86,3 +88,10 @@ class PlannerAPI:
             self.ros_interface.dance()
         else:
             print("Simulating dance maneuver without ROS.")
+    
+    def get_global_state_value(key: str):
+        pass
+
+    def recognize_person(self):
+        names = self.ros_interface.recognize_person()
+        print(f"Recognized persons: {names}")

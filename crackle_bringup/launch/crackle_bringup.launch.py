@@ -62,6 +62,14 @@ def generate_launch_description():
         parameters=[{'use_sim_time': use_simulated_robot}]
     )
 
+    simulated_camera_node = Node(
+        package='crackle_vision',
+        executable='camera_publisher_node',
+        name='simulated_camera_node',
+        output='screen',
+        condition=IfCondition(simulate_vision)
+    )
+
     group = GroupAction([
         SetRemap(src='/camera/camera/depth/color/points', dst='/cloud_in'),
     ]) # Revisit this for the octomap
@@ -76,5 +84,6 @@ def generate_launch_description():
         moveit_bringup,
         face_node,
         audio_localization_node,
+        simulated_camera_node,
         # group
     ])

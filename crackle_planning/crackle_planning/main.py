@@ -189,6 +189,7 @@ class CrackleFSM:
                 print("Crackle's emotion: ", emotion)
                 # self.gpt_api.speakText(responseWords, output_path="response.mp3")
                 self.gpt_api.speak_text_eleven_labs(responseWords, output_path="response.mp3")
+                action = self.gpt_api.get_command(text)
                 playsound("response.mp3", block=True)
                 self.planner_api.set_emotion(emotion)
                 if "dance" in text.lower():
