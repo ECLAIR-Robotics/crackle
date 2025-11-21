@@ -69,7 +69,7 @@ class CrackleFSM:
         print("custom_model_path:", custom_model_path)
 
         # Key you'll use in the prediction dict
-        self.WAKEWORD_NAME = "lee_oh"
+        self.WAKEWORD_NAME = "Lee-oh_float32"
 
         from openwakeword.model import Model
 
@@ -84,7 +84,7 @@ class CrackleFSM:
 
         # Load ONLY your custom wake word
         self._owwModel = Model(
-            wakeword_models={self.WAKEWORD_NAME: custom_model_path},
+            wakeword_models=[custom_model_path],
             inference_framework=self.INFERENCE_FRAMEWORK,
         )
         self._n_models = len(self._owwModel.models.keys())

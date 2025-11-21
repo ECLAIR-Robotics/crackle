@@ -202,7 +202,7 @@ class GptAPI:
 
     def speak_text_eleven_labs(self, text: str, output_path: str = "speech_output.mp3"):
         audio_stream = self.tts.text_to_speech.convert(
-            voice_id="Yut1fkzlqYCvxq6ubmvn",
+            voice_id="Tu7yBVBgg8rrFciOxBRm",
             model_id="eleven_multilingual_v2",
             text=text,
         )
