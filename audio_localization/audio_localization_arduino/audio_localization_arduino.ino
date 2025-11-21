@@ -1,6 +1,15 @@
 #include <Arduino.h>
 #include "linear_algebra.hpp"
 
+template <typename T>
+
+T absolute(T x) {
+  if (x < 0) {
+    return x * -1;
+  }
+  return x;
+}
+
 // 4 microphones in square pattern
 // (4 choose 2) = 6 so 6 cones
 
@@ -152,13 +161,7 @@ int sign(double x) {
   return 0;
 }
 
-template <typename T>
-T absolute(T x) {
-  if (x < 0) {
-    return x * -1;
-  }
-  return x;
-}
+
 
 double get_slope_from_time_offset(double t, double d) {
   if (d < c*t) {

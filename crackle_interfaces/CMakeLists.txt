@@ -19,8 +19,10 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/AudioData.msg"
   "srv/FindObjects.srv"
   "srv/PickupObject.srv"
+  "srv/LookAt.srv"
+  "srv/RecognizePerson.srv"
 
-  DEPENDENCIES shape_msgs
+  DEPENDENCIES shape_msgs geometry_msgs
   )
 # uncomment the following section in order to fill in
 # further dependencies manually.

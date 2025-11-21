@@ -19,7 +19,7 @@ class CameraPublisherNode(Node):
         self.bridge = CvBridge()
 
         # Publisher for the image topic
-        self.publisher = self.create_publisher(Image, 'camera/image_raw', 10)
+        self.publisher = self.create_publisher(Image, '/camera/camera/color/image_raw', 10)
 
         # Timer to publish frames at a fixed rate
         self.timer = self.create_timer(1.0 / 30.0, self.timer_callback)  # 30 FPS
