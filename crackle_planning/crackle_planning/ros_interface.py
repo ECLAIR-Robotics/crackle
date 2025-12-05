@@ -247,3 +247,5 @@ class RosInterface:
             print("Lowest distance:", lowest_distance)
             
         return recognized_names
+    
+    

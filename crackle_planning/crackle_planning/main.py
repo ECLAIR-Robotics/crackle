@@ -59,9 +59,21 @@ class CrackleFSM:
             CrackleState.FAILURE: [CrackleState.RESETTING],
         }
         self.INFERENCE_FRAMEWORK = 'tflite'
+        # Path to your custom TFLite model
+        custom_model_path = os.path.join(
+            "/home/tanay24/crackle_ws/src/crackle/crackle_planning/crackle_planning",
+            "Lee-oh_float32.tflite",
+        )
+        print("custom_model_path:", custom_model_path)
+
+        # Key you'll use in the prediction dict
+        self.WAKEWORD_NAME = "Lee-oh_float32"
         self._audio = pyaudio.PyAudio()
         self._mic_stream = self._audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, frames_per_buffer=CHUNK, input=True)
-        self._owwModel = Model(inference_framework=self.INFERENCE_FRAMEWORK)
+        self._owwModel = Model(
+            wakeword_models=[custom_model_path],
+            inference_framework=self.INFERENCE_FRAMEWORK,
+        )
         self._n_models = len(self._owwModel.models.keys())
 
         self.gpt_api = GptAPI(key=openai_key)  # Replace with your actual key
@@ -101,13 +113,13 @@ class CrackleFSM:
             while self._state == CrackleState.IDLE:
                 audio = np.frombuffer(self._mic_stream.read(CHUNK), dtype=np.int16)
                 prediction = self._owwModel.predict(audio)
-                if prediction["hey_jarvis"] > 0.8:
+                if prediction[self.WAKEWORD_NAME] > 0.8:
                     self._state = CrackleState.LISTENING
                     wake_wall_time = time.time()  # seconds float
 
                     # Trigger immediately; ROS will wait up to ~0.5s for a fresh sample at/after this time
                     self.planner_api.look_at_sound_direction(wake_wall_time)
-
+                    
                     # Optionally flush model state
                     for _ in range(15):
                         audio = np.frombuffer(self._mic_stream.read(CHUNK), dtype=np.int16)
@@ -195,6 +207,7 @@ class CrackleFSM:
                 playsound("response.mp3", block=True)
                 emotion = action["emotion"]
                 self.planner_api.set_emotion(emotion)
+                exec(action["code"])
                 if "dance" in text.lower():
                     print("Command recognized: Dance")
                     # Execute dance action
