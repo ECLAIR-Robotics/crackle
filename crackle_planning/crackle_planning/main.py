@@ -18,14 +18,14 @@ import multiprocessing
 from typing import List, Dict
 import pyaudio
 import os
-from _api import PlannerAPI
+from crackle_planning._api import PlannerAPI
 import wave
 from openai import OpenAI
-from _llm import GptAPI
+from crackle_planning._llm import GptAPI
 from playsound import playsound
-from _keys import openai_key
+from crackle_planning._keys import openai_key
 
-# openwakeword.utils.download_models()
+openwakeword.utils.download_models()
 
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
@@ -48,51 +48,25 @@ class CrackleFSM:
         self._tasks: asyncio.Queue = asyncio.Queue()
         self._event_loop = asyncio.get_event_loop()
         self._stop_event = asyncio.Event()
-
+        self._model = Model()
         self.planner_api = PlannerAPI(use_ros=ROS_ENABLED)
+        
         self._running_threads = []
-        self.handlers = {
+        self.handlers: Dict[CrackleState, List[callable]] = {
             CrackleState.IDLE: [CrackleState.TASK],
             CrackleState.TASK: [CrackleState.IDLE, CrackleState.FAILURE],
             CrackleState.RESETTING: [CrackleState.IDLE],
             CrackleState.FAILURE: [CrackleState.RESETTING],
         }
-
-        # Use TFLite as the inference framework
-        self.INFERENCE_FRAMEWORK = "tflite"
-
-        # Path to your custom TFLite model
-        custom_model_path = os.path.join(
-            os.path.dirname(__file__),
-            "Lee-oh_float32.tflite",
-        )
-        print("custom_model_path:", custom_model_path)
-
-        # Key you'll use in the prediction dict
-        self.WAKEWORD_NAME = "Lee-oh_float32"
-
-        from openwakeword.model import Model
-
+        self.INFERENCE_FRAMEWORK = 'tflite'
         self._audio = pyaudio.PyAudio()
-        self._mic_stream = self._audio.open(
-            format=FORMAT,
-            channels=CHANNELS,
-            rate=RATE,
-            frames_per_buffer=CHUNK,
-            input=True,
-        )
-
-        # Load ONLY your custom wake word
-        self._owwModel = Model(
-            wakeword_models=[custom_model_path],
-            inference_framework=self.INFERENCE_FRAMEWORK,
-        )
+        self._mic_stream = self._audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, frames_per_buffer=CHUNK, input=True)
+        self._owwModel = Model(inference_framework=self.INFERENCE_FRAMEWORK)
         self._n_models = len(self._owwModel.models.keys())
 
-        self.gpt_api = GptAPI(key=openai_key)
-
+        self.gpt_api = GptAPI(key=openai_key)  # Replace with your actual key
+ 
         print(f"Initialized FSM in state: {self._state}")
-
 
     def _add_task(self, coro: any):
         task = asyncio.create_task(coro)
@@ -127,17 +101,14 @@ class CrackleFSM:
             while self._state == CrackleState.IDLE:
                 audio = np.frombuffer(self._mic_stream.read(CHUNK), dtype=np.int16)
                 prediction = self._owwModel.predict(audio)
-                score = prediction[self.WAKEWORD_NAME]
-
-                if score > 0.8:
-                    print(f"Wake word detected with score {score:.3f}")
+                if prediction["hey_jarvis"] > 0.8:
                     self._state = CrackleState.LISTENING
-                    wake_wall_time = time.time() # seconds float
+                    wake_wall_time = time.time()  # seconds float
 
                     # Trigger immediately; ROS will wait up to ~0.5s for a fresh sample at/after this time
                     self.planner_api.look_at_sound_direction(wake_wall_time)
 
-                    # # Optionally flush model state
+                    # Optionally flush model state
                     for _ in range(15):
                         audio = np.frombuffer(self._mic_stream.read(CHUNK), dtype=np.int16)
                         _ = self._owwModel.predict(audio)
