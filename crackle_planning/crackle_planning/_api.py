@@ -59,7 +59,8 @@ class PlannerAPI:
         else:
             print("Simulating look at sound direction without ROS.")
 
-    def place(self, x : float, y : float, z : float):
+    def place(self):# This function allows us to place object down
+        print("IT WORKS YAYAYAYA")
         pass
 
     def get_position_of(self, obj_name: str):

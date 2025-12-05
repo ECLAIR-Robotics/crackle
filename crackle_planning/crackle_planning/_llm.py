@@ -2,13 +2,20 @@
 from numpy import save
 import openai
 from openai import OpenAI
-
+import json
 from crackle_planning._keys import openai_key
 from crackle_planning._api import PlannerAPI
 from crackle_planning.parse import parse_functions_to_json
 import os
 from elevenlabs import ElevenLabs
 
+import rclpy
+from rclpy.node import Node
+from rclpy.executors import MultiThreadedExecutor
+
+ROS_ENABLED = os.getenv("ROS_ENABLED", "false").lower() == "true"
+if ROS_ENABLED:
+    from crackle_planning.ros_interface import RosInterface
 
 class GptAPI:
     def __init__(self, key: str):
@@ -32,8 +39,6 @@ class GptAPI:
             },
             {"role": "user", "content": fullPrompt}
         ],
-        # functions=description,
-        # function_call="auto"
         )
 
         response_message = response.choices[0].message.content
@@ -113,70 +118,60 @@ class GptAPI:
         description=[]
         pickup={
             "name": "pick_up",
-            "description": "Pick up the object for the user",
+            "description": "Pick up the object for the user. Accepts a string (name of the object that has to be picked)",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "x": {
-                        "type": "number",
-                        "description": "The x coordinate of the object.",
+                    "object_name": {
+                        "type": "string",
+                        "description": "The object that has to be picked up.",
                     },
-                    "y": {
-                        "type": "number",
-                        "description": "The y coordinate of the object.",
-                    },
-                    "z": {
-                        "type": "number",
-                        "description": "The z coordinate of the object.",
-                    }
+                    "example_call": "func.pick_up(phone)",
                 },
-                "required": ["x", "y", "z"],
+                "required": ["object_name"],
                 "additionalProperties": False,
             },        
         }
 
         place={
             "name": "place",
-            "description": "Place the object for the user",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "x": {
-                        "type": "number",
-                        "description": "The x coordinate to put at.",
-                    },
-                    "y": {
-                        "type": "number",
-                        "description": "The y coordinate to put at.",
-                    },
-                    "z": {
-                        "type": "number",
-                        "description": "The z coordinate to put at.",
-                    }
-                },
-                "required": ["x", "y", "z"],
-                "additionalProperties": False,
-            },        
-        }
+            "description": "Place the object for the user. Accepts a string (name of the object that has to be placed)",
+            "parameters": False,
+            "additionalProperties": False,
+        }       
+        
+        pickup_string = json.dumps(pickup)
+        place_string = json.dumps(place)
         description.append(pickup)
         description.append(place)
-        response = openai.chat.completions.create(
-        model="gpt-4",
-        messages=[
-            {
-                "role": "system",
-                "content": "You are a helpful robot assistant. Use the supplied functions to generate code that uses the provided list of functions"
-            },
-            {"role": "user", "content": prompt}
-        ],
-        functions=description,
-        function_call="auto"
-        )        
-        print(response)
-        action_name = response.choices[0].message.function_call
-        print('Function to call:')
-        print(action_name)
-        return action_name
+
+        gpt_content = "You are a helpful robot assistant. " \
+        "You are great at breaking down a task into small functionalities based on the provided to you. " \
+        "Then, generate code in python that calls the appropriate functions in the correct order that are required to execute the user's prompt. " \
+        "Generate only code do not write anything else. Your output must be working, executable python code. You have the following functions. They belong to the func instance. So make sure to write code that calls these methods from func instance " \
+        "The method descriptions and the parameters they accept are detailed here: " 
+
+        response = self.client.responses.create(
+            model="gpt-5",
+            reasoning={"effort": "low"},
+            input=[
+                {
+                    "role": "developer",
+                    "content": gpt_content + pickup_string + place_string
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        )    
+        func = PlannerAPI(ROS_ENABLED)
+
+        print(response.output_text)
+        exec(response.output_text)
+        #print('Function to call:')
+        #print(action_name)
+        return response.output_text
     
     def speakText(self, text: str, output_path: str = "speech_output.mp3",
                   voice: str = "alloy", model: str = "gpt-4o-mini-tts"):
@@ -222,8 +217,10 @@ class GptAPI:
                 model=model
             )
         return transcript.text
-
-      
+    
+if __name__ == "__main__":
+    gpt_api = GptAPI(openai_key)
+    gpt_api.get_command("Bring me the bottle")
 
 
 
