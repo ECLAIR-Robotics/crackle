@@ -59,7 +59,7 @@ class PlannerAPI:
         else:
             print("Simulating look at sound direction without ROS.")
 
-    def place(self):# This function allows us to place object down
+    def place(self): # This function allows us to place object down
         print("IT WORKS YAYAYAYA")
         pass
 

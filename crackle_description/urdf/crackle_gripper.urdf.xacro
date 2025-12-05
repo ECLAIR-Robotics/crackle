@@ -13,7 +13,7 @@
   <xacro:macro name="gripper_base_macro" params="link_name base_mesh:='ClawBase.stl'">
     <link name="${link_name}">
       <visual>
-        <origin xyz="0 0 0" rpy="1.57 0 0"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
         <geometry>
           <mesh filename="${pkg_path}/${base_mesh}" scale="${mesh_scale}"/>
         </geometry>

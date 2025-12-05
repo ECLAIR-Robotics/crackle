@@ -34,7 +34,6 @@ class ClawDegreePublisherNode(Node):
 
     def read_serial(self):
         while self.ser.in_waiting > 0:
-            print("Raw data:", self.ser.readline())
             serial_output = self.ser.readline().decode('utf-8').strip()
             try:
                 serial_output = int(serial_output)
