@@ -89,8 +89,6 @@ class SoundDirectionPublisherNode(Node):
                 self.sound_direction_publisher.publish(sound_direction_stamped)
                 self.sound_direction_marker_publisher.publish(marker)
 
-                self.get_logger().info("published")
-
 
 def main(args=None):
     rclpy.init(args=args)

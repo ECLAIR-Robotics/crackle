@@ -110,6 +110,7 @@ bool CrackleManipulation::pick_up_object(crackle_interfaces::srv::PickupObject::
     // Next, close the gripper (this is a placeholder, actual gripper control code needed)
     RCLCPP_INFO(node_->get_logger(), "pick_up_object: closing gripper to pick up object '%s'", object_name.c_str());
 
+
     // TODO: Implement actual gripper control logic here
     gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(true));
     response->success = true;
@@ -524,8 +525,8 @@ bool CrackleManipulation::reach_for_object(const std::string &object_name)
         std::vector<geometry_msgs::msg::Pose> target_reach_poses;
         std::vector<bool> reach_success;
 
-        target_reach_poses.push_back(construct_reach_pose(obj.pose, {0.2, 0.2, 0.2}));   // above object
-        target_reach_poses.push_back(construct_reach_pose(obj.pose, {-0.2, -0.2, 0.2})); // above object
+        target_reach_poses.push_back(construct_reach_pose(obj.pose, {0.05, 0.05, 0.2}));   // above object
+        target_reach_poses.push_back(construct_reach_pose(obj.pose, {-0.05, -0.05, 0.2})); // above object
 
         bool success = false;
         for (const auto &pose : target_reach_poses)
@@ -546,14 +547,68 @@ bool CrackleManipulation::reach_for_object(const std::string &object_name)
             if (reach_success[i])
             {
                 RCLCPP_INFO(node_->get_logger(), "reach_for_object: planned to object '%s' successfully", object_name.c_str());
+                {
+                    // Build a pose 0.05 m closer to the object along the vector from the approach pose to the object
+                    const geometry_msgs::msg::Pose approach_pose = target_reach_poses[i];
+                    Eigen::Vector3d approach_pt(approach_pose.position.x,
+                                                approach_pose.position.y,
+                                                approach_pose.position.z);
+                    Eigen::Vector3d object_pt(obj.pose.position.x,
+                                              obj.pose.position.y,
+                                              obj.pose.position.z);
+
+                    Eigen::Vector3d dir = object_pt - approach_pt;
+                    double norm = dir.norm();
+                    if (norm < 1e-6)
+                    {
+                        RCLCPP_WARN(node_->get_logger(), "reach_for_object: zero distance between approach and object, skipping close-in step");
+                    }
+                    else
+                    {
+                        dir.normalize();
+                        const double closer_step = 0.05; // meters toward the object
+
+                        geometry_msgs::msg::Pose closer_pose = approach_pose;
+                        closer_pose.position.x += dir.x() * closer_step;
+                        closer_pose.position.y += dir.y() * closer_step;
+                        closer_pose.position.z += dir.z() * closer_step;
+                        // keep same orientation as approach_pose
+
+                        // Plan a Cartesian path that goes through the approach pose then the closer pose
+                        std::vector<geometry_msgs::msg::Pose> cartesian_waypoints;
+                        cartesian_waypoints.push_back(approach_pose);
+                        cartesian_waypoints.push_back(closer_pose);
+
+                        bool cart_ok = plan_cartesian_path(cartesian_waypoints);
+                        if (cart_ok)
+                        {
+                            RCLCPP_INFO(node_->get_logger(), "reach_for_object: planned cartesian close-in path");
+                            // execution will follow the existing execute_plan(true) call below,
+                            // which will run the recently planned trajectory_ (is_trajectory_ == true)
+                        }
+                        else
+                        {
+                            RCLCPP_WARN(node_->get_logger(), "reach_for_object: failed to plan cartesian close-in path, will execute nominal plan");
+                            // leave plan_ intact so the subsequent execute_plan(true) executes the earlier plan_
+                        }
+                    }
+                }
+
                 success = execute_plan(true);
                 if (success)
                 {
                     RCLCPP_INFO(node_->get_logger(), "reach_for_object: executed to object '%s' successfully", object_name.c_str());
+                    std_msgs::msg::Bool msg;
+                    msg.data = false;
+                    gripper_command_publisher_->publish(msg);
                     return true;
                 }
             }
         }
+
+        // close in on the object
+
+        
         RCLCPP_ERROR(node_->get_logger(), "reach_for_object: failed to reach for object '%s'", object_name.c_str());
     }
 

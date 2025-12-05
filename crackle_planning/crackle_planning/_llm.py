@@ -2,27 +2,31 @@
 from numpy import save
 import openai
 from openai import OpenAI
-
-from _keys import openai_key
-from _api import PlannerAPI
-from parse import parse_functions_to_json
+import json
+from crackle_planning._keys import openai_key
+from crackle_planning._api import PlannerAPI
+from crackle_planning.parse import parse_functions_to_json
 import os
 from elevenlabs import ElevenLabs
 
+import rclpy
+from rclpy.node import Node
+from rclpy.executors import MultiThreadedExecutor
+
+ROS_ENABLED = os.getenv("ROS_ENABLED", "false").lower() == "true"
+if ROS_ENABLED:
+    from crackle_planning.ros_interface import RosInterface
 
 class GptAPI:
     def __init__(self, key: str):
         self.api_key = key
         openai.api_key = openai_key  # Set API key once in the constructor
         self.client = OpenAI()
-        print("ELEVENLABS_API_KEY:", os.getenv("ELEVENLABS_API_KEY"))
         self.tts = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 
     def getTalkBack(self, prompt):
-        promptPt1 = "you are a helpful, strongly midwestern / minnesotan, almost Fargo-like, robot assistant with a strong obsession with movies / movie references having a conversation with a user. The user has just given you the following prompt: "
-        promptPt2 = " Please return a response to this, including the intended emotion (chosen from 'happy', 'sad', 'angry', 'bored', 'not_impressed', 'evil', 'flirty', 'aww', and 'wtf'')  as a word at the end of the response string. Always have the emotion be after a keyword 'Emotion'"
-        fullPrompt = promptPt1 + prompt + promptPt2
+        
         # description = []
         response = openai.chat.completions.create(
         model="gpt-4",
@@ -33,8 +37,6 @@ class GptAPI:
             },
             {"role": "user", "content": fullPrompt}
         ],
-        # functions=description,
-        # function_call="auto"
         )
 
         response_message = response.choices[0].message.content
@@ -107,77 +109,129 @@ class GptAPI:
         response_text = response_text.strip(" \n\t:;,.!?\"'")
 
         return [response_text, emotion]
-    
-    def get_command(self, prompt: str):
-        #client = OpenAI()
-        openai.api_key=openai_key
-        description=[]
-        pickup={
-            "name": "pick_up",
-            "description": "Pick up the object for the user",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "x": {
-                        "type": "number",
-                        "description": "The x coordinate of the object.",
-                    },
-                    "y": {
-                        "type": "number",
-                        "description": "The y coordinate of the object.",
-                    },
-                    "z": {
-                        "type": "number",
-                        "description": "The z coordinate of the object.",
-                    }
-                },
-                "required": ["x", "y", "z"],
-                "additionalProperties": False,
-            },        
-        }
 
-        place={
-            "name": "place",
-            "description": "Place the object for the user",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "x": {
-                        "type": "number",
-                        "description": "The x coordinate to put at.",
-                    },
-                    "y": {
-                        "type": "number",
-                        "description": "The y coordinate to put at.",
-                    },
-                    "z": {
-                        "type": "number",
-                        "description": "The z coordinate to put at.",
-                    }
-                },
-                "required": ["x", "y", "z"],
-                "additionalProperties": False,
-            },        
-        }
-        description.append(pickup)
-        description.append(place)
-        prompt= "Pick up the object"
-        response = openai.chat.completions.create(
-        model="gpt-4",
-        messages=[
+
+    def get_command(self, prompt: str, ros_interface: any = None):
+        self.client = OpenAI()
+
+        # Single tool that returns dialogue + code + emotion together
+        tools = [
             {
-                "role": "system",
-                "content": "You are a helpful robot assistant. Use the supplied functions to generate code that uses the provided list of functions"
-            },
-            {"role": "user", "content": prompt}
-        ],
-        functions=description,
-        function_call="auto"
-        )        
-        action_name = response.choices[0].message.function_call
-        print('Function to call:')
-        print(action_name)
-        return action_name
+                "type": "function",
+                "name": "make_response",
+                "description": (
+                    "For every user prompt, produce three things:\n"
+                    "1) dialogue: a short conversational reply to the user.\n"
+                    "2) code: Python code using only pick_up(self, object_name: str) "
+                    "   and place(self) in the correct order to execute the user's request.\n"
+                    "3) emotion: one word describing your emotion toward the user/input.\n"
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "dialogue": {
+                            "type": "string",
+                            "description": (
+                                "Your conversational response to the user. "
+                                "Short, concise, in a midwestern / Fargo-like voice, "
+                                "with movie references when relevant."
+                            ),
+                        },
+                        "code": {
+                            "type": "string",
+                            "description": (
+                                "Executable Python code ONLY. No explanations or comments. "
+                                "Use ONLY these existing methods:\n"
+                                "  - def pick_up(self, object_name: str)\n"
+                                "  - def place(self)\n"
+                                "They belong to the api instance. So make sure to write code that " 
+                                "calls these methods from api instance "
+                                "Assume 'self' is already in scope so no need to pass it in. "
+                                "Do not redefine these. For example, if you were to pick up and "
+                                "place an object called 'x', code would look like this:\n"
+                                "api.pick_up(\"x\")\\api.place()"
+                            ),
+                        },
+                        "emotion": {
+                            "type": "string",
+                            "description": (
+                                "One of: 'happy', 'sad', 'angry', 'bored', "
+                                "'not_impressed', 'evil', 'flirty', 'aww', 'wtf'."
+                            ),
+                        },
+                    },
+                    "required": ["dialogue", "code", "emotion"],
+                    "additionalProperties": False,
+                },
+                "strict": True,
+            }
+        ]
+
+        instructions = (
+            "Your name is Lleo. You are a helpful, strongly midwestern / minnesotan, "
+            "almost Fargo-like robot assistant with a strong obsession with movies "
+            "and movie references. You are great at breaking down tasks into small "
+            "steps and interacting with the real world by generating Python code.\n\n"
+            "For EVERY user prompt, you MUST call the tool 'make_response' exactly once.\n"
+            "- Do NOT send any normal assistant text.\n"
+            "- Put your conversational reply in the 'dialogue' field.\n"
+            "- Put ONLY executable Python code in the 'code' field.\n"
+            "- Put a single emotion word in the 'emotion' field.\n"
+        )
+
+        input_items = [
+            {"role": "developer", "content": instructions},
+            {"role": "user", "content": prompt},
+        ]
+
+        # Important: tool_choice is just the string "required" here.
+        # Since we only define one custom tool, the model is forced to call it.
+        response = self.client.responses.create(
+            model="gpt-5-mini",
+            reasoning={"effort": "minimal"},
+            tools=tools,
+            tool_choice="required",
+            input=input_items,
+        )
+
+        dialogue_val = None
+        code_val = None
+        emotion_val = None
+
+        # The tool call comes back as a `function_call` item in response.output
+        for item in response.output:
+            if item.type != "function_call":
+                continue
+            if item.name != "make_response":
+                continue
+
+            args = json.loads(item.arguments or "{}")
+            dialogue_val = args.get("dialogue", "")
+            code_val = args.get("code", "")
+            emotion_val = args.get("emotion", "")
+
+        # Debug prints if you want them
+        if dialogue_val is not None:
+            print("Dialogue:", dialogue_val)
+        else:
+            print("WARNING: No dialogue returned.")
+
+        if code_val is not None:
+            print("Code:", code_val)
+        else:
+            print("WARNING: No code returned.")
+
+        if emotion_val is not None:
+            print("Emotion:", emotion_val)
+        else:
+            print("WARNING: No emotion returned.")
+
+        # Return all three so your planner can use them
+        return {
+            "dialogue": dialogue_val,
+            "code": code_val,
+            "emotion": emotion_val,
+        }
     
     def speakText(self, text: str, output_path: str = "speech_output.mp3",
                   voice: str = "alloy", model: str = "gpt-4o-mini-tts"):
@@ -223,10 +277,20 @@ class GptAPI:
                 model=model
             )
         return transcript.text
-
-      
-
-
+    
+if __name__ == "__main__":
+    gpt_api = GptAPI(openai_key)
+    # return {
+    #         "dialogue": dialogue_val,
+    #         "code": code_val,
+    #         "emotion": emotion_val,
+    #     }
+    output = gpt_api.get_command("Hey Leo you suck. You need to prove to me that you do not suck. Also, you're looking mighty sexy today. can you please bring me the bottle")
+    gpt_api.speak_text_eleven_labs(output["dialogue"])
+    # RosInterface.set_emotion(output["emotion"])
+    api = PlannerAPI(ROS_ENABLED)
+    api.set_emotion(output["emotion"]) 
+    exec(output["code"])
 
 
 

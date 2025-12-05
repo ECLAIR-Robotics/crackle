@@ -8,7 +8,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallb
 from ament_index_python import get_package_share_directory
 from geometry_msgs.msg import Pose
 
-from std_srvs.srv import Empty
+from std_srvs.srv import Trigger
 from sensor_msgs.msg import Image, PointCloud2, CameraInfo
 from crackle_interfaces.srv import FindObjects
 from shape_msgs.msg import SolidPrimitive
@@ -25,7 +25,6 @@ import open3d as o3d
 class VisionServerNode(Node):
 
     DATA_DIRECTORY = os.path.join(get_package_share_directory("crackle_vision"),"data")
-
     def __init__(self, node_name):
         super().__init__(node_name)
         self._vision_callback_group = ReentrantCallbackGroup()
@@ -36,6 +35,8 @@ class VisionServerNode(Node):
         self.intrinsic_matrix = None
         self.depth_instrinsic_matrix = None
         self.camera_model = PinholeCameraModel()
+
+        self.person_dictionary = {}
 
         self.bridge = CvBridge()
         self.model = YOLOE(os.path.join(VisionServerNode.DATA_DIRECTORY, "yoloe-11l-seg-pf.pt"))
@@ -91,9 +92,16 @@ class VisionServerNode(Node):
         )
 
         self.create_service(
-            Empty,
-            "vision/pcd",
-            self.depth_to_pcd,
+            FindObjects,
+            "vision/find_objects",
+            self.find_objects_service_callback,
+            callback_group=self._service_callback_group,
+        )
+
+        self.create_service(
+            Trigger,
+            "vision/scan",
+            self.find_objects,
             callback_group=self._service_callback_group,
         )
 
@@ -163,7 +171,6 @@ class VisionServerNode(Node):
         if self.intrinsic_matrix is None:
             return
 
-
         depth_image = self.bridge.imgmsg_to_cv2(self.depth_image, desired_encoding="passthrough")
 
         depth_image = cv2.bitwise_and(depth_image, depth_image, mask=mask.astype(np.uint8))
@@ -182,6 +189,120 @@ class VisionServerNode(Node):
         pcd.points = o3d.utility.Vector3dVector(points_arr)
         print(pcd)
         return pcd
+
+    def find_objects(self, request, response) -> Tuple[List[str], List[SolidPrimitive]]:
+        """Detect objects in the current color image, filter by confidence, and parallelize mesh computation.
+        """
+        # Removed multiprocessing for simpler, sequential execution
+
+        if self.color_image is None or self.depth_image is None:
+            self.get_logger().info("No images available for find_objects")
+            return [], []
+        names = None
+        min_confidence = 0.5
+        boxes, segments, class_names = self.get_object_bounding_boxes(names if names else [])
+        if boxes is None or segments == []:
+            return [], []
+
+        try:
+            confs = boxes.conf.cpu().numpy()
+        except Exception:
+            confs = np.ones(len(class_names), dtype=float)
+
+        # Prepare jobs for parallel mesh computation
+        jobs = []
+        job_names = []
+        for idx, cls_name in enumerate(class_names):
+            if names and cls_name not in names:
+                continue
+            if confs[idx] < min_confidence:
+                continue
+            try:
+                segment_mask = segments[idx].cpu()
+                segment_mask = segment_mask.data.numpy()[0]
+            except Exception:
+                self.get_logger().warning(f"Could not get segment mask for index {idx}")
+                continue
+            pcd = self.depth_to_pcd(segment_mask)
+            if pcd is None:
+                self.get_logger().warning(f"No point cloud available for {cls_name}; skipping")
+                continue
+            try:
+                pcd = pcd.voxel_down_sample(voxel_size=0.005)
+                pcd, ind = pcd.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+            except Exception as e:
+                self.get_logger().warning(f"Point cloud preprocessing failed for {cls_name}: {e}")
+            with o3d.utility.VerbosityContextManager(o3d.utility.VerbosityLevel.Error) as cm:
+                labels = np.array(pcd.cluster_dbscan(eps=0.02, min_points=10, print_progress=False))
+            if labels.size == 0:
+                self.get_logger().warning(f"No clusters found for {cls_name}")
+                continue
+            unique_labels, counts = np.unique(labels, return_counts=True)
+            valid = [(lab, cnt) for lab, cnt in zip(unique_labels, counts) if lab != -1]
+            if not valid:
+                self.get_logger().warning(f"Only noise detected for {cls_name}")
+                continue
+            largest_cluster_label = max(valid, key=lambda x: x[1])[0]
+            indices = np.where(labels == largest_cluster_label)[0]
+            largest_cluster = pcd.select_by_index(indices)
+            # Serialize point cloud for multiprocessing (as numpy array)
+            jobs.append(np.asarray(largest_cluster.points))
+            job_names.append(cls_name)
+
+        # Helper for multiprocessing: must be top-level or staticmethod
+        def mesh_worker(points):
+            import open3d as o3d
+            from crackle_vision.pcd_tools import get_best_approx
+            pcd = o3d.geometry.PointCloud()
+            pcd.points = o3d.utility.Vector3dVector(points)
+            try:
+                shape_mesh, shape_type, quaternion = get_best_approx(pcd)
+                return (shape_mesh.get_min_bound(), shape_mesh.get_max_bound(), shape_type, quaternion)
+            except Exception as e:
+                return None
+
+        # Run mesh_worker sequentially for up to 4 jobs (no multiprocessing)
+        mesh_results = []
+        for idx, points in enumerate(jobs):
+            if idx >= 4:
+                break
+            try:
+                mesh_results.append(mesh_worker(points))
+            except Exception as e:
+                self.get_logger().warning(f"mesh_worker failed for job {idx}: {e}")
+
+        detected_names: List[str] = []
+        primitives: List[SolidPrimitive] = []
+        for idx, result in enumerate(mesh_results):
+            if result is None:
+                self.get_logger().warning(f"Shape approximation failed for {job_names[idx]}")
+                continue
+            min_bound, max_bound, shape_type, quaternion = result
+            object_solid_primitive = SolidPrimitive()
+            object_solid_primitive.type = shape_type
+            dimensions = (np.array(max_bound) - np.array(min_bound)).tolist()
+            object_solid_primitive.dimensions = dimensions
+            pose = Pose()
+            pose.position.x = float((max_bound[0] + min_bound[0]) / 2)
+            pose.position.y = float((max_bound[1] + min_bound[1]) / 2)
+            pose.position.z = float((max_bound[2] + min_bound[2]) / 2)
+            pose.orientation.x = float(quaternion[0])
+            pose.orientation.y = float(quaternion[1])
+            pose.orientation.z = float(quaternion[2])
+            pose.orientation.w = float(quaternion[3])
+            collision_object = CollisionObject()
+            collision_object.header.frame_id = self.camera_link
+            collision_object.id = job_names[idx]
+            collision_object.primitives.append(object_solid_primitive)
+            collision_object.primitive_poses.append(pose)
+            collision_object.operation = CollisionObject.ADD
+            self.collision_object_pub.publish(collision_object)
+            detected_names.append(job_names[idx])
+            primitives.append(object_solid_primitive)
+        # return detected_names, primitives
+        trigger_response = Trigger.Response()
+        self.get_logger().info(f"Detected objects: {detected_names}")
+        return trigger_response
 
 
     def find_objects_service_callback(self, request, response):
@@ -310,7 +431,6 @@ class VisionServerNode(Node):
         """
         self.get_logger().info("Getting object bounding boxes")
         cv_image = self.bridge.imgmsg_to_cv2(self.color_image, desired_encoding="bgr8")
-
         model = None
         if (len(names) > 0):
             model = self.model_prompt
@@ -338,7 +458,7 @@ class VisionServerNode(Node):
         print("Result plot shape:", result_plot.shape)
         self.plot_pub.publish(self.bridge.cv2_to_imgmsg(result_plot, encoding="bgr8"))
         return boxes, segments, self.class_names
-
+    
 
 def main():
     rclpy.init()

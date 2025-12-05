@@ -1,0 +1,3 @@
+---
+string person_name
+float32 embedding

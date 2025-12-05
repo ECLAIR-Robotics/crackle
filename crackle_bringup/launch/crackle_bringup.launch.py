@@ -62,6 +62,21 @@ def generate_launch_description():
         parameters=[{'use_sim_time': use_simulated_robot}]
     )
 
+    simulated_camera_node = Node(
+        package='crackle_vision',
+        executable='camera_publisher_node',
+        name='simulated_camera_node',
+        output='screen',
+        condition=IfCondition(simulate_vision)
+    )
+    #  ros2 run claw_degree_publisher claw_degree_publisher
+    claw_publisher_node = Node(
+        package='claw_degree_publisher',
+        executable='claw_degree_publisher',
+        name='claw_publisher_node',
+        output='screen',
+    )
+
     group = GroupAction([
         SetRemap(src='/camera/camera/depth/color/points', dst='/cloud_in'),
     ]) # Revisit this for the octomap
@@ -76,5 +91,7 @@ def generate_launch_description():
         moveit_bringup,
         face_node,
         audio_localization_node,
+        simulated_camera_node,
+        claw_publisher_node
         # group
     ])
