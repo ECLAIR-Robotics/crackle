@@ -193,7 +193,7 @@ class VisionServerNode(Node):
     def find_objects(self, request, response) -> Tuple[List[str], List[SolidPrimitive]]:
         """Detect objects in the current color image, filter by confidence, and parallelize mesh computation.
         """
-        import multiprocessing as mp
+        # Removed multiprocessing for simpler, sequential execution
 
         if self.color_image is None or self.depth_image is None:
             self.get_logger().info("No images available for find_objects")
@@ -261,8 +261,15 @@ class VisionServerNode(Node):
             except Exception as e:
                 return None
 
-        with mp.Pool(processes=4) as pool:
-            mesh_results = pool.map(mesh_worker, jobs)
+        # Run mesh_worker sequentially for up to 4 jobs (no multiprocessing)
+        mesh_results = []
+        for idx, points in enumerate(jobs):
+            if idx >= 4:
+                break
+            try:
+                mesh_results.append(mesh_worker(points))
+            except Exception as e:
+                self.get_logger().warning(f"mesh_worker failed for job {idx}: {e}")
 
         detected_names: List[str] = []
         primitives: List[SolidPrimitive] = []

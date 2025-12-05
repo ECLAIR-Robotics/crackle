@@ -69,6 +69,13 @@ def generate_launch_description():
         output='screen',
         condition=IfCondition(simulate_vision)
     )
+    #  ros2 run claw_degree_publisher claw_degree_publisher
+    claw_publisher_node = Node(
+        package='claw_degree_publisher',
+        executable='claw_degree_publisher',
+        name='claw_publisher_node',
+        output='screen',
+    )
 
     group = GroupAction([
         SetRemap(src='/camera/camera/depth/color/points', dst='/cloud_in'),
@@ -85,5 +92,6 @@ def generate_launch_description():
         face_node,
         audio_localization_node,
         simulated_camera_node,
+        claw_publisher_node
         # group
     ])
