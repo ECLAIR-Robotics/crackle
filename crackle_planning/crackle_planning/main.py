@@ -207,6 +207,7 @@ class CrackleFSM:
                 playsound("response.mp3", block=True)
                 emotion = action["emotion"]
                 self.planner_api.set_emotion(emotion)
+                api = self.planner_api
                 exec(action["code"])
                 if "dance" in text.lower():
                     print("Command recognized: Dance")

@@ -35,7 +35,7 @@ class GptAPI:
                 "role": "system",
                 "content": "you are a helpful, strongly midwestern / minnesotan, almost Fargo-like, robot assistant with a strong obsession with movies / movie references"
             },
-            {"role": "user", "content": fullPrompt}
+            {"role": "user", "content": prompt}
         ],
         )
 
@@ -140,16 +140,19 @@ class GptAPI:
                         "code": {
                             "type": "string",
                             "description": (
-                                "Executable Python code ONLY. No explanations or comments. "
+                                "ReturnExecutable Python code ONLY. No explanations or comments. "
                                 "Use ONLY these existing methods:\n"
                                 "  - def pick_up(self, object_name: str)\n"
                                 "  - def place(self)\n"
-                                "They belong to the api instance. So make sure to write code that " 
-                                "calls these methods from api instance "
+                                "Return an empty string if the user prompt isn't relevant to the exisiting methods "
+                                "above. They belong to the api instance. So make sure to write code that " 
+                                "calls these methods from api instance. If object has a name that is "
+                                "more than one string, object_name should be a single lowercase string " 
+                                "with the strings of the name connected with an '_'. "
                                 "Assume 'self' is already in scope so no need to pass it in. "
                                 "Do not redefine these. For example, if you were to pick up and "
-                                "place an object called 'x', code would look like this:\n"
-                                "api.pick_up(\"x\")\\api.place()"
+                                "place an object called 'x y', code would look like this:\n"
+                                "api.pick_up(\"x_y\")\\api.place()"
                             ),
                         },
                         "emotion": {
@@ -285,7 +288,7 @@ if __name__ == "__main__":
     #         "code": code_val,
     #         "emotion": emotion_val,
     #     }
-    output = gpt_api.get_command("Hey Leo you suck. You need to prove to me that you do not suck. Also, you're looking mighty sexy today. can you please bring me the bottle")
+    output = gpt_api.get_command("Hey Leo you suck. You need to prove to me that you do not suck. Also, you're looking mighty sexy today. Can you please bring me the water bottle?")
     gpt_api.speak_text_eleven_labs(output["dialogue"])
     # RosInterface.set_emotion(output["emotion"])
     api = PlannerAPI(ROS_ENABLED)
