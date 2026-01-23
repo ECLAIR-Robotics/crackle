@@ -6,12 +6,12 @@ from rclpy.node import Node
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from ament_index_python import get_package_share_directory
-from geometry_msgs.msg import Pose
+from geometry_msgs.msg import Pose, Point
 
 from std_srvs.srv import Empty
 from sensor_msgs.msg import Image, PointCloud2, CameraInfo
 from crackle_interfaces.srv import FindObjects
-from shape_msgs.msg import SolidPrimitive
+from shape_msgs.msg import SolidPrimitive, Mesh, MeshTriangle
 from crackle_vision.pcd_tools import get_best_approx # @ Shalini
 from moveit_msgs.msg import CollisionObject
 import cv2
@@ -262,12 +262,12 @@ class VisionServerNode(Node):
                         pose.position.x = (shape_mesh.get_max_bound()[0] + shape_mesh.get_min_bound()[0]) / 2
                         pose.position.y = (shape_mesh.get_max_bound()[1] + shape_mesh.get_min_bound()[1]) / 2
                         pose.position.z = (shape_mesh.get_max_bound()[2] + shape_mesh.get_min_bound()[2]) / 2
-                        pose.orientation.x = float(quaternion[0])
-                        pose.orientation.y = float(quaternion[1])
-                        pose.orientation.z = float(quaternion[2])
-                        pose.orientation.w = float(quaternion[3])
+                        # pose.orientation.x = float(quaternion[0])
+                        # pose.orientation.y = float(quaternion[1])
+                        # pose.orientation.z = float(quaternion[2])
+                        # pose.orientation.w = float(quaternion[3])
                         print("Object position:", pose.position)
-                        print("Object orientation:", pose.orientation)
+                        # print("Object orientation:", pose.orientation)
                         # visualize the point cloud
                         # o3d.visualization.draw_geometries([pcd]) 
                         viewer = o3d.visualization.Visualizer()
@@ -285,7 +285,22 @@ class VisionServerNode(Node):
                         collision_object.header.frame_id = "camera_depth_optical_frame"
                         collision_object.id = name
                         collision_object.primitives.append(object_solid_primitive)
-                        collision_object.primitive_poses.append(pose)
+                        # collision_object.primitive_poses.append(pose)
+
+                        # TEST: INSTEAD of setting the 'orientation' attribute of the Pose being assigned to the CollisionObject we will instead 
+                        # just specify a position and assign the approximation-shape's mesh data to the 'meshes' attribute
+                        collision_object_mesh = Mesh()
+                        for vertex in np.asarray(shape_mesh.vertices):    # shape_mesh is an o3d.TriangleMesh
+                            point = Point()
+                            point.x, point.y, point.z = vertex
+                            collision_object_mesh.vertices.append(point)
+                        for tri in np.asarray(shape_mesh.triangles):
+                            meshTri = MeshTriangle()
+                            meshTri.vertex_indices = tri    # assigning np.ndarray to uint32[3] --> will it work?
+                            collision_object_mesh.triangles.append(tri)
+                        
+                        collision_object.meshes.append(collision_object_mesh)
+
                         collision_object.operation = CollisionObject.ADD
                         self.collision_object_pub.publish(collision_object)
 
