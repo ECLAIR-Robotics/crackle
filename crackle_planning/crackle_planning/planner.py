@@ -154,7 +154,7 @@ class PlannerNode(Node):
         self.get_logger().info(f"Emotion: {emotion}")
         if emotion in self.valid_emotions:
             self.emotion_pub.publish(String(data=emotion))
-        playsound("/home/tanay24/crackle_ws/speech.mp3")
+        playsound("/home/tanay/crackle_ws/speech.mp3")
 
 def main():
     rclpy.init()

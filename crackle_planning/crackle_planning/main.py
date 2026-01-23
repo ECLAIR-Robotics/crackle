@@ -61,7 +61,7 @@ class CrackleFSM:
         self.INFERENCE_FRAMEWORK = 'tflite'
         # Path to your custom TFLite model
         custom_model_path = os.path.join(
-            "/home/tanay24/crackle_ws/src/crackle/crackle_planning/crackle_planning",
+            "/home/tanay/crackle_ws/src/crackle/crackle_planning/crackle_planning",
             "Lee-oh_float32.tflite",
         )
         print("custom_model_path:", custom_model_path)

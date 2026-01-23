@@ -35,7 +35,7 @@ def get_object_points(image_msg, bounding_box):
   """
   # setup the model - find where the model is stored
 
-  HOME = "/home/tanay24/crackle_ws/src/crackle/crackle_vision/"
+  HOME = "/home/tanay/crackle_ws/src/crackle/crackle_vision/"
 
   bridge = CvBridge()
 
