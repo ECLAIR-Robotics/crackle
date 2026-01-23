@@ -289,6 +289,7 @@ class VisionServerNode(Node):
 
                         # TEST: INSTEAD of setting the 'orientation' attribute of the Pose being assigned to the CollisionObject we will instead 
                         # just specify a position and assign the approximation-shape's mesh data to the 'meshes' attribute
+                        # --> Do we still need the SolidPrimitive attribute of the CollisionObject (Just specifies dimensions of the Box)?
                         collision_object_mesh = Mesh()
                         for vertex in np.asarray(shape_mesh.vertices):    # shape_mesh is an o3d.TriangleMesh
                             point = Point()
