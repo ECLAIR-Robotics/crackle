@@ -14,18 +14,17 @@ import sounddevice as sd
 import numpy as np
 import openwakeword
 from openwakeword.model import Model
+
 import multiprocessing
 from typing import List, Dict
 import pyaudio
 import os
-from crackle_planning._api import PlannerAPI
+from _api import PlannerAPI
 import wave
 from openai import OpenAI
-from crackle_planning._llm import GptAPI
+from _llm import GptAPI
 from playsound import playsound
-from crackle_planning._keys import openai_key
-
-openwakeword.utils.download_models()
+from _keys import openai_key
 
 FORMAT = pyaudio.paInt16
 CHANNELS = 1

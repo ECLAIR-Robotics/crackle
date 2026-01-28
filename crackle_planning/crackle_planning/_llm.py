@@ -3,15 +3,15 @@ from numpy import save
 import openai
 from openai import OpenAI
 import json
-from crackle_planning._keys import openai_key
-from crackle_planning._api import PlannerAPI
-from crackle_planning.parse import parse_functions_to_json
+from _keys import openai_key
+from _api import PlannerAPI
+from parse import parse_functions_to_json
 import os
 from elevenlabs import ElevenLabs
 
-import rclpy
-from rclpy.node import Node
-from rclpy.executors import MultiThreadedExecutor
+# import rclpy
+# from rclpy.node import Node
+# from rclpy.executors import MultiThreadedExecutor
 
 ROS_ENABLED = os.getenv("ROS_ENABLED", "false").lower() == "true"
 if ROS_ENABLED:
@@ -21,6 +21,7 @@ class GptAPI:
     def __init__(self, key: str):
         self.api_key = key
         openai.api_key = openai_key  # Set API key once in the constructor
+        os.environ["OPENAI_API_KEY"] = str(openai_key)
         self.client = OpenAI()
         self.tts = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
