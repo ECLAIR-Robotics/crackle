@@ -19,7 +19,7 @@ from typing import List, Dict
 import pyaudio
 import os
 from _api import PlannerAPI
-from planner import PlannerNode
+from planner import main_planner
 import wave
 from openai import OpenAI
 from _llm import GptAPI
@@ -156,8 +156,7 @@ class CrackleFSM:
         # ...
         await asyncio.sleep(2)  # Simulate task execution time
         print("Entering TASK state: Executing task...")
-        #plan = PlannerNode()
-
+        main_planner()        #main_planner()
         pass
         
     async def handle_resetting(self):
