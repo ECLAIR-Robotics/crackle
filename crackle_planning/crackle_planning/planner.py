@@ -1,7 +1,7 @@
 import math
-from crackle_planning._keys import key, key_audio
-from crackle_planning.ros_interface import RosInterface
-from crackle_planning._llm import GptAPI
+from _keys import openai_key
+from ros_interface import RosInterface
+from _llm import GptAPI
 from playsound import playsound
 import time
 import speech_recognition as sr

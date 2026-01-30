@@ -418,13 +418,15 @@ class VisionServerNode(Node):
                             collision_object_mesh.vertices.append(point)
                         for tri in np.asarray(shape_mesh.triangles):
                             meshTri = MeshTriangle()
-                            meshTri.vertex_indices = tri    # assigning np.ndarray to uint32[3] --> will it work?
-                            collision_object_mesh.triangles.append(tri)
+                            meshTri.vertex_indices = tri.astype(np.uint32)    # assigning np.ndarray to uint32[3] --> will it work?
+                            collision_object_mesh.triangles.append(meshTri)
                         
                         collision_object.meshes.append(collision_object_mesh)
 
                         collision_object.operation = CollisionObject.ADD
+                        print("Collision object finalized.")
                         self.collision_object_pub.publish(collision_object)
+                        print("Publish request sent.")
 
             response.names = names
             response.objects = output
