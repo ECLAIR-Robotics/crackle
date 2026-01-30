@@ -1,11 +1,11 @@
 import math
-from crackle_planning._keys import key, key_audio
-from crackle_planning.ros_interface import RosInterface
-from crackle_planning._llm import GptAPI
-from playsound import playsound
+from _keys import openai_key
+from ros_interface import RosInterface
+from _llm import GptAPI
+#from playsound import playsound
 import time
-import speech_recognition as sr
-import pyttsx3
+#import speech_recognition as sr
+#import pyttsx3
 from pathlib import Path
 from scipy.spatial.transform import Rotation as R
 import rclpy
@@ -16,7 +16,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallb
 from std_msgs.msg import String
 from geometry_msgs.msg import Vector3Stamped
 from geometry_msgs.msg import Pose, PoseStamped 
-from xarm_msgs.srv import PlanExec, PlanPose, PlanSingleStraight
+#from xarm_msgs.srv import PlanExec, PlanPose, PlanSingleStraight
 
 class PlannerNode(Node):
     def __init__(self):
@@ -156,7 +156,7 @@ class PlannerNode(Node):
             self.emotion_pub.publish(String(data=emotion))
         playsound("/home/tanay/crackle_ws/speech.mp3")
 
-def main():
+def main_planner():
     rclpy.init()
     executor = MultiThreadedExecutor()
     planner = PlannerNode()

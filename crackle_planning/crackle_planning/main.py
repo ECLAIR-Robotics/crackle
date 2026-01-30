@@ -19,6 +19,7 @@ from typing import List, Dict
 import pyaudio
 import os
 from _api import PlannerAPI
+from planner import main_planner
 import wave
 from openai import OpenAI
 from _llm import GptAPI
@@ -128,7 +129,7 @@ class CrackleFSM:
                 audio = np.frombuffer(self._mic_stream.read(CHUNK), dtype=np.int16)
                 prediction = self._owwModel.predict(audio)
                 score = prediction[self.WAKEWORD_NAME]
-                print(score)
+                #print(score)
                 if score > 0.1:
                     print(f"Wake word detected with score {score:.3f}")
                     self._state = CrackleState.LISTENING
@@ -155,8 +156,9 @@ class CrackleFSM:
         # ...
         await asyncio.sleep(2)  # Simulate task execution time
         print("Entering TASK state: Executing task...")
+        main_planner()        #main_planner()
         pass
-
+        
     async def handle_resetting(self):
         # ...
         print("Entering RESETTING state: Resetting system...")
@@ -237,6 +239,12 @@ class CrackleFSM:
 
                 # For simplicity, we transition back to IDLE after listening
                 self._state = CrackleState.IDLE
+                
+            elif self._state == CrackleState.TASK:
+                print("State is TASK")
+                t = asyncio.create_task(self.handle_task())
+                await t
+
 
 
 async def func1():
@@ -254,6 +262,7 @@ async def func3():
 
 def main():
     fsm = CrackleFSM()
+    fsm._state = CrackleState.TASK
     print(f"Initial state: {fsm._state}")
     main_thread = threading.Thread(target=lambda: asyncio.run(fsm.main_loop()), daemon=True)
     main_thread.start()
