@@ -20,6 +20,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/FindObjects.srv"
   "srv/PickupObject.srv"
   "srv/LookAt.srv"
+  "srv/RecognizePerson.srv"
 
   DEPENDENCIES shape_msgs geometry_msgs
   )

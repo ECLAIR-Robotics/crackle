@@ -3,12 +3,16 @@ import time
 import rclpy
 import numpy as np
 from crackle_interfaces.srv import PickupObject, LookAt
+
+from sensor_msgs.msg import Image
+from rclpy.callback_groups import ReentrantCallbackGroup
 from geometry_msgs.msg import Vector3Stamped
 from std_msgs.msg import String 
 from visualization_msgs.msg import Marker
 from std_srvs.srv import Trigger
 from rclpy.node import Node
 from rclpy.time import Time
+import face_recognition
 
 class AudioDirectionWindow:
     class AudioDirectionEntry:
@@ -43,8 +47,11 @@ class AudioDirectionWindow:
 
 
 class RosInterface:
+
+    FACE_MATCH_THRESHOLD = 0.7
     def __init__(self, node: Node):
         self._node = node
+        self._latest_image = None
         self._pickup_service_client = node.create_client(
             PickupObject, "crackle_manipulation/pickup_object"
         )
@@ -52,11 +59,22 @@ class RosInterface:
             50
         )  # 50 sample window that consists of a timestamp and a Vector
 
+        self.__multi_callback_group = ReentrantCallbackGroup()
+
         self.__audio_direction_subscriber = node.create_subscription(
             Vector3Stamped,
             "/sound_direction_pub/vector",
             self.update_audio_direction,
             10,
+            callback_group=self.__multi_callback_group,
+        )
+
+        self.__color_image_subscriber = node.create_subscription(
+            Image,
+            "/camera/camera/color/image_raw",
+            self.update_color_image,
+            10,
+            callback_group=self.__multi_callback_group,
         )
 
         self.__look_at_client = node.create_client(
@@ -74,6 +92,9 @@ class RosInterface:
         self.__emotion_publisher = node.create_publisher(
             String, "/face/emotion", 10
         )
+
+    def update_color_image(self, msg: Image):
+        self._latest_image = msg
 
     def spin_internal_node(self):
         rclpy.spin(self._node)
@@ -208,3 +229,23 @@ class RosInterface:
         msg = String()
         msg.data = emotion
         self.__emotion_publisher.publish(msg)
+
+    def recognize_person(self) -> List[str]:
+        face_locations = face_recognition.face_locations(self.bridge.imgmsg_to_cv2(self.color_image, desired_encoding="bgr8"), model="cnn")
+        print(f"Detected {len(face_locations)} face(s)")
+        print(face_locations)
+        if not face_locations:
+            self.get_logger().info("No faces detected")
+            return []
+        face_encodings = face_recognition.face_encodings(self.bridge.imgmsg_to_cv2(self.color_image, desired_encoding="bgr8"), face_locations)
+        recognized_names : List[str] = []
+        for face_encoding in face_encodings:
+            matches = face_recognition.compare_faces(list(self.person_dictionary.values()), face_encoding)
+            name = None
+            face_distances = face_recognition.face_distance(list(self.person_dictionary.values()), face_encoding)
+            lowest_distance = min(face_distances)
+            print("Lowest distance:", lowest_distance)
+            
+        return recognized_names
+    
+    
