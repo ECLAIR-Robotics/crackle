@@ -22,7 +22,7 @@ from _api import PlannerAPI
 import wave
 from openai import OpenAI
 from _llm import GptAPI
-from playsound import playsound
+# from playsound import playsound
 from _keys import openai_key
 from scipy.io import wavfile
 import noisereduce as nr
@@ -231,7 +231,7 @@ class CrackleFSM:
                 responseWords = action["dialogue"]
                 self.gpt_api.speak_text_eleven_labs(responseWords, output_path="response.mp3")
                 # self.gpt_api.speak_text_eleven_labs()
-                playsound("response.mp3", block=True)
+                # playsound("response.mp3", block=True)
                 emotion = action["emotion"]
                 self.planner_api.set_emotion(emotion)
                 if "dance" in text.lower():
