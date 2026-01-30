@@ -24,6 +24,8 @@ from openai import OpenAI
 from _llm import GptAPI
 from playsound import playsound
 from _keys import openai_key
+from scipy.io import wavfile
+import noisereduce as nr
 
 # openwakeword.utils.download_models()
 
@@ -125,9 +127,18 @@ class CrackleFSM:
 
         async def listening_thread(name: str, stop_event: asyncio.Event):
             while self._state == CrackleState.IDLE:
+                # raw = self._mic_stream.read(CHUNK, exception_on_overflow=False)
+                # # bytes -> int16 samples -> float32 in [-1, 1]
+                # audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+                # # noisereduce nonstationary expects (n_channels, n_frames)
+                # audio_2d = np.expand_dims(audio, axis=0)   # shape: (1, CHUNK)
+                # reduced_2d = nr.reduce_noise(y=audio_2d, sr=RATE)
+                # reduced = reduced_2d[0] # back to 1D
+
                 audio = np.frombuffer(self._mic_stream.read(CHUNK), dtype=np.int16)
                 prediction = self._owwModel.predict(audio)
                 score = prediction[self.WAKEWORD_NAME]
+                print(score)
 
                 if score > 0.8:
                     print(f"Wake word detected with score {score:.3f}")
@@ -189,7 +200,6 @@ class CrackleFSM:
             wf.writeframes(samples.tobytes())
 
         print(f"Saved WAV: {filename}")
-
 
 
     async def main_loop(self):
