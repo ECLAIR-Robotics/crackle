@@ -22,7 +22,7 @@ from _api import PlannerAPI
 import wave
 from openai import OpenAI
 from _llm import GptAPI
-from playsound import playsound
+# from playsound import playsound
 from _keys import openai_key
 
 # openwakeword.utils.download_models()
@@ -128,8 +128,8 @@ class CrackleFSM:
                 audio = np.frombuffer(self._mic_stream.read(CHUNK), dtype=np.int16)
                 prediction = self._owwModel.predict(audio)
                 score = prediction[self.WAKEWORD_NAME]
-
-                if score > 0.8:
+                print(score)
+                if score > 0.1:
                     print(f"Wake word detected with score {score:.3f}")
                     self._state = CrackleState.LISTENING
                     wake_wall_time = time.time() # seconds float
@@ -221,7 +221,7 @@ class CrackleFSM:
                 responseWords = action["dialogue"]
                 self.gpt_api.speak_text_eleven_labs(responseWords, output_path="response.mp3")
                 # self.gpt_api.speak_text_eleven_labs()
-                playsound("response.mp3", block=True)
+                # playsound("response.mp3", block=True)
                 emotion = action["emotion"]
                 self.planner_api.set_emotion(emotion)
                 api = self.planner_api
