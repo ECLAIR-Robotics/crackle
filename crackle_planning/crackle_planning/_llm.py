@@ -153,7 +153,7 @@ class GptAPI:
                                 "Assume 'self' is already in scope so no need to pass it in. "
                                 "Do not redefine these. For example, if you were to pick up and "
                                 "place an object called 'x y', code would look like this:\n"
-                                "api.pick_up(\"x_y\")\\api.place()"
+                                "api.pick_up(\"x_y\")\\api.place()."
                             ),
                         },
                         "emotion": {

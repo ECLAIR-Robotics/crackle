@@ -19,7 +19,7 @@ from typing import List, Dict
 import pyaudio
 import os
 from _api import PlannerAPI
-from planner import main_planner
+# from planner import main_planner
 import wave
 from openai import OpenAI
 from _llm import GptAPI
@@ -65,12 +65,12 @@ class CrackleFSM:
         # Path to your custom TFLite model
         custom_model_path = os.path.join(
             os.path.dirname(__file__),
-            "lee_oh.tflite",
+            "leeoh.tflite",
         )
         print("custom_model_path:", custom_model_path)
 
         # Key you'll use in the prediction dict
-        self.WAKEWORD_NAME = "lee_oh"
+        self.WAKEWORD_NAME = "leeoh"
 
         from openwakeword.model import Model
 
@@ -129,7 +129,7 @@ class CrackleFSM:
                 audio = np.frombuffer(self._mic_stream.read(CHUNK), dtype=np.int16)
                 prediction = self._owwModel.predict(audio)
                 score = prediction[self.WAKEWORD_NAME]
-                #print(score)
+
                 if score > 0.1:
                     print(f"Wake word detected with score {score:.3f}")
                     self._state = CrackleState.LISTENING
@@ -156,7 +156,7 @@ class CrackleFSM:
         # ...
         await asyncio.sleep(2)  # Simulate task execution time
         print("Entering TASK state: Executing task...")
-        main_planner()        #main_planner()
+        # main_planner()        #main_planner()
         pass
         
     async def handle_resetting(self):
