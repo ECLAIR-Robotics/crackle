@@ -257,7 +257,7 @@ class VisionServerNode(Node):
             pcd.points = o3d.utility.Vector3dVector(points)
             try:
                 shape_mesh, shape_type, quaternion = get_best_approx(pcd)
-                return (shape_mesh.get_min_bound(), shape_mesh.get_max_bound(), shape_type, quaternion)
+                return (shape_mesh, shape_type, quaternion)
             except Exception as e:
                 return None
 
@@ -277,24 +277,38 @@ class VisionServerNode(Node):
             if result is None:
                 self.get_logger().warning(f"Shape approximation failed for {job_names[idx]}")
                 continue
-            min_bound, max_bound, shape_type, quaternion = result
+            shape_mesh, shape_type, quaternion = result
             object_solid_primitive = SolidPrimitive()
             object_solid_primitive.type = shape_type
+            min_bound, max_bound = shape_mesh.get_min_bound(), shape_mesh.get_max_bound()
             dimensions = (np.array(max_bound) - np.array(min_bound)).tolist()
             object_solid_primitive.dimensions = dimensions
             pose = Pose()
             pose.position.x = float((max_bound[0] + min_bound[0]) / 2)
             pose.position.y = float((max_bound[1] + min_bound[1]) / 2)
             pose.position.z = float((max_bound[2] + min_bound[2]) / 2)
-            pose.orientation.x = float(quaternion[0])
-            pose.orientation.y = float(quaternion[1])
-            pose.orientation.z = float(quaternion[2])
-            pose.orientation.w = float(quaternion[3])
+            # pose.orientation.x = float(quaternion[0])
+            # pose.orientation.y = float(quaternion[1])
+            # pose.orientation.z = float(quaternion[2])
+            # pose.orientation.w = float(quaternion[3])
             collision_object = CollisionObject()
             collision_object.header.frame_id = self.camera_link
             collision_object.id = job_names[idx]
             collision_object.primitives.append(object_solid_primitive)
             collision_object.primitive_poses.append(pose)
+
+            collision_object_mesh = Mesh()
+            for vertex in np.asarray(shape_mesh.vertices):    # shape_mesh is an o3d.TriangleMesh
+                point = Point()
+                point.x, point.y, point.z = vertex
+                collision_object_mesh.vertices.append(point)
+            for tri in np.asarray(shape_mesh.triangles):
+                meshTri = MeshTriangle()
+                meshTri.vertex_indices = tri.astype(np.uint32)    # assigning np.ndarray to uint32[3] --> will it work?
+                collision_object_mesh.triangles.append(meshTri)
+            
+            collision_object.meshes.append(collision_object_mesh)
+
             collision_object.operation = CollisionObject.ADD
             self.collision_object_pub.publish(collision_object)
             detected_names.append(job_names[idx])
@@ -406,9 +420,9 @@ class VisionServerNode(Node):
                         collision_object.header.frame_id = "camera_depth_optical_frame"
                         collision_object.id = name
                         collision_object.primitives.append(object_solid_primitive)
-                        # collision_object.primitive_poses.append(pose)
+                        collision_object.primitive_poses.append(pose) # <-- When we tested the mesh method, this was commented --> there was no primitive pose?
 
-                        # TEST: INSTEAD of setting the 'orientation' attribute of the Pose being assigned to the CollisionObject we will instead 
+                        # INSTEAD of setting the 'orientation' attribute of the Pose being assigned to the CollisionObject we will instead 
                         # just specify a position and assign the approximation-shape's mesh data to the 'meshes' attribute
                         # --> Do we still need the SolidPrimitive attribute of the CollisionObject (Just specifies dimensions of the Box)?
                         collision_object_mesh = Mesh()
