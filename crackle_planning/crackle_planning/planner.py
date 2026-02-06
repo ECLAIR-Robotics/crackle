@@ -1,6 +1,11 @@
 import math
 from _keys import openai_key
-from ros_interface import RosInterface
+
+
+ROS_ENABLED = os.getenv("ROS_ENABLED", "false").lower() == "true"
+
+if ROS_ENABLED:
+    from ros_interface import RosInterface
 from _llm import GptAPI
 from playsound import playsound
 import time
@@ -8,14 +13,15 @@ import speech_recognition as sr
 import pyttsx3
 from pathlib import Path
 from scipy.spatial.transform import Rotation as R
-import rclpy
-from rclpy.node import Node
-from rclpy.executors import MultiThreadedExecutor
-from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 
-from std_msgs.msg import String
-from geometry_msgs.msg import Vector3Stamped
-from geometry_msgs.msg import Pose, PoseStamped 
+# import rclpy
+# from rclpy.node import Node
+# from rclpy.executors import MultiThreadedExecutor
+# from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
+
+# from std_msgs.msg import String
+# from geometry_msgs.msg import Vector3Stamped
+# from geometry_msgs.msg import Pose, PoseStamped 
 #from xarm_msgs.srv import PlanExec, PlanPose, PlanSingleStraight
 
 class PlannerNode(Node):
@@ -169,6 +175,8 @@ def main_planner():
     prompt='You stupid peace of shit'
     response=api.get_command(prompt) #this is a json object with dialogue, code, emotion
     #print('Response from GPT:')
+    #TODO: planner.py calls _api.py which cals ros_interface.py
+    #listen, talk, execute code 
     print(response['dialogue'])
     executor.spin()
     executor.shutdown()

@@ -54,7 +54,7 @@ class PlannerAPI:
         else:
             print(f"Simulating pick up of object '{object_name}' without ROS.")
     
-    def look_at_sound_direction(self, wake_word_time: float):
+    def look_at_sound_direction(self, wake_word_time: float): # This function moves the robot towards the sound source/ direction of the user
         if self.use_ros:
             self.ros_interface.look_at_person(wake_word_time)
         else:
