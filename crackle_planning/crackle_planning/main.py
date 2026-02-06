@@ -23,7 +23,7 @@ from planner import main_planner
 import wave
 from openai import OpenAI
 from _llm import GptAPI
-# from playsound import playsound
+from playsound import playsound
 from _keys import openai_key
 
 # openwakeword.utils.download_models()
@@ -84,11 +84,11 @@ class CrackleFSM:
         )
 
         # Load ONLY your custom wake word
-        self._owwModel = Model(
-            wakeword_models=[custom_model_path],
-            inference_framework=self.INFERENCE_FRAMEWORK,
-        )
-        self._n_models = len(self._owwModel.models.keys())
+        # self._owwModel = Model(
+        #     wakeword_models=[custom_model_path],
+        #     inference_framework=self.INFERENCE_FRAMEWORK,
+        # )
+        #self._n_models = len(self._owwModel.models.keys())
 
         self.gpt_api = GptAPI(key=openai_key)
 

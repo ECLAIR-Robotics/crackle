@@ -2,7 +2,7 @@ from typing import List
 import time
 import rclpy
 import numpy as np
-from crackle_interfaces.srv import PickupObject, LookAt
+#from crackle_interfaces.srv import PickupObject, LookAt
 
 from sensor_msgs.msg import Image
 from rclpy.callback_groups import ReentrantCallbackGroup
@@ -12,7 +12,7 @@ from visualization_msgs.msg import Marker
 from std_srvs.srv import Trigger
 from rclpy.node import Node
 from rclpy.time import Time
-import face_recognition
+#import face_recognition
 
 class AudioDirectionWindow:
     class AudioDirectionEntry:
@@ -52,9 +52,9 @@ class RosInterface:
     def __init__(self, node: Node):
         self._node = node
         self._latest_image = None
-        self._pickup_service_client = node.create_client(
-            PickupObject, "crackle_manipulation/pickup_object"
-        )
+        # self._pickup_service_client = node.create_client(
+        #     PickupObject, "crackle_manipulation/pickup_object"
+        # )
         self.latest_audio_direction = AudioDirectionWindow(
             50
         )  # 50 sample window that consists of a timestamp and a Vector
@@ -77,9 +77,9 @@ class RosInterface:
             callback_group=self.__multi_callback_group,
         )
 
-        self.__look_at_client = node.create_client(
-            LookAt, "crackle_manipulation/look_at"
-        )
+        # self.__look_at_client = node.create_client(
+        #     LookAt, "crackle_manipulation/look_at"
+        # )
 
         self.__look_at_marker_publisher = node.create_publisher(
             Marker, "planner/look_at_marker", 10

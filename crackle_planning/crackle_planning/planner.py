@@ -2,10 +2,10 @@ import math
 from _keys import openai_key
 from ros_interface import RosInterface
 from _llm import GptAPI
-#from playsound import playsound
+from playsound import playsound
 import time
-#import speech_recognition as sr
-#import pyttsx3
+import speech_recognition as sr
+import pyttsx3
 from pathlib import Path
 from scipy.spatial.transform import Rotation as R
 import rclpy
@@ -32,14 +32,14 @@ class PlannerNode(Node):
         self.r = sr.Recognizer() 
         
         self.current_emotion = ""
-        self.api = GptAPI(key)
-        self.api_conversation = GptAPI(key_audio)
+        self.api = GptAPI(openai_key)
+        self.api_conversation = GptAPI(openai_key)
 
-        self.xarm_exec_plan = self.create_client(PlanExec, '/xarm_exec_plan')
-        self.xarm_plan_pose = self.create_client(PlanPose, '/xarm_pose_plan')
+        # self.xarm_exec_plan = self.create_client(PlanExec, '/xarm_exec_plan')
+        # self.xarm_plan_pose = self.create_client(PlanPose, '/xarm_pose_plan')
 
-        self.wait_for_service(self.xarm_exec_plan)
-        self.wait_for_service(self.xarm_plan_pose)
+        # self.wait_for_service(self.xarm_exec_plan)
+        # self.wait_for_service(self.xarm_plan_pose)
     
         self.location_sub = self.create_subscription(
             Vector3Stamped,
@@ -157,21 +157,24 @@ class PlannerNode(Node):
         playsound("/home/tanay/crackle_ws/speech.mp3")
 
 def main_planner():
+    print("Starting planner node...")
     rclpy.init()
     executor = MultiThreadedExecutor()
     planner = PlannerNode()
     executor.add_node(planner)
     planner.get_logger().info('Planner node started.')
     print('Hi from crackle_planning.')
-    api=GptAPI(key)
+    api=GptAPI(openai_key)
     print('Works')
-    prompt='Pick up the object'
+    prompt='You stupid peace of shit'
+    response=api.get_command(prompt) #this is a json object with dialogue, code, emotion
+    #print('Response from GPT:')
+    print(response['dialogue'])
     executor.spin()
     executor.shutdown()
     planner.destroy_node()
     rclpy.shutdown()
-    # response=api.get_command(prompt)
-    # print(response)
+
 
 
 if __name__ == '__main__':
