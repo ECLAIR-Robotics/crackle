@@ -7,6 +7,7 @@ from _keys import openai_key
 from _api import PlannerAPI
 from parse import parse_functions_to_json
 import os
+import inspect
 from elevenlabs import ElevenLabs
 
 # import rclpy
@@ -115,6 +116,19 @@ class GptAPI:
     def get_command(self, prompt: str, ros_interface: any = None):
         self.client = OpenAI()
 
+        def get_api_signatures(cls):
+            methods = inspect.getmembers(cls, predicate=inspect.isfunction)
+            signatures = []
+            for name, func in methods:
+                if name.startswith('_'): continue
+                sig = str(inspect.signature(func))
+                doc = inspect.getdoc(func) or "No description provided."
+                signatures.append(f"  - def {name}{sig}: # {doc}")
+            return "\n".join(signatures)
+
+        api_docs = get_api_signatures(PlannerAPI)
+                
+
         # Single tool that returns dialogue + code + emotion together
         tools = [
             {
@@ -143,17 +157,22 @@ class GptAPI:
                             "description": (
                                 "ReturnExecutable Python code ONLY. No explanations or comments. "
                                 "Use ONLY these existing methods:\n"
-                                "  - def pick_up(self, object_name: str)\n"
-                                "  - def place(self)\n"
+                                f"{api_docs}\n"
+                                # "  - def pick_up(self, object_name: str)\n"
+                                # "  - def place(self)\n"
                                 "Return an empty string if the user prompt isn't relevant to the exisiting methods "
                                 "above. They belong to the api instance. So make sure to write code that " 
                                 "calls these methods from api instance. If object has a name that is "
                                 "more than one string, object_name should be a single lowercase string " 
                                 "with the strings of the name connected with an '_'. "
                                 "Assume 'self' is already in scope so no need to pass it in. "
-                                "Do not redefine these. For example, if you were to pick up and "
+                                "Do not redefine these."
+                                "For example, if you were to call the place method, it should be called as such: api.place() "
                                 "place an object called 'x y', code would look like this:\n"
-                                "api.pick_up(\"x_y\")\\api.place()"
+                                "Remember that inorder to interact with an object, the robot must know the location of the object"
+                                # "For example, if you were to pick up and "
+                                # "place an object called 'x y', code would look like this:\n"
+                                # "api.pick_up(\"x_y\")\\api.place()"
                             ),
                         },
                         "emotion": {

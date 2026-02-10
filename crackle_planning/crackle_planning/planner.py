@@ -2,11 +2,12 @@ import math
 from _keys import openai_key
 
 
-ROS_ENABLED = os.getenv("ROS_ENABLED", "false").lower() == "true"
+# ROS_ENABLED = os.getenv("ROS_ENABLED", "false").lower() == "true"
 
-if ROS_ENABLED:
-    from ros_interface import RosInterface
+# if ROS_ENABLED:
+#     from ros_interface import RosInterface
 from _llm import GptAPI
+from _api import PlannerAPI
 from playsound import playsound
 import time
 import speech_recognition as sr
@@ -14,8 +15,8 @@ import pyttsx3
 from pathlib import Path
 from scipy.spatial.transform import Rotation as R
 
-# import rclpy
-# from rclpy.node import Node
+#import rclpy
+#from rclpy.node import Node
 # from rclpy.executors import MultiThreadedExecutor
 # from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 
@@ -24,12 +25,13 @@ from scipy.spatial.transform import Rotation as R
 # from geometry_msgs.msg import Pose, PoseStamped 
 #from xarm_msgs.srv import PlanExec, PlanPose, PlanSingleStraight
 
-class PlannerNode(Node):
+class PlannerNode(): #not taking Node anymore 
     def __init__(self):
-        super().__init__('planner_node')
+        #super().__init__('planner_node')
+        super().__init__()
 
         # Initialize the ROS interface
-        self.ros_interface = RosInterface(self)
+        #self.ros_interface = RosInterface(self)
 
         # where the response items will be stored
         self.emotion = "happy"
@@ -47,31 +49,33 @@ class PlannerNode(Node):
         # self.wait_for_service(self.xarm_exec_plan)
         # self.wait_for_service(self.xarm_plan_pose)
     
-        self.location_sub = self.create_subscription(
-            Vector3Stamped,
-            '/sound_direction_pub/vector',
-            self.location_callback,
-            10
-        )
+        # self.location_sub = self.create_subscription(
+        #     Vector3Stamped,
+        #     '/sound_direction_pub/vector',
+        #     self.location_callback,
+        #     10
+        # )
 
-        self.emotion_pub = self.create_publisher(
-            String,
-            '/face/emotion',
-            10
-        )
+        # self.emotion_pub = self.create_publisher(
+        #     String,
+        #     '/face/emotion',
+        #     10
+        # )
 
-        self.last_known_location = Vector3Stamped()
-        self.valid_emotions = [ "happy", "sad", "angry", "bored", "not_impressed", "evil_idea", "flirty", "aww", "wtf"]
-        # Timer to run the planner at a fixed rate
-        self.timer = self.create_timer(0.1, self.timer_callback)
+        #self.last_known_location = Vector3Stamped()
+        # self.valid_emotions = [ "happy", "sad", "angry", "bored", "not_impressed", "evil_idea", "flirty", "aww", "wtf"]
+        # # Timer to run the planner at a fixed rate
+        # self.timer = self.create_timer(0.1, self.timer_callback)
 
     def wait_for_service(self, client):
         while not client.wait_for_service(timeout_sec=1.0):
-            self.get_logger().info('service not available, waiting again...') 
+            #self.get_logger().info('service not available, waiting again...') 
+            print('service not available, waiting again...')
 
     def location_callback(self, msg):
         # Process the location data
-        self.get_logger().info(f"Received location: {msg.vector.x}, {msg.vector.y}, {msg.vector.z}")
+        #self.get_logger().info(f"Received location: {msg.vector.x}, {msg.vector.y}, {msg.vector.z}")
+        print('received location')
         self.last_known_location = msg
         # You can add your planning logic here based on the location data
         # Example: self.ros_interface.pick_up(msg.vector.x, msg.vector.y, msg.vector.z) 
@@ -80,19 +84,20 @@ class PlannerNode(Node):
         self.api.speakText(text)
 
     def talkBack(self, wordsIn):
-        self.get_logger().info("generating words to talk back")
+        #self.get_logger().info("generating words to talk back")
+        print("generating words to talk back")
         response = self.api_conversation.parseTalkResponse(wordsIn)
         self.wordResponse = response[0]
         self.emotion = response[1]
 
-    def plan_to_pose(self, pose : Pose):
-        req = PlanPose.Request()
-        req.target = pose
-        future = self.xarm_plan_pose.call_async(req)
-        print('Sent request')
-        rclpy.spin_until_future_complete(self, future)
-        print("future: ", future.result())
-        return future.result() 
+    # def plan_to_pose(self, pose : Pose):
+    #     req = PlanPose.Request()
+    #     req.target = pose
+    #     future = self.xarm_plan_pose.call_async(req)
+    #     print('Sent request')
+    #     rclpy.spin_until_future_complete(self, future)
+    #     print("future: ", future.result())
+    #     return future.result() 
 
     def execute_plan(self):
         req = PlanExec.Request()
@@ -107,7 +112,8 @@ class PlannerNode(Node):
 
     def look_at_audio(self):
         # This function will be called to look at the audio source
-        self.get_logger().info('Looking at audio source...')
+        #self.get_logger().info('Looking at audio source...')
+        print('Looking at audio source...')
         target_vector = self.last_known_location.vector
 
         # project the vector to the x-y plane
@@ -132,7 +138,7 @@ class PlannerNode(Node):
         pose.orientation.y = quaternion[1]
         pose.orientation.z = quaternion[2]
         pose.orientation.w = quaternion[3]
-        self.get_logger().info(f"Looking at audio source at pose: {pose.position.x}, {pose.position.y}, {pose.position.z}")
+        #self.get_logger().info(f"Looking at audio source at pose: {pose.position.x}, {pose.position.y}, {pose.position.z}")
         
 
         # Call the planning function to move the robot arm to the target pose
@@ -145,7 +151,7 @@ class PlannerNode(Node):
     def timer_callback(self):
         # This function will be called at a fixed rate
         # You can add your planning logic here
-        self.get_logger().info('Planning...')
+        #self.get_logger().info('Planning...')
 
         text = input("Hello user how can I help you?")
 
@@ -157,31 +163,32 @@ class PlannerNode(Node):
         emotion = emotion.replace("'", "").replace('"', "").replace(".", "")
         emotion = emotion.replace(" ", "_")
         emotion = emotion.lower()
-        self.get_logger().info(f"Emotion: {emotion}")
+        #self.get_logger().info(f"Emotion: {emotion}")
         if emotion in self.valid_emotions:
             self.emotion_pub.publish(String(data=emotion))
         playsound("/home/tanay/crackle_ws/speech.mp3")
 
-def main_planner():
+def main_planner(prompt: str):
     print("Starting planner node...")
-    rclpy.init()
-    executor = MultiThreadedExecutor()
+    #rclpy.init()
+    #executor = MultiThreadedExecutor()
     planner = PlannerNode()
-    executor.add_node(planner)
-    planner.get_logger().info('Planner node started.')
+    #executor.add_node(planner)
+    #planner.get_logger().info('Planner node started.')
     print('Hi from crackle_planning.')
-    api=GptAPI(openai_key)
+    llm=GptAPI(openai_key)
     print('Works')
-    prompt='You stupid peace of shit'
-    response=api.get_command(prompt) #this is a json object with dialogue, code, emotion
+    #prompt='Hey dummy can you get me my phone'
+    response=llm.get_command(prompt) #this is a json object with dialogue, code, emotion
     #print('Response from GPT:')
     #TODO: planner.py calls _api.py which cals ros_interface.py
-    #listen, talk, execute code 
-    print(response['dialogue'])
-    executor.spin()
-    executor.shutdown()
-    planner.destroy_node()
-    rclpy.shutdown()
+    #listen, talk, execute code
+    api = PlannerAPI(False) 
+    exec(response['code'])
+    #executor.spin()
+    #executor.shutdown()
+    #planner.destroy_node()
+    #rclpy.shutdown()
 
 
 
