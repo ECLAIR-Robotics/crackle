@@ -8,7 +8,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallb
 from ament_index_python import get_package_share_directory
 from geometry_msgs.msg import Pose, Point
 
-from std_srvs.srv import Trigger
+from std_srvs.srv import Trigger, Empty
 from sensor_msgs.msg import Image, PointCloud2, CameraInfo
 from crackle_interfaces.srv import FindObjects
 from shape_msgs.msg import SolidPrimitive, Mesh, MeshTriangle
@@ -85,9 +85,9 @@ class VisionServerNode(Node):
         )
 
         self.create_service(
-            FindObjects,
-            "vision/find_objects",
-            self.find_objects_service_callback,
+            Empty,
+            "vision/scan_objects",
+            self.scan_objects,
             callback_group=self._service_callback_group,
         )
 
@@ -101,7 +101,7 @@ class VisionServerNode(Node):
         self.create_service(
             Trigger,
             "vision/scan",
-            self.find_objects,
+            self.scan_objects,
             callback_group=self._service_callback_group,
         )
 
@@ -190,7 +190,7 @@ class VisionServerNode(Node):
         print(pcd)
         return pcd
 
-    def find_objects(self, request, response) -> Tuple[List[str], List[SolidPrimitive]]:
+    def scan_objects(self, request, response) -> Tuple[List[str], List[SolidPrimitive]]:
         """Detect objects in the current color image, filter by confidence, and parallelize mesh computation.
         """
         # Removed multiprocessing for simpler, sequential execution
@@ -199,7 +199,7 @@ class VisionServerNode(Node):
             self.get_logger().info("No images available for find_objects")
             return [], []
         names = None
-        min_confidence = 0.5
+        min_confidence = 0.67
         boxes, segments, class_names = self.get_object_bounding_boxes(names if names else [])
         if boxes is None or segments == []:
             return [], []
@@ -281,16 +281,12 @@ class VisionServerNode(Node):
             object_solid_primitive = SolidPrimitive()
             object_solid_primitive.type = shape_type
             min_bound, max_bound = shape_mesh.get_min_bound(), shape_mesh.get_max_bound()
-            dimensions = (np.array(max_bound) - np.array(min_bound)).tolist()
-            object_solid_primitive.dimensions = dimensions
+            # ! Don't set primitive dimensions because we are instead adding the mesh
             pose = Pose()
             pose.position.x = float((max_bound[0] + min_bound[0]) / 2)
             pose.position.y = float((max_bound[1] + min_bound[1]) / 2)
             pose.position.z = float((max_bound[2] + min_bound[2]) / 2)
-            # pose.orientation.x = float(quaternion[0])
-            # pose.orientation.y = float(quaternion[1])
-            # pose.orientation.z = float(quaternion[2])
-            # pose.orientation.w = float(quaternion[3])
+
             collision_object = CollisionObject()
             collision_object.header.frame_id = self.camera_link
             collision_object.id = job_names[idx]
@@ -389,30 +385,12 @@ class VisionServerNode(Node):
                         # o3d.visualization.draw_geometries([shape_mesh])
                         object_solid_primitive = SolidPrimitive()
                         object_solid_primitive.type = shape_type
-                        print("Shape mesh bounds:", (shape_mesh.get_min_bound() - shape_mesh.get_max_bound()))
-                        
-                        object_solid_primitive.dimensions = (shape_mesh.get_max_bound() - shape_mesh.get_min_bound()).tolist()
-                        print("Object dimensions:", object_solid_primitive.dimensions)
+                        # ! Don't set dimensions because we are instead adding the mesh  
                         pose = Pose()
                         pose.position.x = (shape_mesh.get_max_bound()[0] + shape_mesh.get_min_bound()[0]) / 2
                         pose.position.y = (shape_mesh.get_max_bound()[1] + shape_mesh.get_min_bound()[1]) / 2
                         pose.position.z = (shape_mesh.get_max_bound()[2] + shape_mesh.get_min_bound()[2]) / 2
-                        # pose.orientation.x = float(quaternion[0])
-                        # pose.orientation.y = float(quaternion[1])
-                        # pose.orientation.z = float(quaternion[2])
-                        # pose.orientation.w = float(quaternion[3])
                         print("Object position:", pose.position)
-                        # print("Object orientation:", pose.orientation)
-                        # visualize the point cloud
-                        # o3d.visualization.draw_geometries([pcd]) 
-                        viewer = o3d.visualization.Visualizer()
-                        viewer.create_window(window_name="Point Cloud", width=800, height=600)
-                        opt = viewer.get_render_option()
-                        opt.background_color = np.asarray([0, 0, 0])
-                        opt.show_coordinate_frame = True
-                        viewer.add_geometry(pcd)
-                        viewer.run()
-                        viewer.destroy_window()
                         output.append(object_solid_primitive)
 
                         # Construct collision object and publish to MoveIt (Untested)
