@@ -435,6 +435,11 @@ bool CrackleManipulation::pick_up_object(crackle_interfaces::srv::PickupObject::
     // Open gripper before approach (best-effort)
     gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(false));
 
+    // TODO: Right now this pipeline has a weird way of doing retries. Make all the loops independent
+    // and only retry the part that fails instead of going back to the start of the approach every time.
+    // Make the close gripper and the attachCollisionObject part more robust to failures as well. Maybe add a separate service for just closing the gripper and attaching the object, and call that in a loop until it succeeds after the approach is successful.
+
+
     const geometry_msgs::msg::Pose obj_pose = obj.pose;
     for (const auto &grasp_pose : grasp_poses)
     {
