@@ -19,6 +19,8 @@
 #include <crackle_interfaces/srv/set_joint_angles.hpp>
 #include <crackle_interfaces/srv/face_direction_relative.hpp>
 #include <crackle_interfaces/srv/move_relative.hpp>
+#include <crackle_interfaces/srv/get_end_effector_pose.hpp>
+#include <crackle_interfaces/srv/demo_trajectory.hpp>
 #include <tf2_ros/transform_listener.h>
 #include <std_srvs/srv/trigger.hpp>
 #include <moveit_msgs/msg/display_robot_state.hpp>
@@ -30,7 +32,9 @@
 #include <geometry_msgs/msg/quaternion.hpp>
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/vector3_stamped.hpp>
+#include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <rmw/qos_profiles.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <xarm_msgs/srv/plan_pose.hpp>
 #include <xarm_msgs/srv/plan_joint.hpp>
@@ -68,6 +72,10 @@ public:
                                          crackle_interfaces::srv::FaceDirectionRelative::Response::SharedPtr response);
     bool move_relative_service(crackle_interfaces::srv::MoveRelative::Request::SharedPtr request,
                                crackle_interfaces::srv::MoveRelative::Response::SharedPtr response);
+    bool get_end_effector_pose_service(crackle_interfaces::srv::GetEndEffectorPose::Request::SharedPtr request,
+                                       crackle_interfaces::srv::GetEndEffectorPose::Response::SharedPtr response);
+    bool demo_trajectory_service(crackle_interfaces::srv::DemoTrajectory::Request::SharedPtr request,
+                                 crackle_interfaces::srv::DemoTrajectory::Response::SharedPtr response);
     bool pick_up_object(crackle_interfaces::srv::PickupObject::Request::SharedPtr request,
                         crackle_interfaces::srv::PickupObject::Response::SharedPtr response);
     bool look_at(crackle_interfaces::srv::LookAt::Request::SharedPtr request,
@@ -85,6 +93,7 @@ public:
 
 private:
     void initialize(const std::string &group_name);
+    bool wait_for_current_state(const std::string &caller, double timeout_sec = 5.0);
     rclcpp::Logger logger_;
     rclcpp::Service<crackle_interfaces::srv::PickupObject>::SharedPtr pickup_service_;
     rclcpp::Service<crackle_interfaces::srv::LookAt>::SharedPtr look_at_service_;
@@ -94,8 +103,14 @@ private:
     rclcpp::Service<crackle_interfaces::srv::SetJointAngles>::SharedPtr set_joint_angles_service_;
     rclcpp::Service<crackle_interfaces::srv::FaceDirectionRelative>::SharedPtr face_direction_relative_service_;
     rclcpp::Service<crackle_interfaces::srv::MoveRelative>::SharedPtr move_relative_service_;
+    rclcpp::Service<crackle_interfaces::srv::GetEndEffectorPose>::SharedPtr get_end_effector_pose_service_;
+    rclcpp::Service<crackle_interfaces::srv::DemoTrajectory>::SharedPtr demo_trajectory_service_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr dance_service_;
+    rclcpp::CallbackGroup::SharedPtr services_cb_group_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr gripper_command_publisher_;
+    rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
+    rclcpp::Time last_joint_state_stamp_;
+    bool have_joint_state_;
     std::shared_ptr<moveit::planning_interface::MoveGroupInterface> move_group_;
     std::shared_ptr<moveit::planning_interface::PlanningSceneInterface> planning_scene_;
     moveit::planning_interface::MoveGroupInterface::Plan plan_;

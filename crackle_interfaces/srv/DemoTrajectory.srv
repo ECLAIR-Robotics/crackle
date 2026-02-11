@@ -1,0 +1,10 @@
+# Demo trajectory parameters
+# type: "circle_xy", "square_xy", "figure8_xy", "helix_z"
+string type
+float64 size          # meters (radius for circle/helix, half-side for square)
+float64 height        # meters (used for helix_z)
+int32 points          # number of waypoints (>= 4 recommended)
+bool execute          # execute after planning if true
+---
+bool success
+string message

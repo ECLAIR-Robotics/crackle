@@ -144,7 +144,7 @@ def launch_setup(context, *args, **kwargs):
     )
 
     moveit_manipulation_node = Node(
-        name='crackle_moveit_manipulation',
+        name='crackle_moveit_manipulation_node',
         package='crackle_moveit',
         executable='moveit_manipulation',
         output="screen",

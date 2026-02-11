@@ -27,6 +27,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/SetJointAngles.srv"
   "srv/FaceDirectionRelative.srv"
   "srv/MoveRelative.srv"
+  "srv/GetEndEffectorPose.srv"
+  "srv/DemoTrajectory.srv"
 
   DEPENDENCIES shape_msgs geometry_msgs
   )

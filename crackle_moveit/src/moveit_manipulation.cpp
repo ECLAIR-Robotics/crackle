@@ -20,9 +20,10 @@
  * @date 09/08/2025
  */
 #include <crackle_moveit/moveit_manipulation.hpp>
+#include <cmath>
 
 const double jump_threshold = 0.0;
-const double eef_step = 0.005;
+const double eef_step = 0.001;
 const double max_velocity_scaling_factor = 0.1;     // [move_group_interface] default is 0.1
 const double max_acceleration_scaling_factor = 0.1; // [move_group_interface] default is 0.1
 
@@ -33,33 +34,74 @@ CrackleManipulation::CrackleManipulation(const std::string &group_name)
 {
     node_ = rclcpp::Node::make_shared("crackle_moveit_manipulation_node");
 
+    have_joint_state_ = false;
+    last_joint_state_stamp_ = node_->now();
+    joint_state_sub_ = node_->create_subscription<sensor_msgs::msg::JointState>(
+        "/joint_states",
+        10,
+        [this](const sensor_msgs::msg::JointState::SharedPtr msg)
+        {
+            last_joint_state_stamp_ = msg->header.stamp;
+            have_joint_state_ = true;
+        });
+
+    services_cb_group_ = node_->create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+
     pickup_service_ = node_->create_service<crackle_interfaces::srv::PickupObject>(
         "crackle_manipulation/pickup_object",
-        std::bind(&CrackleManipulation::pick_up_object, this, std::placeholders::_1, std::placeholders::_2));
+        std::bind(&CrackleManipulation::pick_up_object, this, std::placeholders::_1, std::placeholders::_2),
+        rmw_qos_profile_services_default,
+        services_cb_group_);
     look_at_service_ = node_->create_service<crackle_interfaces::srv::LookAt>(
         "crackle_manipulation/look_at",
-        std::bind(&CrackleManipulation::look_at, this, std::placeholders::_1, std::placeholders::_2));
+        std::bind(&CrackleManipulation::look_at, this, std::placeholders::_1, std::placeholders::_2),
+        rmw_qos_profile_services_default,
+        services_cb_group_);
     plan_pose_service_ = node_->create_service<crackle_interfaces::srv::PlanPose>(
         "crackle_manipulation/plan_pose",
-        std::bind(&CrackleManipulation::plan_pose_service, this, std::placeholders::_1, std::placeholders::_2));
+        std::bind(&CrackleManipulation::plan_pose_service, this, std::placeholders::_1, std::placeholders::_2),
+        rmw_qos_profile_services_default,
+        services_cb_group_);
     execute_plan_service_ = node_->create_service<crackle_interfaces::srv::ExecutePlan>(
         "crackle_manipulation/execute_plan",
-        std::bind(&CrackleManipulation::execute_plan_service, this, std::placeholders::_1, std::placeholders::_2));
+        std::bind(&CrackleManipulation::execute_plan_service, this, std::placeholders::_1, std::placeholders::_2),
+        rmw_qos_profile_services_default,
+        services_cb_group_);
     plan_trajectory_service_ = node_->create_service<crackle_interfaces::srv::PlanTrajectory>(
         "crackle_manipulation/plan_trajectory",
-        std::bind(&CrackleManipulation::plan_trajectory_service, this, std::placeholders::_1, std::placeholders::_2));
+        std::bind(&CrackleManipulation::plan_trajectory_service, this, std::placeholders::_1, std::placeholders::_2),
+        rmw_qos_profile_services_default,
+        services_cb_group_);
     set_joint_angles_service_ = node_->create_service<crackle_interfaces::srv::SetJointAngles>(
         "crackle_manipulation/set_joint_angles",
-        std::bind(&CrackleManipulation::set_joint_angles_service, this, std::placeholders::_1, std::placeholders::_2));
+        std::bind(&CrackleManipulation::set_joint_angles_service, this, std::placeholders::_1, std::placeholders::_2),
+        rmw_qos_profile_services_default,
+        services_cb_group_);
     face_direction_relative_service_ = node_->create_service<crackle_interfaces::srv::FaceDirectionRelative>(
         "crackle_manipulation/face_direction_relative",
-        std::bind(&CrackleManipulation::face_direction_relative_service, this, std::placeholders::_1, std::placeholders::_2));
+        std::bind(&CrackleManipulation::face_direction_relative_service, this, std::placeholders::_1, std::placeholders::_2),
+        rmw_qos_profile_services_default,
+        services_cb_group_);
     move_relative_service_ = node_->create_service<crackle_interfaces::srv::MoveRelative>(
         "crackle_manipulation/move_relative",
-        std::bind(&CrackleManipulation::move_relative_service, this, std::placeholders::_1, std::placeholders::_2));
+        std::bind(&CrackleManipulation::move_relative_service, this, std::placeholders::_1, std::placeholders::_2),
+        rmw_qos_profile_services_default,
+        services_cb_group_);
+    get_end_effector_pose_service_ = node_->create_service<crackle_interfaces::srv::GetEndEffectorPose>(
+        "crackle_manipulation/get_end_effector_pose",
+        std::bind(&CrackleManipulation::get_end_effector_pose_service, this, std::placeholders::_1, std::placeholders::_2),
+        rmw_qos_profile_services_default,
+        services_cb_group_);
+    demo_trajectory_service_ = node_->create_service<crackle_interfaces::srv::DemoTrajectory>(
+        "crackle_manipulation/demo_trajectory",
+        std::bind(&CrackleManipulation::demo_trajectory_service, this, std::placeholders::_1, std::placeholders::_2),
+        rmw_qos_profile_services_default,
+        services_cb_group_);
     dance_service_ = node_->create_service<std_srvs::srv::Trigger>(
         "crackle_manipulation/dance",
-        std::bind(&CrackleManipulation::dance_dance, this, std::placeholders::_1, std::placeholders::_2));
+        std::bind(&CrackleManipulation::dance_dance, this, std::placeholders::_1, std::placeholders::_2),
+        rmw_qos_profile_services_default,
+        services_cb_group_);
     gripper_command_publisher_ = node_->create_publisher<std_msgs::msg::Bool>("/claw/command", 10);
     initialize(group_name);
 }
@@ -155,6 +197,12 @@ bool CrackleManipulation::set_joint_angles_service(crackle_interfaces::srv::SetJ
         return true;
     }
 
+    if (!wait_for_current_state("set_joint_angles"))
+    {
+        response->success = false;
+        return true;
+    }
+    move_group_->setStartStateToCurrentState();
     bool target_ok = move_group_->setJointValueTarget(joint_angles);
     if (!target_ok)
     {
@@ -224,27 +272,231 @@ bool CrackleManipulation::move_relative_service(crackle_interfaces::srv::MoveRel
     return true;
 }
 
+bool CrackleManipulation::get_end_effector_pose_service(
+    crackle_interfaces::srv::GetEndEffectorPose::Request::SharedPtr request,
+    crackle_interfaces::srv::GetEndEffectorPose::Response::SharedPtr response)
+{
+    (void)request;
+    if (!wait_for_current_state("get_end_effector_pose"))
+    {
+        response->success = false;
+        return true;
+    }
+    geometry_msgs::msg::PoseStamped current_pose = move_group_->getCurrentPose();
+    response->pose = current_pose.pose;
+    response->success = true;
+    return true;
+}
+
+bool CrackleManipulation::demo_trajectory_service(
+    crackle_interfaces::srv::DemoTrajectory::Request::SharedPtr request,
+    crackle_interfaces::srv::DemoTrajectory::Response::SharedPtr response)
+{
+    if (!wait_for_current_state("demo_trajectory"))
+    {
+        response->success = false;
+        response->message = "No current state";
+        return true;
+    }
+
+    const std::string type = request->type;
+    const double size = request->size > 0.0 ? request->size : 0.03;
+    const double height = request->height;
+    const int points = request->points >= 4 ? request->points : 40;
+    constexpr double kPi = 3.141592653589793;
+
+    geometry_msgs::msg::PoseStamped current_pose = move_group_->getCurrentPose();
+    const geometry_msgs::msg::Pose base_pose = current_pose.pose;
+
+    std::vector<geometry_msgs::msg::Pose> waypoints;
+    waypoints.reserve(static_cast<size_t>(points) + 1);
+
+    if (type == "circle_xy")
+    {
+        for (int i = 0; i <= points; ++i)
+        {
+            const double t = 2.0 * kPi * static_cast<double>(i) / static_cast<double>(points);
+            geometry_msgs::msg::Pose p = base_pose;
+            p.position.x += size * std::cos(t);
+            p.position.y += size * std::sin(t);
+            waypoints.push_back(p);
+        }
+    }
+    else if (type == "square_xy")
+    {
+        const double d = size;
+        std::vector<geometry_msgs::msg::Point> corners(5);
+        corners[0].x = base_pose.position.x + d;
+        corners[0].y = base_pose.position.y + d;
+        corners[0].z = base_pose.position.z;
+        corners[1].x = base_pose.position.x - d;
+        corners[1].y = base_pose.position.y + d;
+        corners[1].z = base_pose.position.z;
+        corners[2].x = base_pose.position.x - d;
+        corners[2].y = base_pose.position.y - d;
+        corners[2].z = base_pose.position.z;
+        corners[3].x = base_pose.position.x + d;
+        corners[3].y = base_pose.position.y - d;
+        corners[3].z = base_pose.position.z;
+        corners[4] = corners[0];
+
+        for (const auto &c : corners)
+        {
+            geometry_msgs::msg::Pose p = base_pose;
+            p.position = c;
+            waypoints.push_back(p);
+        }
+    }
+    else if (type == "figure8_xy")
+    {
+        for (int i = 0; i <= points; ++i)
+        {
+            const double t = 2.0 * kPi * static_cast<double>(i) / static_cast<double>(points);
+            geometry_msgs::msg::Pose p = base_pose;
+            p.position.x += size * std::sin(t);
+            p.position.y += size * std::sin(t) * std::cos(t);
+            waypoints.push_back(p);
+        }
+    }
+    else if (type == "helix_z")
+    {
+        for (int i = 0; i <= points; ++i)
+        {
+            const double t = 2.0 * kPi * static_cast<double>(i) / static_cast<double>(points);
+            geometry_msgs::msg::Pose p = base_pose;
+            p.position.x += size * std::cos(t);
+            p.position.y += size * std::sin(t);
+            p.position.z += height * (static_cast<double>(i) / static_cast<double>(points));
+            waypoints.push_back(p);
+        }
+    }
+    else
+    {
+        response->success = false;
+        response->message = "Unknown type. Use circle_xy, square_xy, figure8_xy, helix_z";
+        return true;
+    }
+
+    bool plan_ok = plan_cartesian_path(waypoints);
+    if (!plan_ok)
+    {
+        response->success = false;
+        response->message = "Planning failed";
+        return true;
+    }
+
+    if (request->execute)
+    {
+        bool exec_ok = execute_plan(true);
+        response->success = exec_ok;
+        response->message = exec_ok ? "Executed" : "Execution failed";
+        return true;
+    }
+
+    response->success = true;
+    response->message = "Planned";
+    return true;
+}
+
 bool CrackleManipulation::pick_up_object(crackle_interfaces::srv::PickupObject::Request::SharedPtr request,
                                          crackle_interfaces::srv::PickupObject::Response::SharedPtr response)
 {
     std::string object_name = request->object_name;
     RCLCPP_INFO(node_->get_logger(), "pick_up_object: requested to pick up");
 
-    // First, reach for the object
-    bool success = reach_for_object(object_name);
-    if (!success)
+    if (!wait_for_current_state("pick_up_object"))
     {
-        RCLCPP_ERROR(node_->get_logger(), "pick_up_object: failed to reach for object '%s'", object_name.c_str());
-        return false;
+        response->success = false;
+        return true;
     }
 
-    // Next, close the gripper (this is a placeholder, actual gripper control code needed)
-    RCLCPP_INFO(node_->get_logger(), "pick_up_object: closing gripper to pick up object '%s'", object_name.c_str());
+    // Find object in planning scene
+    std::map<std::string, moveit_msgs::msg::CollisionObject> scene_objects = planning_scene_->getObjects({object_name});
+    if (scene_objects.find(object_name) == scene_objects.end())
+    {
+        RCLCPP_ERROR(node_->get_logger(), "pick_up_object: object '%s' not found in planning scene", object_name.c_str());
+        response->success = false;
+        return true;
+    }
 
+    const moveit_msgs::msg::CollisionObject &obj = scene_objects[object_name];
+    const double approach_dist = 0.04;
+    const double pregrasp_height = 0.12;
+    const double lift_dist = 0.08;
+    const double tool_width = 0.05;
+    std::vector<geometry_msgs::msg::Pose> grasp_poses = get_grasp_poses(obj, approach_dist, tool_width);
+    if (grasp_poses.empty())
+    {
+        RCLCPP_ERROR(node_->get_logger(), "pick_up_object: no valid grasp poses computed for '%s'", object_name.c_str());
+        response->success = false;
+        return true;
+    }
 
-    // TODO: Implement actual gripper control logic here
-    gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(true));
-    response->success = true;
+    // Open gripper before approach (best-effort)
+    gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(false));
+
+    const geometry_msgs::msg::Pose obj_pose = obj.pose;
+    for (const auto &grasp_pose : grasp_poses)
+    {
+        geometry_msgs::msg::Pose pregrasp_pose = grasp_pose;
+        pregrasp_pose.position.x = obj_pose.position.x;
+        pregrasp_pose.position.y = obj_pose.position.y;
+        pregrasp_pose.position.z = obj_pose.position.z + pregrasp_height;
+
+        if (!plan_to_pose(pregrasp_pose))
+        {
+            RCLCPP_WARN(node_->get_logger(), "pick_up_object: plan to pregrasp failed, trying next grasp");
+            continue;
+        }
+        if (!execute_plan(true))
+        {
+            RCLCPP_WARN(node_->get_logger(), "pick_up_object: execute to pregrasp failed, trying next grasp");
+            continue;
+        }
+
+        std::vector<geometry_msgs::msg::Pose> approach_waypoints = {pregrasp_pose, grasp_pose};
+        if (!plan_cartesian_path(approach_waypoints))
+        {
+            RCLCPP_WARN(node_->get_logger(), "pick_up_object: cartesian approach failed, trying next grasp");
+            continue;
+        }
+        if (!execute_plan(true))
+        {
+            RCLCPP_WARN(node_->get_logger(), "pick_up_object: execute approach failed, trying next grasp");
+            continue;
+        }
+
+        // Close gripper
+        gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(true));
+
+        // Attach object to gripper link after closing
+        moveit_msgs::msg::AttachedCollisionObject attached;
+        attached.link_name = "gripper_base";
+        attached.object = obj;
+        attached.object.operation = moveit_msgs::msg::CollisionObject::ADD;
+        attached.touch_links = {"gripper_base"};
+        planning_scene_->applyAttachedCollisionObject(attached);
+
+        geometry_msgs::msg::Pose lift_pose = grasp_pose;
+        lift_pose.position.z += lift_dist;
+        std::vector<geometry_msgs::msg::Pose> lift_waypoints = {grasp_pose, lift_pose};
+        if (!plan_cartesian_path(lift_waypoints))
+        {
+            RCLCPP_WARN(node_->get_logger(), "pick_up_object: cartesian lift failed, trying next grasp");
+            continue;
+        }
+        if (!execute_plan(true))
+        {
+            RCLCPP_WARN(node_->get_logger(), "pick_up_object: execute lift failed, trying next grasp");
+            continue;
+        }
+
+        response->success = true;
+        return true;
+    }
+
+    RCLCPP_ERROR(node_->get_logger(), "pick_up_object: failed to pick '%s' with all grasps", object_name.c_str());
+    response->success = false;
     return true;
 }
 
@@ -260,6 +512,37 @@ void CrackleManipulation::initialize(const std::string &group_name)
               move_group_->getJointModelGroupNames().end(), std::ostream_iterator<std::string>(std::cout, ", "));
     move_group_->setMaxVelocityScalingFactor(max_velocity_scaling_factor);
     move_group_->setMaxAccelerationScalingFactor(max_acceleration_scaling_factor);
+    move_group_->setPlanningTime(20.0);
+    move_group_->setNumPlanningAttempts(20);
+    move_group_->allowReplanning(true);
+    move_group_->setGoalPositionTolerance(0.01);
+    move_group_->setGoalOrientationTolerance(0.05);
+    move_group_->setGoalJointTolerance(0.01);
+    is_trajectory_ = false;
+}
+
+bool CrackleManipulation::wait_for_current_state(const std::string &caller, double timeout_sec)
+{
+    auto state = move_group_->getCurrentState(timeout_sec);
+    if (!state)
+    {
+        if (have_joint_state_)
+        {
+            const auto now = node_->now();
+            const double age = (now - last_joint_state_stamp_).seconds();
+            RCLCPP_ERROR(node_->get_logger(),
+                         "%s: last /joint_states age=%.3fs (now=%.3f, stamp=%.3f)",
+                         caller.c_str(),
+                         age,
+                         now.seconds(),
+                         last_joint_state_stamp_.seconds());
+        }
+        RCLCPP_ERROR(node_->get_logger(),
+                     "%s: failed to fetch current robot state (timeout=%.1fs). Check /joint_states and clock sync.",
+                     caller.c_str(), timeout_sec);
+        return false;
+    }
+    return true;
 }
 
 /**
@@ -275,6 +558,9 @@ void CrackleManipulation::initialize(const std::string &group_name)
  */
 bool CrackleManipulation::plan_to_pose(const geometry_msgs::msg::Pose &target_pose)
 {
+    if (!wait_for_current_state("plan_to_pose"))
+        return false;
+    move_group_->setStartStateToCurrentState();
     bool success = move_group_->setPoseTarget(target_pose);
     if (!success)
         RCLCPP_WARN(node_->get_logger(), "setPoseTarget: out of bounds");
@@ -322,6 +608,9 @@ bool CrackleManipulation::plan_cartesian_path(
         return false;
     }
 
+    if (!wait_for_current_state("plan_cartesian_path"))
+        return false;
+    move_group_->setStartStateToCurrentState();
     moveit_msgs::msg::RobotTrajectory cart_traj_msg;
     double fraction = move_group_->computeCartesianPath(
         pose_target_vector,
@@ -563,7 +852,7 @@ geometry_msgs::msg::Pose CrackleManipulation::construct_reach_pose(geometry_msgs
     return target_pose;
 }
 
-std::vector<geometry_msgs::msg::Pose> get_grasp_poses(moveit_msgs::msg::CollisionObject object, double approach_dist, double tool_width)
+std::vector<geometry_msgs::msg::Pose> CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object, double approach_dist, double tool_width)
 {
     std::vector<geometry_msgs::msg::Pose> grasp_poses;
 
@@ -592,35 +881,21 @@ std::vector<geometry_msgs::msg::Pose> get_grasp_poses(moveit_msgs::msg::Collisio
         }
 
         std::vector<Eigen::Vector3d> offsets;
-        // Define potential grasp positions around the box (offsets are in the object frame)
-        if (length < tool_width)
-        {
-            offsets.push_back({0.0, 0.0, height / 2.0 + approach_dist}); // Top side only
-            // orient gripper to face down and align the fingers to be along the object's X axis
-        }
-        if (width < tool_width)
-        {
-            offsets.push_back({0.0, 0.0, height / 2.0 + approach_dist}); // Top side only
-            // orient gripper to face down and align the fingers to be along the object's Y axis
-        }
-        if (height < approach_dist)
-        {
-            offsets.push_back({length / 2.0 + tool_width / 2.0, 0.0, 0.0});  // Right side
-            offsets.push_back({-length / 2.0 - tool_width / 2.0, 0.0, 0.0}); // Left side
-            offsets.push_back({0.0, width / 2.0 + tool_width / 2.0, 0.0});   // Front side
-            offsets.push_back({0.0, -width / 2.0 - tool_width / 2.0, 0.0});  // Back side
-            // orient gripper to face the object from the side
-        }
+        // Force top-down grasp only for now
+        offsets.push_back({0.0, 0.0, approach_dist});
 
         for (const auto &offset : offsets)
         {
             geometry_msgs::msg::Pose grasp_pose;
             grasp_pose.position.x = obj_pose.position.x + offset.x();
             grasp_pose.position.y = obj_pose.position.y + offset.y();
-            grasp_pose.position.z = obj_pose.position.z + offset.z() + height / 2.0; // Grasp at mid-height
+            grasp_pose.position.z = obj_pose.position.z + height / 2.0 + offset.z();
 
-            // Use the object's orientation as a reasonable default for the grasp orientation
-            grasp_pose.orientation = obj_pose.orientation;
+            // Force top-down orientation: tool forward points toward -Z in world
+            grasp_pose.orientation = lookAtQuat(
+                -Eigen::Vector3d::UnitZ(),
+                Eigen::Vector3d::UnitY(),
+                kToolForwardInTool);
 
             grasp_poses.push_back(grasp_pose);
         }
@@ -752,7 +1027,7 @@ int main(int argc, char *argv[])
 
     auto manipulation = std::make_shared<CrackleManipulation>("lite6");
 
-    rclcpp::executors::MultiThreadedExecutor executor;
+    rclcpp::executors::MultiThreadedExecutor executor(rclcpp::ExecutorOptions(), 2);
     executor.add_node(manipulation->node_);
     executor.spin();
 
