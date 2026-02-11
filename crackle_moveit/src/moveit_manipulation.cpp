@@ -39,6 +39,24 @@ CrackleManipulation::CrackleManipulation(const std::string &group_name)
     look_at_service_ = node_->create_service<crackle_interfaces::srv::LookAt>(
         "crackle_manipulation/look_at",
         std::bind(&CrackleManipulation::look_at, this, std::placeholders::_1, std::placeholders::_2));
+    plan_pose_service_ = node_->create_service<crackle_interfaces::srv::PlanPose>(
+        "crackle_manipulation/plan_pose",
+        std::bind(&CrackleManipulation::plan_pose_service, this, std::placeholders::_1, std::placeholders::_2));
+    execute_plan_service_ = node_->create_service<crackle_interfaces::srv::ExecutePlan>(
+        "crackle_manipulation/execute_plan",
+        std::bind(&CrackleManipulation::execute_plan_service, this, std::placeholders::_1, std::placeholders::_2));
+    plan_trajectory_service_ = node_->create_service<crackle_interfaces::srv::PlanTrajectory>(
+        "crackle_manipulation/plan_trajectory",
+        std::bind(&CrackleManipulation::plan_trajectory_service, this, std::placeholders::_1, std::placeholders::_2));
+    set_joint_angles_service_ = node_->create_service<crackle_interfaces::srv::SetJointAngles>(
+        "crackle_manipulation/set_joint_angles",
+        std::bind(&CrackleManipulation::set_joint_angles_service, this, std::placeholders::_1, std::placeholders::_2));
+    face_direction_relative_service_ = node_->create_service<crackle_interfaces::srv::FaceDirectionRelative>(
+        "crackle_manipulation/face_direction_relative",
+        std::bind(&CrackleManipulation::face_direction_relative_service, this, std::placeholders::_1, std::placeholders::_2));
+    move_relative_service_ = node_->create_service<crackle_interfaces::srv::MoveRelative>(
+        "crackle_manipulation/move_relative",
+        std::bind(&CrackleManipulation::move_relative_service, this, std::placeholders::_1, std::placeholders::_2));
     dance_service_ = node_->create_service<std_srvs::srv::Trigger>(
         "crackle_manipulation/dance",
         std::bind(&CrackleManipulation::dance_dance, this, std::placeholders::_1, std::placeholders::_2));
@@ -90,6 +108,119 @@ bool CrackleManipulation::look_at(crackle_interfaces::srv::LookAt::Request::Shar
         return false;
     }
     response->success = true;
+    return true;
+}
+
+bool CrackleManipulation::plan_pose_service(crackle_interfaces::srv::PlanPose::Request::SharedPtr request,
+                                            crackle_interfaces::srv::PlanPose::Response::SharedPtr response)
+{
+    bool success = plan_to_pose(request->target_pose);
+    response->success = success;
+    return true;
+}
+
+bool CrackleManipulation::execute_plan_service(crackle_interfaces::srv::ExecutePlan::Request::SharedPtr request,
+                                               crackle_interfaces::srv::ExecutePlan::Response::SharedPtr response)
+{
+    bool success = execute_plan(request->wait);
+    response->success = success;
+    return true;
+}
+
+bool CrackleManipulation::plan_trajectory_service(crackle_interfaces::srv::PlanTrajectory::Request::SharedPtr request,
+                                                  crackle_interfaces::srv::PlanTrajectory::Response::SharedPtr response)
+{
+    bool success = plan_cartesian_path(request->waypoints);
+    response->success = success;
+    return true;
+}
+
+bool CrackleManipulation::set_joint_angles_service(crackle_interfaces::srv::SetJointAngles::Request::SharedPtr request,
+                                                   crackle_interfaces::srv::SetJointAngles::Response::SharedPtr response)
+{
+    const auto &joint_angles = request->joint_angles;
+    auto joint_model_group = move_group_->getRobotModel()->getJointModelGroup(move_group_->getName());
+    if (!joint_model_group)
+    {
+        RCLCPP_ERROR(node_->get_logger(), "set_joint_angles: joint model group not found");
+        response->success = false;
+        return true;
+    }
+
+    const size_t expected = joint_model_group->getVariableCount();
+    if (joint_angles.size() != expected)
+    {
+        RCLCPP_ERROR(node_->get_logger(), "set_joint_angles: expected %zu joints, got %zu", expected, joint_angles.size());
+        response->success = false;
+        return true;
+    }
+
+    bool target_ok = move_group_->setJointValueTarget(joint_angles);
+    if (!target_ok)
+    {
+        RCLCPP_ERROR(node_->get_logger(), "set_joint_angles: failed to set joint targets");
+        response->success = false;
+        return true;
+    }
+
+    bool success = (move_group_->plan(plan_) == moveit::core::MoveItErrorCode::SUCCESS);
+    if (!success)
+        RCLCPP_ERROR(node_->get_logger(), "set_joint_angles: planning failed");
+    is_trajectory_ = false;
+    response->success = success;
+    return true;
+}
+
+bool CrackleManipulation::face_direction_relative_service(
+    crackle_interfaces::srv::FaceDirectionRelative::Request::SharedPtr request,
+    crackle_interfaces::srv::FaceDirectionRelative::Response::SharedPtr response)
+{
+    geometry_msgs::msg::PoseStamped current_pose = move_group_->getCurrentPose();
+    Eigen::Vector3d dir_tool(request->direction_tool.x,
+                             request->direction_tool.y,
+                             request->direction_tool.z);
+    if (dir_tool.norm() < 1e-6)
+    {
+        RCLCPP_ERROR(node_->get_logger(), "face_direction_relative: zero direction provided");
+        response->success = false;
+        return true;
+    }
+
+    Eigen::Quaterniond q(current_pose.pose.orientation.w,
+                         current_pose.pose.orientation.x,
+                         current_pose.pose.orientation.y,
+                         current_pose.pose.orientation.z);
+    Eigen::Vector3d dir_world = (q * dir_tool).normalized();
+
+    geometry_msgs::msg::Pose target_pose = current_pose.pose;
+    target_pose.orientation = lookAtQuat(dir_world, Eigen::Vector3d::UnitZ(), kToolForwardInTool);
+
+    bool success = plan_to_pose(target_pose);
+    response->success = success;
+    return true;
+}
+
+bool CrackleManipulation::move_relative_service(crackle_interfaces::srv::MoveRelative::Request::SharedPtr request,
+                                                crackle_interfaces::srv::MoveRelative::Response::SharedPtr response)
+{
+    geometry_msgs::msg::PoseStamped current_pose = move_group_->getCurrentPose();
+    Eigen::Vector3d offset_tool(request->offset_tool.x,
+                                request->offset_tool.y,
+                                request->offset_tool.z);
+
+    Eigen::Quaterniond q(current_pose.pose.orientation.w,
+                         current_pose.pose.orientation.x,
+                         current_pose.pose.orientation.y,
+                         current_pose.pose.orientation.z);
+    Eigen::Vector3d offset_world = q * offset_tool;
+
+    geometry_msgs::msg::Pose target_pose = current_pose.pose;
+    target_pose.position.x += offset_world.x();
+    target_pose.position.y += offset_world.y();
+    target_pose.position.z += offset_world.z();
+
+    bool success = plan_to_pose(target_pose);
+    response->success = success;
     return true;
 }
 

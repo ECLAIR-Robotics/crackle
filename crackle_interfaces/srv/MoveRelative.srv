@@ -1,0 +1,4 @@
+# Offset in the current tool frame (meters)
+geometry_msgs/Vector3 offset_tool
+---
+bool success
