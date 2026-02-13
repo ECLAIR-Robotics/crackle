@@ -113,9 +113,8 @@ class GptAPI:
         return [response_text, emotion]
 
 
-    def get_command(self, prompt: str, ros_interface: any = None):
+    def get_command(self, fsm_instance, prompt: str, ros_interface: any = None):
         self.client = OpenAI()
-
         def get_api_signatures(cls):
             methods = inspect.getmembers(cls, predicate=inspect.isfunction)
             signatures = []
@@ -127,7 +126,7 @@ class GptAPI:
             return "\n".join(signatures)
 
         api_docs = get_api_signatures(PlannerAPI)
-                
+        planner_api = PlannerAPI(ROS_ENABLED)
 
         # Single tool that returns dialogue + code + emotion together
         tools = [
@@ -140,6 +139,7 @@ class GptAPI:
                     "2) code: Python code using only pick_up(self, object_name: str) "
                     "   and place(self) in the correct order to execute the user's request.\n"
                     "3) emotion: one word describing your emotion toward the user/input.\n"
+                    "4) continue_talking: A boolean value indicating whether to continue the conversation or not.\n"
                 ),
                 "parameters": {
                     "type": "object",
@@ -182,8 +182,14 @@ class GptAPI:
                                 "'not_impressed', 'evil', 'flirty', 'aww', 'wtf'."
                             ),
                         },
+                        "continue_talking": {
+                            "type": "boolean",
+                            "description": (
+                                " Return True if the user just wants to have a conversation and does not want you to conduct a task."
+                            ),
+                        },
                     },
-                    "required": ["dialogue", "code", "emotion"],
+                    "required": ["dialogue", "code", "emotion", "continue_talking"],
                     "additionalProperties": False,
                 },
                 "strict": True,
@@ -202,59 +208,85 @@ class GptAPI:
             "- Put a single emotion word in the 'emotion' field.\n"
         )
 
-        input_items = [
+        self.input_items = [
             {"role": "developer", "content": instructions},
             {"role": "user", "content": prompt},
         ]
 
         # Important: tool_choice is just the string "required" here.
         # Since we only define one custom tool, the model is forced to call it.
-        response = self.client.responses.create(
-            model="gpt-5-mini",
-            reasoning={"effort": "minimal"},
-            tools=tools,
-            tool_choice="required",
-            input=input_items,
-        )
+        while (True):
+            response = self.client.responses.create(
+                model="gpt-5-mini",
+                reasoning={"effort": "minimal"},
+                tools=tools,
+                tool_choice="required",
+                input=self.input_items,
+            )
 
-        dialogue_val = None
-        code_val = None
-        emotion_val = None
+            dialogue_val = None
+            code_val = None
+            emotion_val = None
+            continue_talking_val = None
 
-        # The tool call comes back as a `function_call` item in response.output
-        for item in response.output:
-            if item.type != "function_call":
-                continue
-            if item.name != "make_response":
-                continue
+            # The tool call comes back as a `function_call` item in response.output
+            for item in response.output:
+                if item.type != "function_call":
+                    continue
+                if item.name != "make_response":
+                    continue
 
-            args = json.loads(item.arguments or "{}")
-            dialogue_val = args.get("dialogue", "")
-            code_val = args.get("code", "")
-            emotion_val = args.get("emotion", "")
+                args = json.loads(item.arguments or "{}")
+                dialogue_val = args.get("dialogue", "")
+                code_val = args.get("code", "")
+                emotion_val = args.get("emotion", "")
+                continue_talking_val = args.get("continue_talking", False)
 
+            # Return all three so your planner can use them
+            if (not continue_talking_val):
+                return {
+                    "dialogue": dialogue_val,
+                    "code": code_val,
+                    "emotion": emotion_val,
+                }
+            if dialogue_val is not None:
+                print("Dialogue:", dialogue_val)
+            else:
+                print("WARNING: No dialogue returned.")
+            self.input_items.append({
+                "role": "assistant", 
+                "content": json.dumps({"dialogue": dialogue_val, "emotion": emotion_val}) 
+            })
+            samples = fsm_instance.record_output(5)          # record 5 seconds
+            print("Recording complete.")
+            fsm_instance.save_as_wav(samples, 16000, "out.wav")  # save it
+            transcribed_words = fsm_instance.gpt_api.speech_to_text("out.wav")
+            print(f"Transcribed words: {transcribed_words}")
+            # Convert speech to text
+            text = fsm_instance.gpt_api.speech_to_text("out.wav")
+            print(text)
+            # print(f"DEBUG HISTORY: {json.dumps(self.input_items, indent=2)}")
+            self.input_items.append({"role": "user", "content": text})
+    
         # Debug prints if you want them
-        if dialogue_val is not None:
-            print("Dialogue:", dialogue_val)
-        else:
-            print("WARNING: No dialogue returned.")
+        # if dialogue_val is not None:
+        #     print("Dialogue:", dialogue_val)
+        # else:
+        #     print("WARNING: No dialogue returned.")
 
-        if code_val is not None:
-            print("Code:", code_val)
-        else:
-            print("WARNING: No code returned.")
+        # if code_val is not None:
+        #     print("Code:", code_val)
+        # else:
+        #     print("WARNING: No code returned.")
 
-        if emotion_val is not None:
-            print("Emotion:", emotion_val)
-        else:
-            print("WARNING: No emotion returned.")
+        # if emotion_val is not None:
+        #     print("Emotion:", emotion_val)
+        # else:
+        #     print("WARNING: No emotion returned.")
 
-        # Return all three so your planner can use them
-        return {
-            "dialogue": dialogue_val,
-            "code": code_val,
-            "emotion": emotion_val,
-        }
+        # if continue_talking_val is not None:
+        #     print("Continue Talking:", continue_talking_val)
+        # else:            print("WARNING: No continue_talking value returned.")
     
     def speakText(self, text: str, output_path: str = "speech_output.mp3",
                   voice: str = "alloy", model: str = "gpt-4o-mini-tts"):

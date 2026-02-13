@@ -162,7 +162,7 @@ class CrackleFSM:
         await asyncio.sleep(2)  # Simulate task execution time
         print("Entering TASK state: Executing task...")
         print(f"Current command: {self.current_command}")
-        main_planner(self.current_command)        #main_planner()
+        main_planner(self, self.current_command)        #main_planner()
         print("TASK COMPLETED")
         self._state = CrackleState.IDLE
         pass
@@ -222,7 +222,7 @@ class CrackleFSM:
                 print(f"Transcribed words: {transcribed_words}")
                 # Convert speech to text
                 text = self.gpt_api.speech_to_text("out.wav")
-                self.current_command = "Hey can you get me my phone" 
+                self.current_command = text
                 self._state = CrackleState.TASK #start working on the task/just talk back
 
                 # print("Crackle's response: ", responseWords)

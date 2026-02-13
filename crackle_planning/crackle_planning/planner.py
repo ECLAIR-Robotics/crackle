@@ -1,7 +1,6 @@
 import math
 from _keys import openai_key
 
-
 # ROS_ENABLED = os.getenv("ROS_ENABLED", "false").lower() == "true"
 
 # if ROS_ENABLED:
@@ -168,7 +167,7 @@ class PlannerNode(): #not taking Node anymore
             self.emotion_pub.publish(String(data=emotion))
         playsound("/home/tanay/crackle_ws/speech.mp3")
 
-def main_planner(prompt: str):
+def main_planner(fsm_instance, prompt: str):
     print("Starting planner node...")
     #rclpy.init()
     #executor = MultiThreadedExecutor()
@@ -177,9 +176,9 @@ def main_planner(prompt: str):
     #planner.get_logger().info('Planner node started.')
     print('Hi from crackle_planning.')
     llm=GptAPI(openai_key)
-    print('Works')
+    print('Works') 
     #prompt='Hey dummy can you get me my phone'
-    response=llm.get_command(prompt) #this is a json object with dialogue, code, emotion
+    response=llm.get_command(fsm_instance, prompt) #this is a json object with dialogue, code, emotion
     #print('Response from GPT:')
     #TODO: planner.py calls _api.py which cals ros_interface.py
     #listen, talk, execute code
