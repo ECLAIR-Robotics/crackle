@@ -7,3 +7,7 @@ robotpy-wpimath==2024.2.1.2
 robotpy-wpinet==2024.2.1.2
 robotpy-wpiutil==2024.2.1.2
 mediapipe==0.10.9
+openwakeword==0.6.0
+pyaudio==0.2.14
+openai==2.18.0
+elevenlabs==2.35.0
