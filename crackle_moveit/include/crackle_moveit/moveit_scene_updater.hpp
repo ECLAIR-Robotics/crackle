@@ -18,6 +18,7 @@ class CrackleMoveitSceneUpdater {
         CrackleMoveitSceneUpdater();
         ~CrackleMoveitSceneUpdater() {};
 
+        std::string moveStringNameInt(std::string target_string);
         void addCollisionObject();
         void removeCollisionObject();
         void attachObject();
