@@ -92,6 +92,8 @@ CrackleManipulation::CrackleManipulation(const std::string &group_name)
         std::bind(&CrackleManipulation::get_end_effector_pose_service, this, std::placeholders::_1, std::placeholders::_2),
         rmw_qos_profile_services_default,
         services_cb_group_);
+
+    // TODO: Make a special trajectory service that takes high level parameters and then does the same thing more or less as the demo_trajectory_service but around the current pose instead of a fixed pose, and with more options for types of trajectories. The demo_trajectory_service can call that one internally.
     demo_trajectory_service_ = node_->create_service<crackle_interfaces::srv::DemoTrajectory>(
         "crackle_manipulation/demo_trajectory",
         std::bind(&CrackleManipulation::demo_trajectory_service, this, std::placeholders::_1, std::placeholders::_2),
@@ -420,10 +422,10 @@ bool CrackleManipulation::pick_up_object(crackle_interfaces::srv::PickupObject::
     }
 
     const moveit_msgs::msg::CollisionObject &obj = scene_objects[object_name];
-    const double approach_dist = 0.04;
-    const double pregrasp_height = 0.12;
+    const double approach_dist = 0.08;
+    const double pregrasp_height = 0.20;
     const double lift_dist = 0.08;
-    const double tool_width = 0.05;
+    const double tool_width = 0.10;
     std::vector<geometry_msgs::msg::Pose> grasp_poses = get_grasp_poses(obj, approach_dist, tool_width);
     if (grasp_poses.empty())
     {
