@@ -862,23 +862,36 @@ geometry_msgs::msg::Pose CrackleManipulation::construct_reach_pose(geometry_msgs
 std::vector<geometry_msgs::msg::Pose> CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object, double approach_dist, double tool_width)
 {
     std::vector<geometry_msgs::msg::Pose> grasp_poses;
-
-    // Assuming the object has a single primitive shape and pose for simplicity
-    if (object.primitives.empty() || object.primitive_poses.empty())
-    {
-        RCLCPP_WARN(rclcpp::get_logger("crackle_moveit_manipulation_node"), "get_grasp_poses: object has no primitives or poses");
-        return grasp_poses;
-    }
+    
+    // // Assuming the object has a single primitive shape and pose for simplicity
+    // if (object.primitives.empty() || object.primitive_poses.empty())
+    // {
+    //     RCLCPP_WARN(rclcpp::get_logger("crackle_moveit_manipulation_node"), "get_grasp_poses: object has no primitives or poses");
+    //     return grasp_poses;
+    // }
 
     const shape_msgs::msg::SolidPrimitive &primitive = object.primitives[0];
     const geometry_msgs::msg::Pose &obj_pose = object.primitive_poses[0];
 
+    auto objectMesh = object.meshes;
+
+    for (const auto &vertex : objectMesh[0].vertices)
+    {
+        RCLCPP_INFO(node_->get_logger(), "Vertex: [%f, %f, %f]", vertex.x, vertex.y, vertex.z);
+    }
+
     // Calculate grasp poses based on the object's dimensions and pose
     if (primitive.type == shape_msgs::msg::SolidPrimitive::BOX)
     {
-        double length = primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_X];
-        double width = primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Y];
-        double height = primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Z];
+        // double length = primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_X];
+        // double width = primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Y];
+        // double height = primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Z];
+
+        // Create a copy of the vertices to be sorted along x axis  . 
+        geometry_msgs::msg::Point x_sorted_vertices[std::end(objectMesh[0].vertices) - std::begin(objectMesh[0].vertices)]; 
+        std::copy(std::begin(objectMesh[0].vertices), std::end(objectMesh[0].vertices), std::begin(x_sorted_vertices));
+
+        std::stable_sort(std::begin(x_sorted_vertices), std::end(x_sorted_vertices), )
 
         // Basic validation
         if (length <= 0.0 || width <= 0.0 || height <= 0.0)

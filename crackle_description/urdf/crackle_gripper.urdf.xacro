@@ -10,7 +10,7 @@
   <!-- =========================
        Macro: Gripper Base Link
        ========================= -->
-  <xacro:macro name="gripper_base_macro" params="link_name base_mesh:='crackle_gripper.stl'">
+  <xacro:macro name="gripper_base_macro" params="link_name base_mesh:='Claw_Casing.stl'">
     <link name="${link_name}">
       <visual>
         <origin xyz="0 0 0" rpy="0 0 1.80"/>
@@ -18,21 +18,42 @@
           <mesh filename="${pkg_path}/${base_mesh}" scale="${mesh_scale}"/>
         </geometry>
       </visual>
-      <!-- <collision> -->
-        <!-- <origin xyz="0 0 0" rpy="0 0 0"/> -->
-        <!-- <geometry> -->
-          <!-- <mesh filename="${pkg_path}/${base_mesh}" scale="${mesh_scale}"/> -->
-        <!-- </geometry> -->
-      <!-- </collision> -->
-      <inertial>
-        <origin xyz="0 0 0" rpy="0 0 0"/>
-        <mass value="0.2"/>
-        <inertia ixx="220.703" ixy="66.047" ixz="-11.782"
-                 iyy="300.204" iyz="-23.973"
-                 izz="394.277"/>
-      </inertial>
       <color rgba="0.0 0.0 0.5 1"/>
     </link>
+
+    <link name="spur_gear_left">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 1.80"/>
+        <geometry>
+          <mesh filename="${pkg_path}/SpurGear_Left.stl" scale="${mesh_scale}"/>
+        </geometry>
+      </visual>
+      <color rgba="0.0 0.0 0.5 1"/>
+    </link>
+  <link name="spur_gear_right">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 1.80"/>
+        <geometry>
+          <mesh filename="${pkg_path}/SpurGear_Right.stl" scale="${mesh_scale}"/>
+        </geometry>
+      </visual>
+      <color rgba="0.0 0.0 0.5 1"/>
+    </link>
+
+    <joint name="spur_gear_left_joint" type="revolute">
+      <parent link="${link_name}"/>
+      <child link="spur_gear_left"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="-3.14159" upper="3.14159" effort="5.0" velocity="5.0"/>
+    </joint>
+    <joint name="spur_gear_right_joint" type="revolute">
+      <parent link="${link_name}"/>
+      <child link="spur_gear_right"/>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <axis xyz="0 0 1"/>
+      <limit lower="-3.14159" upper="3.14159" effort="5.0" velocity="5.0"/>
+    </joint>
   </xacro:macro>
 
   <!-- =========================
