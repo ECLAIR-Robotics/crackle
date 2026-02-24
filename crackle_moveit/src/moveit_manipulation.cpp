@@ -859,6 +859,76 @@ geometry_msgs::msg::Pose CrackleManipulation::construct_reach_pose(geometry_msgs
     return target_pose;
 }
 
+std::vector<geometry_msgs::msg::Point> CrackleManipulation::cuboid_handler(std::vector<geometry_msgs::msg::Point> verts)
+{
+
+    // Find vertex point with smallest z. 
+    std::vector<geometry_msgs::msg::Point>::iterator min_z_point_it = std::min_element(verts.begin(), verts.end(),
+                                                                        [](const geometry_msgs::msg::Point &p1, const geometry_msgs::msg::Point &p2){
+                                                                            return p1.z < p2.z;
+                                                                        }); 
+
+    geometry_msgs::msg::Point min_z_point = *min_z_point_it;
+
+    // Copy the vector of points and remove the min-z-point
+    std::vector<geometry_msgs::msg::Point> verts2 (verts); 
+    verts2.erase(min_z_point_it);
+
+    // Make the smallest z point the origin.
+    for (int i = 0; i < verts2.size(); i++){
+        geometry_msgs::msg::Point shifted_point = geometry_msgs::msg::Point();
+        shifted_point.x = verts2[i].x - min_z_point.x;
+        shifted_point.y = verts2[i].y - min_z_point.y;
+        shifted_point.z = verts2[i].z - min_z_point.z;
+        verts2.at(i) = shifted_point;
+    }
+
+    bool foundFlag = false;
+    std::vector<geometry_msgs::msg::Point> basisVecs;
+
+    // Loop through remaining vertices until we find a orthogonal set of three.
+    for (int i = 0; i < verts2.size(); i++){
+        for (int j = 1; i < verts2.size(); j++){
+            for (int k = 2; i < verts2.size(); k++){
+                double dot_ij = (verts2[i].x * verts2[j].x) + (verts2[i].y * verts2[j].y) + (verts2[i].z * verts2[j].z);
+                double dot_jk = (verts2[j].x * verts2[k].x) + (verts2[j].y * verts2[k].y) + (verts2[j].z * verts2[k].z);
+                double dot_ki = (verts2[k].x * verts2[i].x) + (verts2[k].y * verts2[i].y) + (verts2[k].z * verts2[i].z);
+                if ((abs(dot_ij) < 1e-5) && (abs(dot_jk) < 1e-5) && (abs(dot_ki) < 1e-5)){
+                    basisVecs.push_back(verts2[i]);
+                    basisVecs.push_back(verts2[j]);
+                    basisVecs.push_back(verts2[k]);
+                    foundFlag = true;
+                    break;
+                }
+            }
+            if (foundFlag){
+                break;
+            }
+        }
+        if (foundFlag){
+            break;
+        }    
+    }
+
+    // sort the basis vectors in descending order of magnitude. 
+    std::stable_sort(basisVecs.begin(), basisVecs.end(), [](const geometry_msgs::msg::Point &p1, const geometry_msgs::msg::Point &p2){
+                                                                return sqrt(pow(p1.x, 2) + pow(p1.y, 2) + pow(p1.z, 2)) > sqrt(pow(p2.x, 2) + pow(p2.y, 2) + pow(p2.z, 2))
+                                                            });
+
+    // find the most z-axis aligned basis vector. This is the height vector
+    std::vector<geometry_msgs::msg::Point>::iterator best_z_basis_vec_it = std::max_element(basisVecs.begin(), basisVecs.end(),
+                                                                                [](const geometry_msgs::msg::Point &p1, const geometry_msgs::msg::Point &p2){
+                                                                                    return p1.z < p2.z;
+                                                                                }); 
+    geometry_msgs::msg::Point best_z_basis_vec = *best_z_basis_vec_it;
+    // remove height vector and re-add it at the end.
+    basisVecs.erase(best_z_basis_vec_it);
+    basisVecs.push_back(best_z_basis_vec);
+
+    // List of geometry_msgs/Point objects. These are vectors that span the length, width and height of the cuboid respectively. height being most z-aligned, length being longer remaining side. 
+    return basisVecs;
+    
+}
 std::vector<geometry_msgs::msg::Pose> CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object, double approach_dist, double tool_width)
 {
     std::vector<geometry_msgs::msg::Pose> grasp_poses;
@@ -887,11 +957,12 @@ std::vector<geometry_msgs::msg::Pose> CrackleManipulation::get_grasp_poses(movei
         // double width = primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Y];
         // double height = primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Z];
 
-        // Create a copy of the vertices to be sorted along x axis  . 
-        geometry_msgs::msg::Point x_sorted_vertices[std::end(objectMesh[0].vertices) - std::begin(objectMesh[0].vertices)]; 
-        std::copy(std::begin(objectMesh[0].vertices), std::end(objectMesh[0].vertices), std::begin(x_sorted_vertices));
-
-        std::stable_sort(std::begin(x_sorted_vertices), std::end(x_sorted_vertices), )
+        std::vector<geometry_msgs::msg::Point> verts ( objectMesh[0].vertices, objectMesh[0].vertices + sizeof(objectMesh[0].vertices) / sizeof(objectMesh[0].vertices[0]) );
+        
+        std::vector<geometry_msgs::msg::Point> basisVecs = CrackleManipulation::cuboid_handler(verts);
+        double length = sqrt(pow(basisVecs[0].x, 2) + pow(basisVecs[0].y, 2) + pow(basisVecs[0].z, 2))
+        double width  = sqrt(pow(basisVecs[1].x, 2) + pow(basisVecs[1].y, 2) + pow(basisVecs[1].z, 2))
+        double height = sqrt(pow(basisVecs[2].x, 2) + pow(basisVecs[2].y, 2) + pow(basisVecs[2].z, 2))
 
         // Basic validation
         if (length <= 0.0 || width <= 0.0 || height <= 0.0)

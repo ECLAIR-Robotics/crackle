@@ -283,7 +283,7 @@ class VisionServerNode(Node):
             object_solid_primitive = SolidPrimitive()
             object_solid_primitive.type = shape_type
             min_bound, max_bound = shape_mesh.get_min_bound(), shape_mesh.get_max_bound()
-            # ! Don't set primitive dimensions because we are instead adding the mesh
+            # ! Don't set primitive dimensions because we are instead adding the mesh. Otherwise CollisionObject is published with two overlapping boxes.
             pose = Pose()
             pose.position.x = float((max_bound[0] + min_bound[0]) / 2)
             pose.position.y = float((max_bound[1] + min_bound[1]) / 2)
