@@ -1,0 +1,4 @@
+# Get current end-effector pose in the planning frame
+---
+geometry_msgs/Pose pose
+bool success

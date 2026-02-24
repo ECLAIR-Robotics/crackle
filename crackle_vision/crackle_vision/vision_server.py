@@ -7,10 +7,12 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from ament_index_python import get_package_share_directory
 from geometry_msgs.msg import Pose, Point
+from geometry_msgs.msg import Pose, Point
 
 from std_srvs.srv import Trigger, Empty
 from sensor_msgs.msg import Image, PointCloud2, CameraInfo
 from crackle_interfaces.srv import FindObjects
+from shape_msgs.msg import SolidPrimitive, Mesh, MeshTriangle
 from shape_msgs.msg import SolidPrimitive, Mesh, MeshTriangle
 from crackle_vision.pcd_tools import get_best_approx # @ Shalini
 from moveit_msgs.msg import CollisionObject
@@ -417,7 +419,9 @@ class VisionServerNode(Node):
 
                         collision_object.operation = CollisionObject.ADD
                         print("Collision object finalized.")
+                        print("Collision object finalized.")
                         self.collision_object_pub.publish(collision_object)
+                        print("Publish request sent.")
                         print("Publish request sent.")
 
             response.names = names

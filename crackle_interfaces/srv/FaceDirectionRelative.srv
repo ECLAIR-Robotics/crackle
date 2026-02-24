@@ -1,0 +1,4 @@
+# Desired forward direction expressed in the current tool frame
+geometry_msgs/Vector3 direction_tool
+---
+bool success

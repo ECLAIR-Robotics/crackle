@@ -1,0 +1,4 @@
+# Cartesian waypoints for the end effector
+geometry_msgs/Pose[] waypoints
+---
+bool success

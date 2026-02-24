@@ -1,0 +1,4 @@
+# Joint angles in the move group order (radians)
+float64[] joint_angles
+---
+bool success
