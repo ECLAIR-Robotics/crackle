@@ -1,0 +1,3 @@
+# Returns all collision object names in the planning scene
+---
+string[] object_names

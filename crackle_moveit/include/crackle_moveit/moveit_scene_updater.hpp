@@ -11,6 +11,7 @@
 #include <shape_msgs/msg/solid_primitive.hpp>
 #include <shape_msgs/msg/mesh.hpp>
 #include <moveit_msgs/msg/collision_object.hpp>
+#include <crackle_interfaces/srv/get_collision_objects.hpp>
 
 class CrackleMoveitSceneUpdater {
     public:
@@ -27,6 +28,7 @@ class CrackleMoveitSceneUpdater {
 
         rclcpp::Publisher<moveit_msgs::msg::PlanningScene>::SharedPtr planning_scene_diff_publisher_;
         rclcpp::Subscription<moveit_msgs::msg::CollisionObject>::SharedPtr collision_object_subscription_;
+        rclcpp::Service<crackle_interfaces::srv::GetCollisionObjects>::SharedPtr get_collision_objects_service_;
     private:
         void init();
 

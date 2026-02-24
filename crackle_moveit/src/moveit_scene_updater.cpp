@@ -28,6 +28,15 @@ void CrackleMoveitSceneUpdater::init() {
             RCLCPP_INFO(node_->get_logger(), "Applied collision object with id: %s to the planning scene", msg->id.c_str());
         }
     );
+    get_collision_objects_service_ = node_->create_service<crackle_interfaces::srv::GetCollisionObjects>(
+        "crackle_moveit/get_collision_objects",
+        [this](const std::shared_ptr<crackle_interfaces::srv::GetCollisionObjects::Request> /*request*/,
+               std::shared_ptr<crackle_interfaces::srv::GetCollisionObjects::Response> response) {
+            response->object_names = planning_scene_->getKnownObjectNames();
+            RCLCPP_INFO(node_->get_logger(), "Returning %zu collision objects", response->object_names.size());
+        }
+    );
+
     while(planning_scene_diff_publisher_->get_subscription_count() < 1) {
         RCLCPP_INFO(node_->get_logger(), "Waiting for subscriber to connect");
         rclcpp::sleep_for(std::chrono::seconds(1));

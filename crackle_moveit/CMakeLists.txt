@@ -44,6 +44,7 @@ ament_target_dependencies(moveit_manipulation
 
 ament_target_dependencies(moveit_scene_updater
   moveit_ros_planning_interface
+  crackle_interfaces
   ${dependencies}
 )
 
