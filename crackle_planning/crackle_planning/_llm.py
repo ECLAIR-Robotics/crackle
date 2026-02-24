@@ -213,6 +213,9 @@ class GptAPI:
             {"role": "user", "content": prompt},
         ]
 
+        #TODO look at this 
+        fsm_instance.context_window.append(self.input_items)
+
         # Important: tool_choice is just the string "required" here.
         # Since we only define one custom tool, the model is forced to call it.
         while (True):
