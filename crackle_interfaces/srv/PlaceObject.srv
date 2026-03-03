@@ -1,0 +1,4 @@
+string object_name
+string table_name   # name of the table collision object; defaults to "table" if empty
+---
+bool success
