@@ -30,6 +30,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/GetEndEffectorPose.srv"
   "srv/DemoTrajectory.srv"
   "srv/PlaceObject.srv"
+  "srv/GetCollisionObjects.srv"
 
   DEPENDENCIES shape_msgs geometry_msgs
   )
