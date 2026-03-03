@@ -1,7 +1,7 @@
 import os
 import threading
 import atexit
-from typing import Dict, List
+from typing import Any, Dict, List
 
 ROS_ENABLED = os.getenv("ROS_ENABLED", "false").lower() == "true"
 if ROS_ENABLED:
@@ -12,7 +12,6 @@ if ROS_ENABLED:
 
 # MOVE LATER
 import numpy as np
-import openai
 from openai import OpenAI
 from _keys import openai_key
 os.environ["OPENAI_API_KEY"] = str(openai_key)
@@ -25,7 +24,7 @@ class PlannerAPI:
             self._crackle_node = Node("crackle_node")
             self._crackle_node.get_logger().info("Initialized PlannerAPI with ROS interface.")
             self.ros_interface = RosInterface(self._crackle_node)
-            self.global_state: Dict[str, object] = {}
+            self.global_state: Dict[str, Any] = {}
             self._executor = MultiThreadedExecutor()
             self._executor.add_node(self._crackle_node)
             self._spin_thread = threading.Thread(target=self._executor.spin, daemon=True)
@@ -55,7 +54,7 @@ class PlannerAPI:
     # def find(self, object_name : str, mapped_objects): # This function is to locate the named object by matching it with the most similar mapped object
 
     # MOVE LATER
-    def embedding_from_string(text: str, model: str = "text-embedding-3-small") -> np.ndarray:
+    def embedding_from_string(self, text: str, model: str = "text-embedding-3-small") -> np.ndarray:
         """Get an embedding as a NumPy vector."""
         resp = client.embeddings.create(model=model, input=text)
         # print("str: ", text, " | embedding: ", np.array(resp.data[0].embedding, dtype=np.float32))
@@ -63,6 +62,7 @@ class PlannerAPI:
 
     # MOVE LATER
     def recommendations_from_strings(
+        self,
         strings: List[str],
         index_of_source_string: int,
         model: str = "text-embedding-3-small",
@@ -70,7 +70,7 @@ class PlannerAPI:
         """Return nearest neighbors of a given string (including itself first)."""
 
         # 1) embeddings for all strings
-        embeddings = [embedding_from_string(s, model=model) for s in strings]
+        embeddings = [self.embedding_from_string(s, model=model) for s in strings]
 
         # 2) source embedding
         query = embeddings[index_of_source_string]
