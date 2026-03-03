@@ -10,7 +10,7 @@
   <!-- =========================
        Macro: Gripper Base Link
        ========================= -->
-  <xacro:macro name="gripper_base_macro" params="link_name base_mesh:='Claw_Casing.stl'">
+  <xacro:macro name="gripper_base_macro" params="link_name base_mesh:='ClawBase.stl'">
     <link name="${link_name}">
       <visual>
         <origin xyz="0 0 0" rpy="0 0 1.80"/>
@@ -20,40 +20,44 @@
       </visual>
       <color rgba="0.0 0.0 0.5 1"/>
     </link>
-
+<!-- 
     <link name="spur_gear_left">
       <visual>
         <origin xyz="0 0 0" rpy="0 0 1.80"/>
         <geometry>
-          <mesh filename="${pkg_path}/SpurGear_Left.stl" scale="${mesh_scale}"/>
-        </geometry>
-      </visual>
-      <color rgba="0.0 0.0 0.5 1"/>
-    </link>
-  <link name="spur_gear_right">
-      <visual>
-        <origin xyz="0 0 0" rpy="0 0 1.80"/>
-        <geometry>
-          <mesh filename="${pkg_path}/SpurGear_Right.stl" scale="${mesh_scale}"/>
+          <mesh filename="${pkg_path}/SpurGear.stl" scale="${mesh_scale}"/>
         </geometry>
       </visual>
       <color rgba="0.0 0.0 0.5 1"/>
     </link>
 
+  <link name="spur_gear_right">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 1.80"/>
+        <geometry>
+          <mesh filename="${pkg_path}/SpurGear.stl" scale="${mesh_scale}"/>
+        </geometry>
+      </visual>
+      <color rgba="0.0 0.0 0.5 1"/>
+  </link>
+
     <joint name="spur_gear_left_joint" type="revolute">
       <parent link="${link_name}"/>
       <child link="spur_gear_left"/>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <origin xyz="0.0 0.02 0.03" rpy="3.14 1.57 0.3"/>
       <axis xyz="0 0 1"/>
       <limit lower="-3.14159" upper="3.14159" effort="5.0" velocity="5.0"/>
     </joint>
+
+
     <joint name="spur_gear_right_joint" type="revolute">
       <parent link="${link_name}"/>
       <child link="spur_gear_right"/>
-      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <origin xyz="0.0 -0.02 0.03" rpy="0 1.57 0.3"/>
       <axis xyz="0 0 1"/>
       <limit lower="-3.14159" upper="3.14159" effort="5.0" velocity="5.0"/>
-    </joint>
+    </joint>  -->
+
   </xacro:macro>
 
   <!-- =========================
