@@ -24,7 +24,10 @@
  * @author Tanay Garg
  * @date 09/08/2025
  */
+#include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <thread>
 #include <crackle_moveit/moveit_manipulation.hpp>
 
 const double jump_threshold = 0.0;
@@ -35,6 +38,68 @@ const double max_acceleration_scaling_factor =
     0.1; // [move_group_interface] default is 0.1
 
 static const Eigen::Vector3d kToolForwardInTool(0.0, 0.0, 1.0); // Z axis
+
+// ---------------------------------------------------------------------------
+// File-local helpers
+// ---------------------------------------------------------------------------
+
+// Retreat from `grasp` along the negative approach direction by `dist` metres.
+// The approach direction is the tool-forward axis rotated into world frame.
+static geometry_msgs::msg::Pose
+compute_pregrasp(const geometry_msgs::msg::Pose &grasp, double dist)
+{
+  Eigen::Quaterniond q(grasp.orientation.w, grasp.orientation.x,
+                       grasp.orientation.y, grasp.orientation.z);
+  Eigen::Vector3d approach_dir = (q * kToolForwardInTool).normalized();
+  geometry_msgs::msg::Pose pregrasp = grasp;
+  pregrasp.position.x -= approach_dir.x() * dist;
+  pregrasp.position.y -= approach_dir.y() * dist;
+  pregrasp.position.z -= approach_dir.z() * dist;
+  return pregrasp;
+}
+
+// Build a robot state seeded from the last waypoint of a trajectory message.
+static moveit::core::RobotState
+state_from_trajectory_end(const moveit_msgs::msg::RobotTrajectory &traj,
+                           const moveit::core::RobotModelConstPtr &model)
+{
+  moveit::core::RobotState state(model);
+  state.setToDefaultValues();
+  const auto &jt = traj.joint_trajectory;
+  if (jt.points.empty())
+    return state;
+  const auto &last = jt.points.back();
+  for (size_t i = 0; i < jt.joint_names.size(); ++i)
+    state.setJointPositions(jt.joint_names[i], &last.positions[i]);
+  state.update();
+  return state;
+}
+
+// XY half-extents of a solid primitive (used for 2-D footprint collision checks).
+static std::pair<double, double>
+primitive_footprint_xy(const shape_msgs::msg::SolidPrimitive &p) {
+  using P = shape_msgs::msg::SolidPrimitive;
+  switch (p.type) {
+  case P::BOX:
+    return {p.dimensions[P::BOX_X] / 2.0, p.dimensions[P::BOX_Y] / 2.0};
+  case P::CYLINDER:
+    return {p.dimensions[P::CYLINDER_RADIUS], p.dimensions[P::CYLINDER_RADIUS]};
+  case P::SPHERE:
+    return {p.dimensions[P::SPHERE_RADIUS], p.dimensions[P::SPHERE_RADIUS]};
+  default:
+    return {0.05, 0.05};
+  }
+}
+
+static double primitive_height(const shape_msgs::msg::SolidPrimitive &p) {
+  using P = shape_msgs::msg::SolidPrimitive;
+  switch (p.type) {
+  case P::BOX:      return p.dimensions[P::BOX_Z];
+  case P::CYLINDER: return p.dimensions[P::CYLINDER_HEIGHT];
+  case P::SPHERE:   return p.dimensions[P::SPHERE_RADIUS] * 2.0;
+  default:          return 0.10;
+  }
+}
 
 CrackleManipulation::CrackleManipulation(const std::string &group_name)
     : logger_(rclcpp::get_logger("crackle_moveit_manipulation_node")) {
@@ -56,6 +121,12 @@ CrackleManipulation::CrackleManipulation(const std::string &group_name)
       node_->create_service<crackle_interfaces::srv::PickupObject>(
           "crackle_manipulation/pickup_object",
           std::bind(&CrackleManipulation::pick_up_object, this,
+                    std::placeholders::_1, std::placeholders::_2),
+          rmw_qos_profile_services_default, services_cb_group_);
+  place_service_ =
+      node_->create_service<crackle_interfaces::srv::PlaceObject>(
+          "crackle_manipulation/place_object",
+          std::bind(&CrackleManipulation::place_object, this,
                     std::placeholders::_1, std::placeholders::_2),
           rmw_qos_profile_services_default, services_cb_group_);
   look_at_service_ = node_->create_service<crackle_interfaces::srv::LookAt>(
@@ -407,17 +478,17 @@ bool CrackleManipulation::demo_trajectory_service(
 bool CrackleManipulation::pick_up_object(
     crackle_interfaces::srv::PickupObject::Request::SharedPtr request,
     crackle_interfaces::srv::PickupObject::Response::SharedPtr response) {
-  std::string object_name = request->object_name;
-  RCLCPP_INFO(node_->get_logger(), "pick_up_object: requested to pick up");
+  const std::string &object_name = request->object_name;
+  RCLCPP_INFO(node_->get_logger(), "pick_up_object: requested to pick up '%s'",
+              object_name.c_str());
 
   if (!wait_for_current_state("pick_up_object")) {
     response->success = false;
     return true;
   }
 
-  // Find object in planning scene
-  std::map<std::string, moveit_msgs::msg::CollisionObject> scene_objects =
-      planning_scene_->getObjects({object_name});
+  // ---- Locate object in planning scene ----------------------------------------
+  auto scene_objects = planning_scene_->getObjects({object_name});
   if (scene_objects.find(object_name) == scene_objects.end()) {
     RCLCPP_ERROR(node_->get_logger(),
                  "pick_up_object: object '%s' not found in planning scene",
@@ -425,99 +496,420 @@ bool CrackleManipulation::pick_up_object(
     response->success = false;
     return true;
   }
-
   const moveit_msgs::msg::CollisionObject &obj = scene_objects[object_name];
-  const double approach_dist = 0.08;
-  const double pregrasp_height = 0.20;
-  const double lift_dist = 0.08;
-  const double tool_width = 0.10;
-  std::vector<geometry_msgs::msg::Pose> grasp_poses =
+
+  // ---- Generate grasp candidates -----------------------------------------------
+  constexpr double approach_dist = 0.08; // metres – gripper offset from object
+  constexpr double pregrasp_dist = 0.20; // metres – retreat along approach axis
+  constexpr double lift_dist = 0.10;     // metres – straight-up post-grasp lift
+  constexpr double tool_width = 0.10;
+
+  std::vector<geometry_msgs::msg::Pose> grasp_candidates =
       get_grasp_poses(obj, approach_dist, tool_width);
-  if (grasp_poses.empty()) {
+  if (grasp_candidates.empty()) {
     RCLCPP_ERROR(node_->get_logger(),
-                 "pick_up_object: no valid grasp poses computed for '%s'",
+                 "pick_up_object: no grasp candidates generated for '%s'",
                  object_name.c_str());
     response->success = false;
     return true;
   }
 
-  // Open gripper before approach (best-effort)
+  // Open gripper before planning so the scene state is correct
   gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(false));
 
-  // TODO: Right now this pipeline has a weird way of doing retries. Make all
-  // the loops independent and only retry the part that fails instead of going
-  // back to the start of the approach every time. Make the close gripper and
-  // the attachCollisionObject part more robust to failures as well. Maybe add a
-  // separate service for just closing the gripper and attaching the object, and
-  // call that in a loop until it succeeds after the approach is successful.
+  // ---- Plan all phases for every candidate, keep the feasible ones ------------
+  struct Candidate {
+    geometry_msgs::msg::Pose grasp;
+    PickPhases phases;
+  };
+  std::vector<Candidate> valid;
+  valid.reserve(grasp_candidates.size());
 
-  const geometry_msgs::msg::Pose obj_pose = obj.pose;
-  for (const auto &grasp_pose : grasp_poses) {
-    geometry_msgs::msg::Pose pregrasp_pose = grasp_pose;
-    pregrasp_pose.position.x = obj_pose.position.x;
-    pregrasp_pose.position.y = obj_pose.position.y;
-    pregrasp_pose.position.z = obj_pose.position.z + pregrasp_height;
+  for (size_t i = 0; i < grasp_candidates.size(); ++i) {
+    const geometry_msgs::msg::Pose &grasp = grasp_candidates[i];
+    // Pregrasp: retreat from grasp along negative approach axis
+    geometry_msgs::msg::Pose pregrasp = compute_pregrasp(grasp, pregrasp_dist);
+    // Lift: straight up in world Z from the grasp point
+    geometry_msgs::msg::Pose lift = grasp;
+    lift.position.z += lift_dist;
 
-    if (!plan_to_pose(pregrasp_pose)) {
-      RCLCPP_WARN(node_->get_logger(),
-                  "pick_up_object: plan to pregrasp failed, trying next grasp");
-      continue;
+    RCLCPP_INFO(node_->get_logger(),
+                "pick_up_object: planning candidate %zu/%zu ...", i + 1,
+                grasp_candidates.size());
+
+    PickPhases phases;
+    if (plan_pickup_phases(pregrasp, grasp, lift, phases)) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "pick_up_object: candidate %zu feasible, score=%.4f", i + 1,
+                  phases.score);
+      valid.push_back({grasp, std::move(phases)});
+    } else {
+      RCLCPP_DEBUG(node_->get_logger(),
+                   "pick_up_object: candidate %zu infeasible", i + 1);
     }
-    if (!execute_plan(true)) {
-      RCLCPP_WARN(
-          node_->get_logger(),
-          "pick_up_object: execute to pregrasp failed, trying next grasp");
-      continue;
-    }
+  }
 
-    std::vector<geometry_msgs::msg::Pose> approach_waypoints = {pregrasp_pose,
-                                                                grasp_pose};
-    if (!plan_cartesian_path(approach_waypoints)) {
-      RCLCPP_WARN(
-          node_->get_logger(),
-          "pick_up_object: cartesian approach failed, trying next grasp");
-      continue;
-    }
-    if (!execute_plan(true)) {
-      RCLCPP_WARN(node_->get_logger(),
-                  "pick_up_object: execute approach failed, trying next grasp");
-      continue;
-    }
-
-    // Close gripper
-    gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(true));
-
-    // Attach object to gripper link after closing
-    moveit_msgs::msg::AttachedCollisionObject attached;
-    attached.link_name = "gripper_base";
-    attached.object = obj;
-    attached.object.operation = moveit_msgs::msg::CollisionObject::ADD;
-    attached.touch_links = {"gripper_base"};
-    planning_scene_->applyAttachedCollisionObject(attached);
-
-    geometry_msgs::msg::Pose lift_pose = grasp_pose;
-    lift_pose.position.z += lift_dist;
-    std::vector<geometry_msgs::msg::Pose> lift_waypoints = {grasp_pose,
-                                                            lift_pose};
-    if (!plan_cartesian_path(lift_waypoints)) {
-      RCLCPP_WARN(node_->get_logger(),
-                  "pick_up_object: cartesian lift failed, trying next grasp");
-      continue;
-    }
-    if (!execute_plan(true)) {
-      RCLCPP_WARN(node_->get_logger(),
-                  "pick_up_object: execute lift failed, trying next grasp");
-      continue;
-    }
-
-    response->success = true;
+  if (valid.empty()) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "pick_up_object: no feasible grasp found for '%s'",
+                 object_name.c_str());
+    response->success = false;
     return true;
   }
 
-  RCLCPP_ERROR(node_->get_logger(),
-               "pick_up_object: failed to pick '%s' with all grasps",
-               object_name.c_str());
-  response->success = false;
+  // ---- Select the safest candidate (lowest total joint displacement) ----------
+  std::sort(valid.begin(), valid.end(), [](const Candidate &a, const Candidate &b) {
+    return a.phases.score < b.phases.score;
+  });
+  RCLCPP_INFO(node_->get_logger(),
+              "pick_up_object: %zu feasible candidates, executing safest "
+              "(score=%.4f)",
+              valid.size(), valid.front().phases.score);
+
+  const Candidate &best = valid.front();
+
+  // ---- Phase A: move to pregrasp (joint-space) --------------------------------
+  plan_ = best.phases.pregrasp_plan;
+  is_trajectory_ = false;
+  if (!execute_plan(true)) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "pick_up_object: pregrasp execution failed");
+    response->success = false;
+    return true;
+  }
+
+  // ---- Phase B: Cartesian approach --------------------------------------------
+  trajectory_ = best.phases.approach_traj;
+  is_trajectory_ = true;
+  if (!execute_plan(true)) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "pick_up_object: approach execution failed");
+    response->success = false;
+    return true;
+  }
+
+  // ---- Close gripper and attach object to the scene ---------------------------
+  gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(true));
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+  moveit_msgs::msg::AttachedCollisionObject attached;
+  attached.link_name = "gripper_base";
+  attached.object = obj;
+  attached.object.operation = moveit_msgs::msg::CollisionObject::ADD;
+  attached.touch_links = {"gripper_base"};
+  planning_scene_->applyAttachedCollisionObject(attached);
+
+  // ---- Phase C: Cartesian lift ------------------------------------------------
+  trajectory_ = best.phases.lift_traj;
+  is_trajectory_ = true;
+  if (!execute_plan(true)) {
+    RCLCPP_ERROR(node_->get_logger(), "pick_up_object: lift execution failed");
+    response->success = false;
+    return true;
+  }
+
+  RCLCPP_INFO(node_->get_logger(),
+              "pick_up_object: successfully picked up '%s'",
+              object_name.c_str());
+  response->success = true;
+  return true;
+}
+
+/**
+ * @brief Place a currently held object at the requested pose.
+ *
+ * The place pipeline mirrors the pickup pipeline:
+ *
+ * Phase A – Joint-space plan to a pre-place pose retreated from `place_pose`
+ *           along the negative approach axis by `preplace_dist`.
+ * Phase B – Cartesian descent from pre-place to `place_pose`.
+ * Phase C – Open gripper, detach the attached collision object from the scene,
+ *           then Cartesian retreat back to the pre-place pose.
+ *
+ * All three phases are planned ahead of time with chained robot states, scored
+ * by total joint displacement, and the safest feasible plan is executed.
+ *
+ * The `place_pose` orientation determines the approach direction — whatever
+ * orientation the arm held the object at, passing the same orientation ensures
+ * the descent and retreat are collinear.
+ */
+/**
+ * @brief Sample free placement spots on a named table collision object.
+ *
+ * Builds a uniform grid over the table's top surface (in the table's local
+ * frame), transforms each cell to world frame, then discards any cell whose
+ * 2-D axis-aligned footprint overlaps another collision object in the scene
+ * (including a clearance margin).  The returned poses are ready to use as
+ * place targets: they are oriented top-down with Z set so the held object's
+ * bottom lands on the table surface.
+ *
+ * Candidates are sorted by distance from the current end-effector position
+ * so that the arm prefers nearby spots, reducing travel and planning time.
+ * At most MAX_PLACE_CANDIDATES poses are returned.
+ */
+std::vector<geometry_msgs::msg::Pose>
+CrackleManipulation::find_place_poses_on_table(
+    const std::string &object_name, const std::string &table_name) {
+  constexpr double approach_dist_place = 0.08; // EEF offset above object centre
+  constexpr double clearance = 0.04;           // extra safety margin (m)
+  constexpr double grid_step = 0.12;           // grid spacing (m)
+  constexpr double edge_margin = 0.05;         // keep away from table edge (m)
+  constexpr size_t MAX_PLACE_CANDIDATES = 8;
+
+  std::vector<geometry_msgs::msg::Pose> result;
+
+  // ---- Get the table --------------------------------------------------------
+  auto all_objects = planning_scene_->getObjects();
+  if (all_objects.find(table_name) == all_objects.end()) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "find_place_poses_on_table: '%s' not found in planning scene",
+                 table_name.c_str());
+    return result;
+  }
+  const auto &table = all_objects[table_name];
+
+  if (table.primitives.empty() ||
+      table.primitives[0].type != shape_msgs::msg::SolidPrimitive::BOX) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "find_place_poses_on_table: table '%s' must have a BOX primitive",
+                 table_name.c_str());
+    return result;
+  }
+  using P = shape_msgs::msg::SolidPrimitive;
+  const auto &tp = table.primitives[0];
+  const double table_hx = tp.dimensions[P::BOX_X] / 2.0;
+  const double table_hy = tp.dimensions[P::BOX_Y] / 2.0;
+  const double table_hz = tp.dimensions[P::BOX_Z] / 2.0;
+
+  const Eigen::Vector3d table_pos(table.pose.position.x,
+                                  table.pose.position.y,
+                                  table.pose.position.z);
+  const Eigen::Quaterniond table_q(table.pose.orientation.w,
+                                   table.pose.orientation.x,
+                                   table.pose.orientation.y,
+                                   table.pose.orientation.z);
+
+  // ---- Get the dimensions of the object being placed ------------------------
+  // It is currently an attached collision object.
+  double obj_height = 0.10;
+  double obj_hx = 0.05, obj_hy = 0.05;
+  auto attached = planning_scene_->getAttachedObjects({object_name});
+  if (attached.find(object_name) != attached.end()) {
+    const auto &prims = attached[object_name].object.primitives;
+    if (!prims.empty()) {
+      obj_height = primitive_height(prims[0]);
+      auto fp = primitive_footprint_xy(prims[0]);
+      obj_hx = fp.first;
+      obj_hy = fp.second;
+    }
+  } else {
+    RCLCPP_WARN(node_->get_logger(),
+                "find_place_poses_on_table: '%s' not found as attached object, "
+                "using default dimensions",
+                object_name.c_str());
+  }
+
+  // ---- Build occupied-region list from other scene objects ------------------
+  struct OccupiedRect { double cx, cy, hx, hy; };
+  std::vector<OccupiedRect> occupied;
+  for (const auto &kv : all_objects) {
+    if (kv.first == table_name) continue;
+    double ohx = 0.05, ohy = 0.05;
+    if (!kv.second.primitives.empty()) {
+      auto fp = primitive_footprint_xy(kv.second.primitives[0]);
+      ohx = fp.first;
+      ohy = fp.second;
+    }
+    occupied.push_back({kv.second.pose.position.x,
+                        kv.second.pose.position.y, ohx, ohy});
+  }
+
+  // ---- EEF height when placing: table top + object half-height + approach ---
+  // table top in world frame is table_pos + table_q * (0,0, table_hz)
+  const double table_top_z =
+      (table_pos + table_q * Eigen::Vector3d(0, 0, table_hz)).z();
+  const double place_z = table_top_z + obj_height / 2.0 + approach_dist_place;
+
+  // Top-down orientation for all place poses
+  const geometry_msgs::msg::Quaternion top_down_q =
+      lookAtQuat(-Eigen::Vector3d::UnitZ(), Eigen::Vector3d::UnitY(),
+                 kToolForwardInTool);
+
+  // ---- Sample grid in table-local XY, filter, convert to world poses --------
+  const double x0 = -table_hx + edge_margin + obj_hx;
+  const double x1 =  table_hx - edge_margin - obj_hx;
+  const double y0 = -table_hy + edge_margin + obj_hy;
+  const double y1 =  table_hy - edge_margin - obj_hy;
+
+  std::vector<geometry_msgs::msg::Pose> candidates;
+  for (double lx = x0; lx <= x1; lx += grid_step) {
+    for (double ly = y0; ly <= y1; ly += grid_step) {
+      // World XY of this grid cell (Z from table_top + surface)
+      Eigen::Vector3d wpt =
+          table_pos + table_q * Eigen::Vector3d(lx, ly, table_hz);
+
+      // 2-D AABB collision check against every occupied region
+      bool blocked = false;
+      for (const auto &reg : occupied) {
+        if (std::abs(wpt.x() - reg.cx) < obj_hx + reg.hx + clearance &&
+            std::abs(wpt.y() - reg.cy) < obj_hy + reg.hy + clearance) {
+          blocked = true;
+          break;
+        }
+      }
+      if (blocked) continue;
+
+      geometry_msgs::msg::Pose pose;
+      pose.position.x = wpt.x();
+      pose.position.y = wpt.y();
+      pose.position.z = place_z;
+      pose.orientation = top_down_q;
+      candidates.push_back(pose);
+    }
+  }
+
+  RCLCPP_INFO(node_->get_logger(),
+              "find_place_poses_on_table: %zu free spots found on '%s'",
+              candidates.size(), table_name.c_str());
+
+  if (candidates.empty())
+    return result;
+
+  // ---- Sort by distance from current EEF (prefer nearby spots) --------------
+  geometry_msgs::msg::PoseStamped eef = move_group_->getCurrentPose();
+  std::sort(candidates.begin(), candidates.end(),
+            [&eef](const geometry_msgs::msg::Pose &a,
+                   const geometry_msgs::msg::Pose &b) {
+              double da = std::hypot(a.position.x - eef.pose.position.x,
+                                     a.position.y - eef.pose.position.y);
+              double db = std::hypot(b.position.x - eef.pose.position.x,
+                                     b.position.y - eef.pose.position.y);
+              return da < db;
+            });
+
+  // Cap to a reasonable number to bound planning time
+  if (candidates.size() > MAX_PLACE_CANDIDATES)
+    candidates.resize(MAX_PLACE_CANDIDATES);
+
+  return candidates;
+}
+
+bool CrackleManipulation::place_object(
+    crackle_interfaces::srv::PlaceObject::Request::SharedPtr request,
+    crackle_interfaces::srv::PlaceObject::Response::SharedPtr response) {
+  const std::string &object_name = request->object_name;
+  const std::string &table_name =
+      request->table_name.empty() ? "table" : request->table_name;
+
+  RCLCPP_INFO(node_->get_logger(), "place_object: placing '%s' on '%s'",
+              object_name.c_str(), table_name.c_str());
+
+  if (!wait_for_current_state("place_object")) {
+    response->success = false;
+    return true;
+  }
+
+  // ---- Discover free spots on the table -------------------------------------
+  std::vector<geometry_msgs::msg::Pose> place_candidates =
+      find_place_poses_on_table(object_name, table_name);
+
+  if (place_candidates.empty()) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "place_object: no free spots found on '%s'",
+                 table_name.c_str());
+    response->success = false;
+    return true;
+  }
+
+  // ---- Plan all three phases for each candidate; collect feasible ones ------
+  constexpr double preplace_dist = 0.20; // retreat from place along approach axis
+  constexpr double retreat_dist = 0.20;  // post-release retreat distance
+
+  struct Candidate {
+    geometry_msgs::msg::Pose place;
+    PickPhases phases;
+  };
+  std::vector<Candidate> valid;
+  valid.reserve(place_candidates.size());
+
+  for (size_t i = 0; i < place_candidates.size(); ++i) {
+    const auto &place_pose = place_candidates[i];
+    // Preplace and retreat are both retreats along the negative approach axis
+    geometry_msgs::msg::Pose preplace = compute_pregrasp(place_pose, preplace_dist);
+    geometry_msgs::msg::Pose retreat = compute_pregrasp(place_pose, retreat_dist);
+
+    RCLCPP_DEBUG(node_->get_logger(),
+                 "place_object: planning candidate %zu/%zu ...", i + 1,
+                 place_candidates.size());
+
+    PickPhases phases;
+    if (plan_pickup_phases(preplace, place_pose, retreat, phases)) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "place_object: candidate %zu feasible, score=%.4f", i + 1,
+                  phases.score);
+      valid.push_back({place_pose, std::move(phases)});
+    }
+  }
+
+  if (valid.empty()) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "place_object: no feasible plan found for placing '%s'",
+                 object_name.c_str());
+    response->success = false;
+    return true;
+  }
+
+  // ---- Execute the safest candidate (lowest joint displacement) --------------
+  std::sort(valid.begin(), valid.end(), [](const Candidate &a, const Candidate &b) {
+    return a.phases.score < b.phases.score;
+  });
+  RCLCPP_INFO(node_->get_logger(),
+              "place_object: %zu feasible candidates, executing safest "
+              "(score=%.4f)",
+              valid.size(), valid.front().phases.score);
+
+  const Candidate &best = valid.front();
+
+  // Phase A: joint-space move to pre-place
+  plan_ = best.phases.pregrasp_plan;
+  is_trajectory_ = false;
+  if (!execute_plan(true)) {
+    RCLCPP_ERROR(node_->get_logger(), "place_object: pre-place execution failed");
+    response->success = false;
+    return true;
+  }
+
+  // Phase B: Cartesian descent to place pose
+  trajectory_ = best.phases.approach_traj;
+  is_trajectory_ = true;
+  if (!execute_plan(true)) {
+    RCLCPP_ERROR(node_->get_logger(), "place_object: descent execution failed");
+    response->success = false;
+    return true;
+  }
+
+  // Open gripper and detach the object from the scene
+  gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(false));
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+  moveit_msgs::msg::AttachedCollisionObject detach;
+  detach.object.id = object_name;
+  detach.object.operation = moveit_msgs::msg::CollisionObject::REMOVE;
+  planning_scene_->applyAttachedCollisionObject(detach);
+
+  // Phase C: Cartesian retreat
+  trajectory_ = best.phases.lift_traj;
+  is_trajectory_ = true;
+  if (!execute_plan(true)) {
+    RCLCPP_ERROR(node_->get_logger(), "place_object: retreat execution failed");
+    response->success = false;
+    return true;
+  }
+
+  RCLCPP_INFO(node_->get_logger(),
+              "place_object: successfully placed '%s' on '%s'",
+              object_name.c_str(), table_name.c_str());
+  response->success = true;
   return true;
 }
 
@@ -885,74 +1277,183 @@ CrackleManipulation::construct_reach_pose(geometry_msgs::msg::Pose object_pose,
 std::vector<geometry_msgs::msg::Pose>
 CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object,
                                      double approach_dist, double tool_width) {
+  (void)tool_width;
   std::vector<geometry_msgs::msg::Pose> grasp_poses;
 
-  // // Assuming the object has a single primitive shape and pose for simplicity
-  // if (object.primitives.empty() || object.primitive_poses.empty())
-  // {
-  //     RCLCPP_WARN(rclcpp::get_logger("crackle_moveit_manipulation_node"),
-  //     "get_grasp_poses: object has no primitives or poses"); return
-  //     grasp_poses;
-  // }
+  // Object centre in the planning frame. object.pose is the object's world
+  // pose; primitive_poses[0] is the primitive offset within the object frame
+  // (identity for most objects).
+  const geometry_msgs::msg::Point &c = object.pose.position;
 
-  const shape_msgs::msg::SolidPrimitive &primitive = object.primitives[0];
-  const geometry_msgs::msg::Pose &obj_pose = object.primitive_poses[0];
-
-  auto objectMesh = object.meshes;
-
-  for (const auto &vertex : objectMesh[0].vertices) {
-    RCLCPP_INFO(node_->get_logger(), "Vertex: [%f, %f, %f]", vertex.x, vertex.y,
-                vertex.z);
+  // Determine the object's half-height to target side grasps at mid-height.
+  double half_h = 0.0;
+  if (!object.primitives.empty()) {
+    const auto &p = object.primitives[0];
+    switch (p.type) {
+    case shape_msgs::msg::SolidPrimitive::BOX:
+      half_h = p.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Z] / 2.0;
+      break;
+    case shape_msgs::msg::SolidPrimitive::CYLINDER:
+      half_h =
+          p.dimensions[shape_msgs::msg::SolidPrimitive::CYLINDER_HEIGHT] / 2.0;
+      break;
+    case shape_msgs::msg::SolidPrimitive::SPHERE:
+      half_h = p.dimensions[shape_msgs::msg::SolidPrimitive::SPHERE_RADIUS];
+      break;
+    default:
+      break;
+    }
   }
 
-  // Calculate grasp poses based on the object's dimensions and pose
-  if (primitive.type == shape_msgs::msg::SolidPrimitive::BOX) {
-    // double length =
-    // primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_X]; double
-    // width = primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Y];
-    // double height =
-    // primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Z];
+  // Each approach is defined by:
+  //   offset  – gripper position relative to object centre (world frame)
+  //   to_dir  – direction tool +Z points into the object (world frame)
+  //   up      – world-up hint passed to lookAtQuat
+  struct Approach {
+    Eigen::Vector3d offset;
+    Eigen::Vector3d to_dir;
+    Eigen::Vector3d up;
+  };
 
-    // Create a copy of the vertices to be sorted along x axis  .
-    geometry_msgs::msg::Point
-        x_sorted_vertices[std::end(objectMesh[0].vertices) -
-                          std::begin(objectMesh[0].vertices)];
+  const std::vector<Approach> approaches = {
+      // 1. Top-down: tool +Z points toward -Z world (downward)
+      {{0.0, 0.0, approach_dist}, {0.0, 0.0, -1.0}, {0.0, 1.0, 0.0}},
+      // 2. From +X side: tool +Z points toward -X world
+      {{approach_dist, 0.0, half_h}, {-1.0, 0.0, 0.0}, {0.0, 0.0, 1.0}},
+      // 3. From -X side: tool +Z points toward +X world
+      {{-approach_dist, 0.0, half_h}, {1.0, 0.0, 0.0}, {0.0, 0.0, 1.0}},
+      // 4. From +Y side: tool +Z points toward -Y world
+      {{0.0, approach_dist, half_h}, {0.0, -1.0, 0.0}, {0.0, 0.0, 1.0}},
+      // 5. From -Y side: tool +Z points toward +Y world
+      {{0.0, -approach_dist, half_h}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}},
+  };
 
-    // std::copy(std::begin(objectMesh[0].vertices),
-    //           std::end(objectMesh[0].vertices),
-    //           std::begin(x_sorted_vertices));
-    //
-    // std::stable_sort(std::begin(x_sorted_vertices),
-    // std::end(x_sorted_vertices), )
-
-    // Basic validation
-    // if (length <= 0.0 || width <= 0.0 || height <= 0.0) {
-    //   RCLCPP_WARN(rclcpp::get_logger("crackle_moveit_manipulation_node"),
-    //               "get_grasp_poses: invalid box dimension");
-
-    return grasp_poses;
-  }
-
-  std::vector<Eigen::Vector3d> offsets;
-  // Force top-down grasp only for now
-  offsets.push_back({0.0, 0.0, approach_dist});
-
-  double height = 0.0;
-  for (const auto &offset : offsets) {
-    geometry_msgs::msg::Pose grasp_pose;
-    grasp_pose.position.x = obj_pose.position.x + offset.x();
-    grasp_pose.position.y = obj_pose.position.y + offset.y();
-    grasp_pose.position.z = obj_pose.position.z + height / 2.0 + offset.z();
-
-    // Force top-down orientation: tool forward points toward -Z in world
-    grasp_pose.orientation =
-        lookAtQuat(-Eigen::Vector3d::UnitZ(), Eigen::Vector3d::UnitY(),
-                   kToolForwardInTool);
-
-    grasp_poses.push_back(grasp_pose);
+  for (const auto &a : approaches) {
+    geometry_msgs::msg::Pose grasp;
+    grasp.position.x = c.x + a.offset.x();
+    grasp.position.y = c.y + a.offset.y();
+    grasp.position.z = c.z + a.offset.z();
+    grasp.orientation = lookAtQuat(a.to_dir, a.up, kToolForwardInTool);
+    grasp_poses.push_back(grasp);
   }
 
   return grasp_poses;
+}
+
+// ---------------------------------------------------------------------------
+// Pickup pipeline helpers
+// ---------------------------------------------------------------------------
+
+double CrackleManipulation::score_trajectory_displacement(
+    const moveit_msgs::msg::RobotTrajectory &traj) {
+  const auto &jt = traj.joint_trajectory;
+  if (jt.points.size() < 2)
+    return 0.0;
+  double total = 0.0;
+  for (size_t j = 0; j < jt.joint_names.size(); ++j)
+    for (size_t i = 1; i < jt.points.size(); ++i)
+      total += std::abs(jt.points[i].positions[j] - jt.points[i - 1].positions[j]);
+  return total;
+}
+
+/**
+ * @brief Plan the three pickup phases with chained robot states.
+ *
+ * Phase A – joint-space plan from the current robot state to `pregrasp`.
+ * Phase B – Cartesian path from `pregrasp` to `grasp`, seeded from the
+ *           final state of phase A.
+ * Phase C – Cartesian lift from `grasp` to `lift`, seeded from the final
+ *           state of phase B.
+ *
+ * Chaining the start states means each phase benefits from the IK seed of
+ * the previous one, avoiding large configuration jumps between phases.
+ * The move_group_ start state is reset to the current robot state on return.
+ *
+ * @return true only if all three phases plan successfully (Cartesian coverage
+ *         >= 99 %) and time-parameterisation succeeds for both Cartesian legs.
+ */
+bool CrackleManipulation::plan_pickup_phases(
+    const geometry_msgs::msg::Pose &pregrasp,
+    const geometry_msgs::msg::Pose &grasp,
+    const geometry_msgs::msg::Pose &lift,
+    PickPhases &out) {
+
+  trajectory_processing::IterativeParabolicTimeParameterization iptp;
+
+  // ---- Phase A: joint-space plan to pregrasp ----------------------------------
+  move_group_->setStartStateToCurrentState();
+  move_group_->setPoseTarget(pregrasp);
+  moveit::planning_interface::MoveGroupInterface::Plan pregrasp_plan;
+  if (move_group_->plan(pregrasp_plan) != moveit::core::MoveItErrorCode::SUCCESS) {
+    move_group_->setStartStateToCurrentState();
+    return false;
+  }
+
+  // ---- Phase B: Cartesian approach from pregrasp → grasp ---------------------
+  moveit::core::RobotState approach_start =
+      state_from_trajectory_end(pregrasp_plan.trajectory_,
+                                move_group_->getRobotModel());
+  move_group_->setStartState(approach_start);
+
+  moveit_msgs::msg::RobotTrajectory approach_traj;
+  double frac = move_group_->computeCartesianPath(
+      {grasp}, eef_step, jump_threshold, approach_traj);
+  if (frac < 0.99) {
+    RCLCPP_DEBUG(node_->get_logger(),
+                 "plan_pickup_phases: approach Cartesian coverage %.1f%%",
+                 frac * 100.0);
+    move_group_->setStartStateToCurrentState();
+    return false;
+  }
+  {
+    robot_trajectory::RobotTrajectory rt(move_group_->getRobotModel(),
+                                        move_group_->getName());
+    rt.setRobotTrajectoryMsg(approach_start, approach_traj);
+    if (!iptp.computeTimeStamps(rt, max_velocity_scaling_factor,
+                                max_acceleration_scaling_factor)) {
+      move_group_->setStartStateToCurrentState();
+      return false;
+    }
+    rt.getRobotTrajectoryMsg(approach_traj);
+  }
+
+  // ---- Phase C: Cartesian lift from grasp → lift ------------------------------
+  moveit::core::RobotState lift_start =
+      state_from_trajectory_end(approach_traj, move_group_->getRobotModel());
+  move_group_->setStartState(lift_start);
+
+  moveit_msgs::msg::RobotTrajectory lift_traj;
+  frac = move_group_->computeCartesianPath(
+      {lift}, eef_step, jump_threshold, lift_traj);
+  if (frac < 0.99) {
+    RCLCPP_DEBUG(node_->get_logger(),
+                 "plan_pickup_phases: lift Cartesian coverage %.1f%%",
+                 frac * 100.0);
+    move_group_->setStartStateToCurrentState();
+    return false;
+  }
+  {
+    robot_trajectory::RobotTrajectory rt(move_group_->getRobotModel(),
+                                        move_group_->getName());
+    rt.setRobotTrajectoryMsg(lift_start, lift_traj);
+    if (!iptp.computeTimeStamps(rt, max_velocity_scaling_factor,
+                                max_acceleration_scaling_factor)) {
+      move_group_->setStartStateToCurrentState();
+      return false;
+    }
+    rt.getRobotTrajectoryMsg(lift_traj);
+  }
+
+  // Reset so subsequent planning calls start from current state
+  move_group_->setStartStateToCurrentState();
+
+  out.pregrasp_plan = pregrasp_plan;
+  out.approach_traj = approach_traj;
+  out.lift_traj = lift_traj;
+  out.score = score_trajectory_displacement(pregrasp_plan.trajectory_) +
+              score_trajectory_displacement(approach_traj) +
+              score_trajectory_displacement(lift_traj);
+  return true;
 }
 
 bool CrackleManipulation::reach_for_object(const std::string &object_name) {
