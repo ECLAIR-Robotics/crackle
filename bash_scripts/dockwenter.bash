@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 container_name="crackle_humble_runtime"
 image="crackle:humble"
 
