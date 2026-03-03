@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
 #
 # Copyright (C) 2018 Open Source Robotics Foundation
