@@ -80,6 +80,8 @@ public:
                         crackle_interfaces::srv::PickupObject::Response::SharedPtr response);
     bool look_at(crackle_interfaces::srv::LookAt::Request::SharedPtr request,
                  crackle_interfaces::srv::LookAt::Response::SharedPtr response);
+    std::vector<geometry_msgs::msg::Point> cuboid_handler(std::vector<geometry_msgs::msg::Point> verts);
+
     rclcpp::Logger &getLogger() { return logger_; }
     rclcpp::Node::SharedPtr node_;
     geometry_msgs::msg::Quaternion lookAtQuat(

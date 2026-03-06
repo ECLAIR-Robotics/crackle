@@ -26,6 +26,7 @@
  */
 #include <cmath>
 #include <crackle_moveit/moveit_manipulation.hpp>
+#include <vector>
 
 const double jump_threshold = 0.0;
 const double eef_step = 0.001;
@@ -935,7 +936,7 @@ std::vector<geometry_msgs::msg::Point> CrackleManipulation::cuboid_handler(std::
 
     // sort the basis vectors in descending order of magnitude. 
     std::stable_sort(basisVecs.begin(), basisVecs.end(), [](const geometry_msgs::msg::Point &p1, const geometry_msgs::msg::Point &p2){
-                                                                return sqrt(pow(p1.x, 2) + pow(p1.y, 2) + pow(p1.z, 2)) > sqrt(pow(p2.x, 2) + pow(p2.y, 2) + pow(p2.z, 2))
+                                                                return sqrt(pow(p1.x, 2) + pow(p1.y, 2) + pow(p1.z, 2)) > sqrt(pow(p2.x, 2) + pow(p2.y, 2) + pow(p2.z, 2));
                                                             });
 
     // find the most z-axis aligned basis vector. This is the height vector
@@ -981,12 +982,12 @@ std::vector<geometry_msgs::msg::Pose> CrackleManipulation::get_grasp_poses(movei
     // double height =
     // primitive.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Z];
 
-        std::vector<geometry_msgs::msg::Point> verts ( objectMesh[0].vertices, objectMesh[0].vertices + sizeof(objectMesh[0].vertices) / sizeof(objectMesh[0].vertices[0]) );
+        std::vector<geometry_msgs::msg::Point> verts ( std::begin(objectMesh[0].vertices), std::end(objectMesh[0].vertices) );
         
-        std::vector<geometry_msgs::msg::Point> basisVecs = CrackleManipulation::cuboid_handler(verts);
-        double length = sqrt(pow(basisVecs[0].x, 2) + pow(basisVecs[0].y, 2) + pow(basisVecs[0].z, 2))
-        double width  = sqrt(pow(basisVecs[1].x, 2) + pow(basisVecs[1].y, 2) + pow(basisVecs[1].z, 2))
-        double height = sqrt(pow(basisVecs[2].x, 2) + pow(basisVecs[2].y, 2) + pow(basisVecs[2].z, 2))
+        std::vector<geometry_msgs::msg::Point> basisVecs = cuboid_handler(verts);
+        double length = sqrt(pow(basisVecs[0].x, 2) + pow(basisVecs[0].y, 2) + pow(basisVecs[0].z, 2));
+        double width  = sqrt(pow(basisVecs[1].x, 2) + pow(basisVecs[1].y, 2) + pow(basisVecs[1].z, 2));
+        double height = sqrt(pow(basisVecs[2].x, 2) + pow(basisVecs[2].y, 2) + pow(basisVecs[2].z, 2));
 
     // Basic validation
     // if (length <= 0.0 || width <= 0.0 || height <= 0.0) {
