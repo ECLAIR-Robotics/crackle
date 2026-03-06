@@ -125,7 +125,7 @@ class GptAPI:
                     "1) dialogue: a short conversational reply to the user.\n"
                     "2) code: Python code using only pick_up(self, object_name: str) "
                     "   and place(self) in the correct order to execute the user's request.\n"
-                    "3) emotion: one word describing your emotion toward the user/input.\n"
+                    "3) emotion: one word describing your emotion toward the user input.\n"
                 ),
                 "parameters": {
                     "type": "object",
@@ -141,7 +141,7 @@ class GptAPI:
                         "code": {
                             "type": "string",
                             "description": (
-                                "ReturnExecutable Python code ONLY. No explanations or comments. "
+                                "Return Executable Python code ONLY. No explanations or comments. "
                                 "Use ONLY these existing methods:\n"
                                 "  - def pick_up(self, object_name: str)\n"
                                 "  - def place(self)\n"
@@ -153,7 +153,7 @@ class GptAPI:
                                 "Assume 'self' is already in scope so no need to pass it in. "
                                 "Do not redefine these. For example, if you were to pick up and "
                                 "place an object called 'x y', code would look like this:\n"
-                                "api.pick_up(\"x_y\")\\api.place()"
+                                "api.pick_up(\"x_y\")\\api.place()."
                             ),
                         },
                         "emotion": {

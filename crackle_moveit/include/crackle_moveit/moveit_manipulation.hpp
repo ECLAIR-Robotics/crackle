@@ -12,6 +12,7 @@
 #include <moveit/robot_state/robot_state.h>
 #include <moveit/planning_scene_interface/planning_scene_interface.h>
 #include <crackle_interfaces/srv/pickup_object.hpp>
+#include <crackle_interfaces/srv/place_object.hpp>
 #include <crackle_interfaces/srv/look_at.hpp>
 #include <crackle_interfaces/srv/plan_pose.hpp>
 #include <crackle_interfaces/srv/execute_plan.hpp>
@@ -78,6 +79,8 @@ public:
                                  crackle_interfaces::srv::DemoTrajectory::Response::SharedPtr response);
     bool pick_up_object(crackle_interfaces::srv::PickupObject::Request::SharedPtr request,
                         crackle_interfaces::srv::PickupObject::Response::SharedPtr response);
+    bool place_object(crackle_interfaces::srv::PlaceObject::Request::SharedPtr request,
+                      crackle_interfaces::srv::PlaceObject::Response::SharedPtr response);
     bool look_at(crackle_interfaces::srv::LookAt::Request::SharedPtr request,
                  crackle_interfaces::srv::LookAt::Response::SharedPtr response);
     std::vector<geometry_msgs::msg::Point> cuboid_handler(std::vector<geometry_msgs::msg::Point> verts);
@@ -96,8 +99,31 @@ public:
 private:
     void initialize(const std::string &group_name);
     bool wait_for_current_state(const std::string &caller, double timeout_sec = 5.0);
+
+    // Pickup pipeline helpers
+    struct PickPhases {
+        moveit::planning_interface::MoveGroupInterface::Plan pregrasp_plan;
+        moveit_msgs::msg::RobotTrajectory approach_traj;
+        moveit_msgs::msg::RobotTrajectory lift_traj;
+        double score; // total joint displacement – lower is safer
+    };
+    // Sum of absolute joint-angle deltas across all joints and waypoints.
+    double score_trajectory_displacement(const moveit_msgs::msg::RobotTrajectory &traj);
+    // Plan pregrasp (joint-space) → approach (Cartesian) → lift (Cartesian)
+    // with properly chained start states. Returns false if any phase fails.
+    bool plan_pickup_phases(const geometry_msgs::msg::Pose &pregrasp,
+                            const geometry_msgs::msg::Pose &grasp,
+                            const geometry_msgs::msg::Pose &lift,
+                            PickPhases &out);
+    // Sample free placement spots on a named table collision object.
+    // Filters out locations that would overlap any other scene object.
+    std::vector<geometry_msgs::msg::Pose>
+    find_place_poses_on_table(const std::string &object_name,
+                              const std::string &table_name);
+
     rclcpp::Logger logger_;
     rclcpp::Service<crackle_interfaces::srv::PickupObject>::SharedPtr pickup_service_;
+    rclcpp::Service<crackle_interfaces::srv::PlaceObject>::SharedPtr place_service_;
     rclcpp::Service<crackle_interfaces::srv::LookAt>::SharedPtr look_at_service_;
     rclcpp::Service<crackle_interfaces::srv::PlanPose>::SharedPtr plan_pose_service_;
     rclcpp::Service<crackle_interfaces::srv::ExecutePlan>::SharedPtr execute_plan_service_;
