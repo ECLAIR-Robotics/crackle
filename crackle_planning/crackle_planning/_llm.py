@@ -155,7 +155,7 @@ class GptAPI:
                         "code": {
                             "type": "string",
                             "description": (
-                                "ReturnExecutable Python code ONLY. No explanations or comments. "
+                                "Return Executable Python code ONLY. No explanations or comments. "
                                 "Use ONLY these existing methods:\n"
                                 f"{api_docs}\n"
                                 # "  - def pick_up(self, object_name: str)\n"

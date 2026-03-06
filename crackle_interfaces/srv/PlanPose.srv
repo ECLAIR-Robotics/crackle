@@ -1,0 +1,4 @@
+# Target end-effector pose in the planning frame
+geometry_msgs/Pose target_pose
+---
+bool success

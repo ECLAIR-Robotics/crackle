@@ -19,7 +19,7 @@ from typing import List, Dict
 import pyaudio
 import os
 from _api import PlannerAPI
-from planner import main_planner
+# from planner import main_planner
 import wave
 from openai import OpenAI
 from _llm import GptAPI
@@ -66,10 +66,12 @@ class CrackleFSM:
         custom_model_path = os.path.join(
             os.path.dirname(__file__),
             "leeoh.tflite",
+            "leeoh.tflite",
         )
         print("custom_model_path:", custom_model_path)
 
         # Key you'll use in the prediction dict
+        self.WAKEWORD_NAME = "leeoh"
         self.WAKEWORD_NAME = "leeoh"
 
         #from openwakeword.model import Model
@@ -133,15 +135,13 @@ class CrackleFSM:
         async def listening_thread(name: str, stop_event: asyncio.Event):
             while self._state == CrackleState.IDLE:
                 audio = np.frombuffer(self._mic_stream.read(CHUNK), dtype=np.int16)
-                #prediction = self._owwModel.predict(audio)
-                #score = prediction[self.WAKEWORD_NAME]
-                print("Assuming wake word detected")
-                self._state = CrackleState.LISTENING
-                #print(score)
-                # if score > 0.1:
-                #     print(f"Wake word detected with score {score:.3f}")
-                #     self._state = CrackleState.LISTENING
-                #     wake_wall_time = time.time() # seconds float
+                prediction = self._owwModel.predict(audio)
+                score = prediction[self.WAKEWORD_NAME]
+
+                if score > 0.1:
+                    print(f"Wake word detected with score {score:.3f}")
+                    self._state = CrackleState.LISTENING
+                    wake_wall_time = time.time() # seconds float
 
                 #     # Trigger immediately; ROS will wait up to ~0.5s for a fresh sample at/after this time
                 #     self.planner_api.look_at_sound_direction(wake_wall_time)

@@ -7,10 +7,12 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.callback_groups import ReentrantCallbackGroup, MutuallyExclusiveCallbackGroup
 from ament_index_python import get_package_share_directory
 from geometry_msgs.msg import Pose, Point
+from geometry_msgs.msg import Pose, Point
 
-from std_srvs.srv import Trigger
+from std_srvs.srv import Trigger, Empty
 from sensor_msgs.msg import Image, PointCloud2, CameraInfo
 from crackle_interfaces.srv import FindObjects
+from shape_msgs.msg import SolidPrimitive, Mesh, MeshTriangle
 from shape_msgs.msg import SolidPrimitive, Mesh, MeshTriangle
 from crackle_vision.pcd_tools import get_best_approx # @ Shalini
 from moveit_msgs.msg import CollisionObject
@@ -85,9 +87,9 @@ class VisionServerNode(Node):
         )
 
         self.create_service(
-            FindObjects,
-            "vision/find_objects",
-            self.find_objects_service_callback,
+            Empty,
+            "vision/scan_objects",
+            self.scan_objects,
             callback_group=self._service_callback_group,
         )
 
@@ -101,7 +103,7 @@ class VisionServerNode(Node):
         self.create_service(
             Trigger,
             "vision/scan",
-            self.find_objects,
+            self.scan_objects,
             callback_group=self._service_callback_group,
         )
 
@@ -190,7 +192,7 @@ class VisionServerNode(Node):
         print(pcd)
         return pcd
 
-    def find_objects(self, request, response) -> Tuple[List[str], List[SolidPrimitive]]:
+    def scan_objects(self, request, response) -> Tuple[List[str], List[SolidPrimitive]]:
         """Detect objects in the current color image, filter by confidence, and parallelize mesh computation.
         """
         # Removed multiprocessing for simpler, sequential execution
@@ -199,7 +201,7 @@ class VisionServerNode(Node):
             self.get_logger().info("No images available for find_objects")
             return [], []
         names = None
-        min_confidence = 0.5
+        min_confidence = 0.67
         boxes, segments, class_names = self.get_object_bounding_boxes(names if names else [])
         if boxes is None or segments == []:
             return [], []
@@ -257,7 +259,7 @@ class VisionServerNode(Node):
             pcd.points = o3d.utility.Vector3dVector(points)
             try:
                 shape_mesh, shape_type, quaternion = get_best_approx(pcd)
-                return (shape_mesh.get_min_bound(), shape_mesh.get_max_bound(), shape_type, quaternion)
+                return (shape_mesh, shape_type, quaternion)
             except Exception as e:
                 return None
 
@@ -277,24 +279,34 @@ class VisionServerNode(Node):
             if result is None:
                 self.get_logger().warning(f"Shape approximation failed for {job_names[idx]}")
                 continue
-            min_bound, max_bound, shape_type, quaternion = result
+            shape_mesh, shape_type, quaternion = result
             object_solid_primitive = SolidPrimitive()
             object_solid_primitive.type = shape_type
-            dimensions = (np.array(max_bound) - np.array(min_bound)).tolist()
-            object_solid_primitive.dimensions = dimensions
+            min_bound, max_bound = shape_mesh.get_min_bound(), shape_mesh.get_max_bound()
+            # ! Don't set primitive dimensions because we are instead adding the mesh
             pose = Pose()
             pose.position.x = float((max_bound[0] + min_bound[0]) / 2)
             pose.position.y = float((max_bound[1] + min_bound[1]) / 2)
             pose.position.z = float((max_bound[2] + min_bound[2]) / 2)
-            pose.orientation.x = float(quaternion[0])
-            pose.orientation.y = float(quaternion[1])
-            pose.orientation.z = float(quaternion[2])
-            pose.orientation.w = float(quaternion[3])
+
             collision_object = CollisionObject()
             collision_object.header.frame_id = self.camera_link
             collision_object.id = job_names[idx]
             collision_object.primitives.append(object_solid_primitive)
             collision_object.primitive_poses.append(pose)
+
+            collision_object_mesh = Mesh()
+            for vertex in np.asarray(shape_mesh.vertices):    # shape_mesh is an o3d.TriangleMesh
+                point = Point()
+                point.x, point.y, point.z = vertex
+                collision_object_mesh.vertices.append(point)
+            for tri in np.asarray(shape_mesh.triangles):
+                meshTri = MeshTriangle()
+                meshTri.vertex_indices = tri.astype(np.uint32)    # assigning np.ndarray to uint32[3] --> will it work?
+                collision_object_mesh.triangles.append(meshTri)
+            
+            collision_object.meshes.append(collision_object_mesh)
+
             collision_object.operation = CollisionObject.ADD
             self.collision_object_pub.publish(collision_object)
             detected_names.append(job_names[idx])
@@ -375,30 +387,12 @@ class VisionServerNode(Node):
                         # o3d.visualization.draw_geometries([shape_mesh])
                         object_solid_primitive = SolidPrimitive()
                         object_solid_primitive.type = shape_type
-                        print("Shape mesh bounds:", (shape_mesh.get_min_bound() - shape_mesh.get_max_bound()))
-                        
-                        object_solid_primitive.dimensions = (shape_mesh.get_max_bound() - shape_mesh.get_min_bound()).tolist()
-                        print("Object dimensions:", object_solid_primitive.dimensions)
+                        # ! Don't set dimensions because we are instead adding the mesh  
                         pose = Pose()
                         pose.position.x = (shape_mesh.get_max_bound()[0] + shape_mesh.get_min_bound()[0]) / 2
                         pose.position.y = (shape_mesh.get_max_bound()[1] + shape_mesh.get_min_bound()[1]) / 2
                         pose.position.z = (shape_mesh.get_max_bound()[2] + shape_mesh.get_min_bound()[2]) / 2
-                        # pose.orientation.x = float(quaternion[0])
-                        # pose.orientation.y = float(quaternion[1])
-                        # pose.orientation.z = float(quaternion[2])
-                        # pose.orientation.w = float(quaternion[3])
                         print("Object position:", pose.position)
-                        # print("Object orientation:", pose.orientation)
-                        # visualize the point cloud
-                        # o3d.visualization.draw_geometries([pcd]) 
-                        viewer = o3d.visualization.Visualizer()
-                        viewer.create_window(window_name="Point Cloud", width=800, height=600)
-                        opt = viewer.get_render_option()
-                        opt.background_color = np.asarray([0, 0, 0])
-                        opt.show_coordinate_frame = True
-                        viewer.add_geometry(pcd)
-                        viewer.run()
-                        viewer.destroy_window()
                         output.append(object_solid_primitive)
 
                         # Construct collision object and publish to MoveIt (Untested)
@@ -406,9 +400,9 @@ class VisionServerNode(Node):
                         collision_object.header.frame_id = "camera_depth_optical_frame"
                         collision_object.id = name
                         collision_object.primitives.append(object_solid_primitive)
-                        # collision_object.primitive_poses.append(pose)
+                        collision_object.primitive_poses.append(pose) # <-- When we tested the mesh method, this was commented --> there was no primitive pose?
 
-                        # TEST: INSTEAD of setting the 'orientation' attribute of the Pose being assigned to the CollisionObject we will instead 
+                        # INSTEAD of setting the 'orientation' attribute of the Pose being assigned to the CollisionObject we will instead 
                         # just specify a position and assign the approximation-shape's mesh data to the 'meshes' attribute
                         # --> Do we still need the SolidPrimitive attribute of the CollisionObject (Just specifies dimensions of the Box)?
                         collision_object_mesh = Mesh()
@@ -425,7 +419,9 @@ class VisionServerNode(Node):
 
                         collision_object.operation = CollisionObject.ADD
                         print("Collision object finalized.")
+                        print("Collision object finalized.")
                         self.collision_object_pub.publish(collision_object)
+                        print("Publish request sent.")
                         print("Publish request sent.")
 
             response.names = names
