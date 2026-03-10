@@ -15,7 +15,7 @@ import numpy as np
 import openwakeword
 from openwakeword.model import Model
 import multiprocessing
-from typing import List, Dict
+from typing import List, Dict, Any
 import pyaudio
 import os
 from _api import PlannerAPI
@@ -23,8 +23,9 @@ from _api import PlannerAPI
 import wave
 from openai import OpenAI
 from _llm import GptAPI
-from playsound import playsound
-from _keys import openai_key
+from playsound3 import playsound
+
+openai_key = os.environ.get("OPENAI_API_KEY")
 
 # openwakeword.utils.download_models()
 
@@ -33,7 +34,7 @@ CHANNELS = 1
 RATE = 16000
 CHUNK = 1280
 
-ROS_ENABLED = os.getenv("ROS_ENABLED", "false").lower() == "true"
+ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
 print(f"ROS_ENABLED: {ROS_ENABLED}")
 
 class CrackleState(Enum):
@@ -66,7 +67,6 @@ class CrackleFSM:
         custom_model_path = os.path.join(
             os.path.dirname(__file__),
             "leeoh.tflite",
-            "leeoh.tflite",
         )
         print("custom_model_path:", custom_model_path)
 
@@ -86,13 +86,14 @@ class CrackleFSM:
         )
 
         # Load ONLY your custom wake word
-        # self._owwModel = Model(
-        #     wakeword_models=[custom_model_path],
-        #     inference_framework=self.INFERENCE_FRAMEWORK,
-        # )
+        self._owwModel = Model(
+            wakeword_models=[custom_model_path],
+            inference_framework=self.INFERENCE_FRAMEWORK,
+        )
         # self._n_models = len(self._owwModel.models.keys())
 
-        self.gpt_api = GptAPI(key=openai_key)
+        
+        self.gpt_api = GptAPI()
 
         #Stores the current command/prompt 
         self.current_command = ""
@@ -103,7 +104,7 @@ class CrackleFSM:
         print(f"Initialized FSM in state: {self._state}")
 
 
-    def _add_task(self, coro: any):
+    def _add_task(self, coro: Any):
         task = asyncio.create_task(coro)
         self._tasks.put(task)
         return task
@@ -144,15 +145,15 @@ class CrackleFSM:
                     wake_wall_time = time.time() # seconds float
 
                 #     # Trigger immediately; ROS will wait up to ~0.5s for a fresh sample at/after this time
-                #     self.planner_api.look_at_sound_direction(wake_wall_time)
+                    self.planner_api.look_at_sound_direction(wake_wall_time)
 
                 #     # # Optionally flush model state
-                #     for _ in range(15):
-                #         audio = np.frombuffer(self._mic_stream.read(CHUNK), dtype=np.int16)
-                #         _ = self._owwModel.predict(audio)
+                    for _ in range(15):
+                        audio = np.frombuffer(self._mic_stream.read(CHUNK), dtype=np.int16)
+                        _ = self._owwModel.predict(audio)
 
-                #     stop_event.set()
-                #     break
+                    stop_event.set()
+                    break
 
         stop_event_scanning = asyncio.Event()
         listen_task = asyncio.create_task(listening_thread("Listener", stop_event_scanning))
@@ -165,7 +166,20 @@ class CrackleFSM:
         await asyncio.sleep(2)  # Simulate task execution time
         print("Entering TASK state: Executing task...")
         print(f"Current command: {self.current_command}")
-        main_planner(self, self.current_command)        #main_planner()
+
+        # main_planner(self, self.current_command)        #main_planner()
+        response = self.gpt_api.get_command(self, self.current_command)
+        api = PlannerAPI(ROS_ENABLED)
+        if response.dialoge is not None:
+            output = self.gpt_api.speak_text_eleven_labs(response.dialoge)
+            playsound(output, block=True)
+            print("[INFO] Sound played")
+        else:
+            print("[ERROR] response dialogue was none")
+
+        if response.code is not None:
+            exec(response.code)
+
         print("TASK COMPLETED")
         self._state = CrackleState.IDLE
         pass
@@ -200,8 +214,6 @@ class CrackleFSM:
             wf.setsampwidth(2)  # int16
             wf.setframerate(sample_rate)
             wf.writeframes(samples.tobytes())
-
-        print(f"Saved WAV: {filename}")
 
 
 

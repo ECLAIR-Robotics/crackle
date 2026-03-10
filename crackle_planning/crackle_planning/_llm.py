@@ -3,28 +3,40 @@ from numpy import save
 import openai
 from openai import OpenAI
 import json
-from _keys import openai_key
+# from _keys import openai_key
 from _api import PlannerAPI
 from parse import parse_functions_to_json
 import os
 import inspect
+from typing import Any
+from _keys import openai_key
 from elevenlabs import ElevenLabs
+from dataclasses import dataclass
+from playsound3 import playsound
 
-# import rclpy
-# from rclpy.node import Node
-# from rclpy.executors import MultiThreadedExecutor
-
-ROS_ENABLED = os.getenv("ROS_ENABLED", "false").lower() == "true"
+ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
 if ROS_ENABLED:
     from crackle_planning.ros_interface import RosInterface
 
+
+@dataclass
+class GetCommandResponse:
+    dialoge: str | None
+    code: str | None
+    emotion: str | None
+
 class GptAPI:
-    def __init__(self, key: str):
-        self.api_key = key
-        openai.api_key = openai_key  # Set API key once in the constructor
-        os.environ["OPENAI_API_KEY"] = str(openai_key)
-        self.client = OpenAI()
-        self.tts = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
+    def __init__(self):
+        self.api_key = openai_key
+        if not self.api_key:
+            raise EnvironmentError(
+                "OPENAI_API_KEY is not set. Export it in your shell:\n"
+                "  export OPENAI_API_KEY='sk-...'\n"
+                "Or add it to ~/.bashrc and run: source ~/.bashrc"
+            )
+        print("API key length:", len(self.api_key))
+        self.client = OpenAI(api_key=self.api_key)
+        self.tts = ElevenLabs(api_key=os.environ.get("ELEVENLABS_API_KEY"))
 
 
     def getTalkBack(self, prompt):
@@ -112,9 +124,7 @@ class GptAPI:
 
         return [response_text, emotion]
 
-
-    def get_command(self, fsm_instance, prompt: str, ros_interface: any = None):
-        self.client = OpenAI()
+    def get_command(self, fsm_instance, prompt: str, ros_interface: Any = None):
         def get_api_signatures(cls):
             methods = inspect.getmembers(cls, predicate=inspect.isfunction)
             signatures = []
@@ -247,13 +257,21 @@ class GptAPI:
 
             # Return all three so your planner can use them
             if (not continue_talking_val):
-                return {
-                    "dialogue": dialogue_val,
-                    "code": code_val,
-                    "emotion": emotion_val,
-                }
+                # return {
+                #     "dialogue": dialogue_val,
+                #     "code": code_val,
+                #     "emotion": emotion_val,
+                # }
+                return GetCommandResponse(
+                    dialoge=str(dialogue_val) if dialogue_val is not None else None,
+                    code=str(code_val) if code_val is not None else None,
+                    emotion=str(emotion_val) if emotion_val is not None else None
+                )
             if dialogue_val is not None:
                 print("Dialogue:", dialogue_val)
+                output = self.speak_text_eleven_labs(dialogue_val)
+                playsound(output, block=True)
+                
             else:
                 print("WARNING: No dialogue returned.")
             self.input_items.append({
@@ -337,7 +355,7 @@ class GptAPI:
         return transcript.text
     
 if __name__ == "__main__":
-    gpt_api = GptAPI(openai_key)
+    gpt_api = GptAPI()
     # return {
     #         "dialogue": dialogue_val,
     #         "code": code_val,
