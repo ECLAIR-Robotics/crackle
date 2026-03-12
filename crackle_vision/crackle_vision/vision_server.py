@@ -283,7 +283,7 @@ class VisionServerNode(Node):
             object_solid_primitive = SolidPrimitive()
             object_solid_primitive.type = shape_type
             min_bound, max_bound = shape_mesh.get_min_bound(), shape_mesh.get_max_bound()
-            # ! Don't set primitive dimensions because we are instead adding the mesh
+            # ! Don't set primitive dimensions because we are instead adding the mesh. Otherwise CollisionObject is published with two overlapping boxes.
             pose = Pose()
             pose.position.x = float((max_bound[0] + min_bound[0]) / 2)
             pose.position.y = float((max_bound[1] + min_bound[1]) / 2)
@@ -392,6 +392,13 @@ class VisionServerNode(Node):
                         pose.position.x = (shape_mesh.get_max_bound()[0] + shape_mesh.get_min_bound()[0]) / 2
                         pose.position.y = (shape_mesh.get_max_bound()[1] + shape_mesh.get_min_bound()[1]) / 2
                         pose.position.z = (shape_mesh.get_max_bound()[2] + shape_mesh.get_min_bound()[2]) / 2
+
+                        vertices = np.asarray(shape_mesh.vertices)
+                        # offset all the vertices back by the pose.position
+
+                        vertices[:,:] -= np.array([pose.position.x, pose.position.y, pose.position.z])
+                        shape_mesh.vertices = o3d.utility.Vector3dVector(vertices)
+
                         print("Object position:", pose.position)
                         output.append(object_solid_primitive)
 
@@ -399,6 +406,7 @@ class VisionServerNode(Node):
                         collision_object = CollisionObject()
                         collision_object.header.frame_id = "camera_depth_optical_frame"
                         collision_object.id = name
+                        collision_object.pose = pose # ! checking if this messes up the position of the mesh
                         collision_object.primitives.append(object_solid_primitive)
                         collision_object.primitive_poses.append(pose) # <-- When we tested the mesh method, this was commented --> there was no primitive pose?
 
