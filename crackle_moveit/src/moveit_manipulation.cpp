@@ -176,6 +176,8 @@ CrackleManipulation::CrackleManipulation(const std::string &group_name)
           std::bind(&CrackleManipulation::get_end_effector_pose_service, this,
                     std::placeholders::_1, std::placeholders::_2),
           rmw_qos_profile_services_default, services_cb_group_);
+    
+    marker_publisher_ = node_->create_publisher<visualization_msgs::msg::Marker>("/crackle_manipulation/object_position", 10);
 
   // TODO: Make a special trajectory service that takes high level parameters
   // and then does the same thing more or less as the demo_trajectory_service
@@ -1364,6 +1366,25 @@ CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object,
   // pose; primitive_poses[0] is the primitive offset within the object frame
   // (identity for most objects).
   const geometry_msgs::msg::Point &c = object.pose.position;
+
+    // Add a marker here for object.pose.position
+    visualization_msgs::msg::Marker marker;
+    marker.header.frame_id = "world";
+    marker.header.stamp = rclcpp::Time();
+    marker.ns = "object_position";
+    marker.id = 0;
+    marker.type = visualization_msgs::msg::Marker::SPHERE;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.pose.position = object.pose.position;
+    marker.scale.x = 0.1;
+    marker.scale.y = 0.1;
+    marker.scale.z = 0.1;
+    marker.color.r = 1.0;
+    marker.color.g = 0.0;
+    marker.color.b = 0.0;
+    marker.color.a = 1.0;
+
+    marker_publisher_->publish(marker);
 
   // Determine the object's half-height to target side grasps at mid-height.
   double half_h = 0.0;
