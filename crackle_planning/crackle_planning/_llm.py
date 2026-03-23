@@ -270,7 +270,7 @@ class GptAPI:
                 if chunk:
                     f.write(chunk)
 
-        return output_path
+        return output_path  
 
     
     def speech_to_text(self, speechFile, model="whisper-1"):

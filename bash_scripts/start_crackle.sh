@@ -5,8 +5,8 @@
 
 set -Eeuo pipefail
 
-WS_DIR="/home/sansk/crackle_ws"
-FACE_EXEC="~/crackle_face/game/bin/Debug/face_exec"
+WS_DIR="$HOME/crackle_ws"
+FACE_EXEC="$HOME/crackle_face/game/bin/Debug/face_exec"
 LOG_DIR="$WS_DIR/logs"
 
 # --- Parse flags ---
