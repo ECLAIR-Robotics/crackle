@@ -1444,7 +1444,7 @@ CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object,
       {{0.0, -approach_dist, half_h}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}},
   };
 
-  const std::vector<Approach> oriented_approaches = {};
+  std::vector<Approach> oriented_approaches = {};
 
   // Normalize the basis / "edge" vectors
   std::vector<geometry_msgs::msg::Point> normalizedBasisVecs;
@@ -1454,12 +1454,12 @@ CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object,
     normalized_vec.x = basisVec.x / mag;
     normalized_vec.y = basisVec.y / mag;
     normalized_vec.z = basisVec.z / mag;
-    normalizedBasisVecs.push_back(normalized_vec)
+    normalizedBasisVecs.push_back(normalized_vec);
   }
 
   // 1. Top-down: tool +Z points toward -Height of box ("downward")
   // The grasp_pose position is approach_dist away from the face of the box normal to the height (by adding half_h, we get from the box center to the face normal to height)
-  struct top_down = {{normalizedBasisVecs[2].x*(half_h + approach_dist), 
+  Approach top_down = {{normalizedBasisVecs[2].x*(half_h + approach_dist), 
                       normalizedBasisVecs[2].y*(half_h + approach_dist), 
                       normalizedBasisVecs[2].z*(half_h + approach_dist)}, // tool pos
                      {-normalizedBasisVecs[2].x, -normalizedBasisVecs[2].y, -normalizedBasisVecs[2].z}, // tool to_dir
@@ -1468,7 +1468,7 @@ CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object,
 
   // 2. From +Length side: tool +Z points toward -Length. Use +Height as "up" for tool.
   // The grasp_pose position is approach_dist away from the face of the box normal to the length (by adding half_l, we get from the box center to the face normal to length)
-  struct length_on = {{normalizedBasisVecs[0].x*(half_l + approach_dist), 
+  Approach length_on = {{normalizedBasisVecs[0].x*(half_l + approach_dist), 
                        normalizedBasisVecs[0].y*(half_l + approach_dist), 
                        normalizedBasisVecs[0].z*(half_l + approach_dist)}, // tool pos
                        {-normalizedBasisVecs[0].x, -normalizedBasisVecs[0].y, -normalizedBasisVecs[0].z}, // tool to_dir
@@ -1476,7 +1476,7 @@ CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object,
   oriented_approaches.push_back(length_on);
 
   // 3. From -Length side: tool +Z points toward +Length. Use +Height as "up" for tool.
-  struct length_on_opp = {{-normalizedBasisVecs[0].x*(half_l + approach_dist), 
+  Approach length_on_opp = {{-normalizedBasisVecs[0].x*(half_l + approach_dist), 
                            -normalizedBasisVecs[0].y*(half_l + approach_dist), 
                            -normalizedBasisVecs[0].z*(half_l + approach_dist)}, // tool pos
                           {normalizedBasisVecs[0].x, normalizedBasisVecs[0].y, normalizedBasisVecs[0].z}, // tool to_dir
@@ -1485,7 +1485,7 @@ CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object,
 
   // 4. From +Width side: tool +Z points toward -Width. Use +Height as "up" for tool.
   // The grasp_pose position is approach_dist away from the face of the box normal to the width (by adding half_w, we get from the box center to the face normal to width)
-  struct width_on = {{normalizedBasisVecs[1].x*(half_w + approach_dist), 
+  Approach width_on = {{normalizedBasisVecs[1].x*(half_w + approach_dist), 
                       normalizedBasisVecs[1].y*(half_w + approach_dist), 
                       normalizedBasisVecs[1].z*(half_w + approach_dist)}, // tool pos
                      {-normalizedBasisVecs[1].x, -normalizedBasisVecs[1].y, -normalizedBasisVecs[1].z}, // tool to_dir
@@ -1493,7 +1493,7 @@ CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object,
   oriented_approaches.push_back(width_on);
 
   // 5. From -Width side: tool +Z points toward +Width. Use +Height as "up" for tool.
-  struct width_on_opp = {{-normalizedBasisVecs[1].x*(half_w + approach_dist), 
+  Approach width_on_opp = {{-normalizedBasisVecs[1].x*(half_w + approach_dist), 
                           -normalizedBasisVecs[1].y*(half_w + approach_dist), 
                           -normalizedBasisVecs[1].z*(half_w + approach_dist)}, // tool pos
                          {normalizedBasisVecs[1].x, normalizedBasisVecs[1].y, normalizedBasisVecs[1].z}, // tool to_dir
