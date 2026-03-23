@@ -29,6 +29,7 @@
 #include <cmath>
 #include <thread>
 #include <crackle_moveit/moveit_manipulation.hpp>
+#include <vector>
 
 const double jump_threshold = 0.0;
 const double eef_step = 0.001;
@@ -175,6 +176,8 @@ CrackleManipulation::CrackleManipulation(const std::string &group_name)
           std::bind(&CrackleManipulation::get_end_effector_pose_service, this,
                     std::placeholders::_1, std::placeholders::_2),
           rmw_qos_profile_services_default, services_cb_group_);
+    
+    marker_publisher_ = node_->create_publisher<visualization_msgs::msg::Marker>("/crackle_manipulation/object_position", 10);
 
   // TODO: Make a special trajectory service that takes high level parameters
   // and then does the same thing more or less as the demo_trajectory_service
@@ -1274,6 +1277,85 @@ CrackleManipulation::construct_reach_pose(geometry_msgs::msg::Pose object_pose,
   return target_pose;
 }
 
+std::vector<geometry_msgs::msg::Point> CrackleManipulation::cuboid_handler(std::vector<geometry_msgs::msg::Point> verts)
+{
+
+    // Find vertex point with smallest z.
+    std::vector<geometry_msgs::msg::Point>::iterator min_z_point_it = std::min_element(verts.begin(), verts.end(),
+                                                                        [](const geometry_msgs::msg::Point &p1, const geometry_msgs::msg::Point &p2){
+                                                                            return p1.z < p2.z;
+                                                                        });
+
+
+    geometry_msgs::msg::Point min_z_point = *min_z_point_it;
+
+
+    // Copy the vector of points and remove the min-z-point
+    std::vector<geometry_msgs::msg::Point> verts2 (verts);
+    verts2.erase(min_z_point_it);
+
+
+    // Make the smallest z point the origin.
+    for (int i = 0; i < verts2.size(); i++){
+        geometry_msgs::msg::Point shifted_point = geometry_msgs::msg::Point();
+        shifted_point.x = verts2[i].x - min_z_point.x;
+        shifted_point.y = verts2[i].y - min_z_point.y;
+        shifted_point.z = verts2[i].z - min_z_point.z;
+        verts2.at(i) = shifted_point;
+    }
+
+
+    bool foundFlag = false;
+    std::vector<geometry_msgs::msg::Point> basisVecs;
+
+
+    // Loop through remaining vertices until we find a orthogonal set of three.
+    for (int i = 0; i < verts2.size(); i++){
+        for (int j = 1; i < verts2.size(); j++){
+            for (int k = 2; i < verts2.size(); k++){
+                double dot_ij = (verts2[i].x * verts2[j].x) + (verts2[i].y * verts2[j].y) + (verts2[i].z * verts2[j].z);
+                double dot_jk = (verts2[j].x * verts2[k].x) + (verts2[j].y * verts2[k].y) + (verts2[j].z * verts2[k].z);
+                double dot_ki = (verts2[k].x * verts2[i].x) + (verts2[k].y * verts2[i].y) + (verts2[k].z * verts2[i].z);
+                if ((abs(dot_ij) < 1e-5) && (abs(dot_jk) < 1e-5) && (abs(dot_ki) < 1e-5)){
+                    basisVecs.push_back(verts2[i]);
+                    basisVecs.push_back(verts2[j]);
+                    basisVecs.push_back(verts2[k]);
+                    foundFlag = true;
+                    break;
+                }
+            }
+            if (foundFlag){
+                break;
+            }
+        }
+        if (foundFlag){
+            break;
+        }    
+    }
+
+
+    // sort the basis vectors in descending order of magnitude.
+    std::stable_sort(basisVecs.begin(), basisVecs.end(), [](const geometry_msgs::msg::Point &p1, const geometry_msgs::msg::Point &p2){
+                                                                return sqrt(pow(p1.x, 2) + pow(p1.y, 2) + pow(p1.z, 2)) > sqrt(pow(p2.x, 2) + pow(p2.y, 2) + pow(p2.z, 2));
+                                                            });
+
+
+    // find the most z-axis aligned basis vector. This is the height vector
+    std::vector<geometry_msgs::msg::Point>::iterator best_z_basis_vec_it = std::max_element(basisVecs.begin(), basisVecs.end(),
+                                                                                [](const geometry_msgs::msg::Point &p1, const geometry_msgs::msg::Point &p2){
+                                                                                    return p1.z < p2.z;
+                                                                                });
+    geometry_msgs::msg::Point best_z_basis_vec = *best_z_basis_vec_it;
+    // remove height vector and re-add it at the end.
+    basisVecs.erase(best_z_basis_vec_it);
+    basisVecs.push_back(best_z_basis_vec);
+
+
+    // List of geometry_msgs/Point objects. These are vectors that span the length, width and height of the cuboid respectively. height being most z-aligned, length being longer remaining side.
+    return basisVecs;
+   
+}
+
 std::vector<geometry_msgs::msg::Pose>
 CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object,
                                      double approach_dist, double tool_width) {
@@ -1285,13 +1367,42 @@ CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object,
   // (identity for most objects).
   const geometry_msgs::msg::Point &c = object.pose.position;
 
+    // Add a marker here for object.pose.position
+    visualization_msgs::msg::Marker marker;
+    marker.header.frame_id = "world";
+    marker.header.stamp = rclcpp::Time();
+    marker.ns = "object_position";
+    marker.id = 0;
+    marker.type = visualization_msgs::msg::Marker::SPHERE;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.pose.position = object.pose.position;
+    marker.scale.x = 0.1;
+    marker.scale.y = 0.1;
+    marker.scale.z = 0.1;
+    marker.color.r = 1.0;
+    marker.color.g = 0.0;
+    marker.color.b = 0.0;
+    marker.color.a = 1.0;
+
+    marker_publisher_->publish(marker);
+
   // Determine the object's half-height to target side grasps at mid-height.
   double half_h = 0.0;
   if (!object.primitives.empty()) {
     const auto &p = object.primitives[0];
     switch (p.type) {
     case shape_msgs::msg::SolidPrimitive::BOX:
-      half_h = p.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Z] / 2.0;
+      if(!object.meshes.empty()){
+        std::vector<geometry_msgs::msg::Point> verts ( std::begin(object.meshes[0].vertices), std::end(object.meshes[0].vertices) );
+        std::vector<geometry_msgs::msg::Point> basisVecs = cuboid_handler(verts);
+        double length = sqrt(pow(basisVecs[0].x, 2) + pow(basisVecs[0].y, 2) + pow(basisVecs[0].z, 2));
+        double width  = sqrt(pow(basisVecs[1].x, 2) + pow(basisVecs[1].y, 2) + pow(basisVecs[1].z, 2));
+        double height = sqrt(pow(basisVecs[2].x, 2) + pow(basisVecs[2].y, 2) + pow(basisVecs[2].z, 2));
+        half_h = height / 2.0;
+      }
+      else{
+        half_h = p.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Z] / 2.0;
+      }
       break;
     case shape_msgs::msg::SolidPrimitive::CYLINDER:
       half_h =
