@@ -91,13 +91,13 @@ class PlannerAPI:
             return strings[closest_idx]
         return None
 
-    def pick_up(self, object_name : str): # This function allows us to pick up object at called object_name
-        if (self.gripper_occupied):
+    def pick_up(self, object_name: str):
+        if self.gripper_occupied:
             print("Gripper is already holding an object.")
             return
         if self.use_ros:
-            self.ros_interface.call
-            self.ros_interface.call_pickup_service(object_name) 
+            self.ros_interface.clear_and_refresh_octomap()
+            self.ros_interface.call_pickup_service(object_name)
         else:
             print(f"Simulating pick up of object '{object_name}' without ROS.")
     
@@ -107,9 +107,11 @@ class PlannerAPI:
         else:
             print("Simulating look at sound direction without ROS.")
 
-    def place(self): # This function allows us to place object down
-        print("IT WORKS YAYAYAYA")
-        pass
+    def place(self):
+        if self.use_ros:
+            self.ros_interface.clear_and_refresh_octomap()
+        else:
+            print("Simulating place without ROS.")
 
     def get_position_of(self, obj_name: str):
         pass

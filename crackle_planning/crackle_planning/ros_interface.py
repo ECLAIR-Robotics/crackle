@@ -10,7 +10,7 @@ from rclpy.callback_groups import ReentrantCallbackGroup
 from geometry_msgs.msg import Vector3Stamped
 from std_msgs.msg import String 
 from visualization_msgs.msg import Marker
-from std_srvs.srv import Trigger
+from std_srvs.srv import Trigger, Empty
 from rclpy.node import Node
 from rclpy.time import Time
 import face_recognition
@@ -92,6 +92,10 @@ class RosInterface:
 
         self.__emotion_publisher = node.create_publisher(
             String, "/face/emotion", 10
+        )
+
+        self.__clear_octomap_client = node.create_client(
+            Empty, "/clear_octomap"
         )
 
     def update_color_image(self, msg: Image):
@@ -215,6 +219,25 @@ class RosInterface:
         future = self.__look_at_client.call_async(req)
         return self._wait_for_future(future, timeout=10.0)
     
+    def clear_and_refresh_octomap(self, settle_time: float = 1.5):
+        """Clear MoveIt's OctoMap and wait for fresh depth data to repopulate.
+
+        Called before every pick or place so the planner sees an up-to-date
+        3-D collision map of any objects YOLO didn't detect.
+        """
+        if not self.__clear_octomap_client.wait_for_service(timeout_sec=2.0):
+            self._node.get_logger().warn(
+                "clear_octomap service not available — skipping OctoMap refresh"
+            )
+            return
+        future = self.__clear_octomap_client.call_async(Empty.Request())
+        self._wait_for_future(future, timeout=3.0)
+        self._node.get_logger().info(
+            f"OctoMap cleared — waiting {settle_time}s for repopulation..."
+        )
+        time.sleep(settle_time)
+        self._node.get_logger().info("OctoMap refreshed, proceeding with motion")
+
     def dance(self):
         self._node.get_logger().info("Executing dance maneuver...")
         # Implement dance maneuver logic here
