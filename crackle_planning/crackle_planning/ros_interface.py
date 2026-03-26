@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 import time
 import rclpy
 import numpy as np
@@ -13,7 +13,6 @@ from visualization_msgs.msg import Marker
 from std_srvs.srv import Trigger, Empty
 from rclpy.node import Node
 from rclpy.time import Time
-import face_recognition
 
 class AudioDirectionWindow:
     class AudioDirectionEntry:
@@ -147,7 +146,7 @@ class RosInterface:
         # Fallback: return the freshest we saw (may be slightly earlier)
         return best
 
-    def look_at_person(self, wake_word_time: float = None):
+    def look_at_person(self, wake_word_time: Optional[float] = None):
         if wake_word_time is not None:
             closest_direction_entry = self.wait_for_direction_after(wake_word_time, timeout=0.5)
         else:
@@ -255,6 +254,25 @@ class RosInterface:
         self.__emotion_publisher.publish(msg)
 
     def recognize_person(self) -> List[str]:
+        try:
+            import face_recognition  # type: ignore[import-not-found]
+        except ImportError:
+            self._node.get_logger().warn(
+                "face_recognition is not installed; skipping recognize_person."
+            )
+            return []
+
+        if self._latest_image is None:
+            self._node.get_logger().info("No camera image available yet.")
+            return []
+
+        # NOTE: Conversion bridge is not wired in this class currently.
+        # Keep this method non-fatal for now so other API calls still work.
+        self._node.get_logger().warn(
+            "recognize_person is not fully configured (missing image bridge); skipping."
+        )
+        return []
+
         face_locations = face_recognition.face_locations(self.bridge.imgmsg_to_cv2(self.color_image, desired_encoding="bgr8"), model="cnn")
         print(f"Detected {len(face_locations)} face(s)")
         print(face_locations)

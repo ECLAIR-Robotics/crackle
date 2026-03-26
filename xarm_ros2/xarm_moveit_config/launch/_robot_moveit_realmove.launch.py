@@ -125,7 +125,7 @@ def launch_setup(context, *args, **kwargs):
     with open(sensors_3d_yaml, 'r') as f:
         sensors_3d = yaml.safe_load(f)
     moveit_config_dict = moveit_config.to_dict()
-    moveit_config_dict.setdefault('move_group', {})['sensors'] = sensors_3d.get('sensors', [])
+    moveit_config_dict.setdefault('move_group', {}).update(sensors_3d or {})
 
     # robot description launch
     # xarm_description/launch/_robot_description.launch.py

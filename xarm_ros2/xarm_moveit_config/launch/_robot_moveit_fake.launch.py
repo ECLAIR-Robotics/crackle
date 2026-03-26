@@ -106,6 +106,16 @@ def launch_setup(context, *args, **kwargs):
         geometry_mesh_tcp_xyz=geometry_mesh_tcp_xyz,
         geometry_mesh_tcp_rpy=geometry_mesh_tcp_rpy,
     ).to_moveit_configs()
+
+    # Inject OctoMap sensor plugin so move_group builds a 3-D collision map
+    # from the RealSense depth cloud alongside YOLO's named collision objects.
+    sensors_3d_yaml = os.path.join(
+        get_package_share_directory('crackle_moveit'), 'config', 'sensors_3d.yaml'
+    )
+    with open(sensors_3d_yaml, 'r') as f:
+        sensors_3d = yaml.safe_load(f)
+    moveit_config_dict = moveit_config.to_dict()
+    moveit_config_dict.setdefault('move_group', {}).update(sensors_3d or {})
     
     # robot description launch
     # xarm_description/launch/_robot_description.launch.py
@@ -127,7 +137,7 @@ def launch_setup(context, *args, **kwargs):
             'attach_rpy': attach_rpy,
             'no_gui_ctrl': no_gui_ctrl,
             'use_sim_time': 'false',
-            'moveit_config_dump': yaml.dump(moveit_config.to_dict()),
+            'moveit_config_dump': yaml.dump(moveit_config_dict),
         }.items(),
     )
 
