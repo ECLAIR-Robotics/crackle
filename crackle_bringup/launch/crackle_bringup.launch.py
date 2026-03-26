@@ -77,10 +77,24 @@ def generate_launch_description():
         output='screen',
     )
 
-    group = GroupAction([
-        SetRemap(src='/camera/camera/depth/color/points', dst='/cloud_in'),
-    ]) # Revisit this for the octomap
-
+    # OctoMap server: builds a 3-D occupancy grid from the RealSense depth cloud.
+    # move_group's PointCloudOctomapUpdater (sensors_3d.yaml) consumes the same
+    # point cloud directly, so this node is primarily for standalone visualization
+    # in RViz (/octomap_marker_array).  The /cloud_in remapping connects it to
+    # the RealSense topic.
+    octomap_server_node = Node(
+        package='octomap_server2',
+        executable='octomap_server',
+        name='octomap_server',
+        output='screen',
+        remappings=[('/cloud_in', '/camera/camera/depth/color/points')],
+        parameters=[{
+            'resolution': 0.05,
+            'frame_id': 'link_base',
+            'sensor_model.max_range': 4.0,
+        }],
+        condition=UnlessCondition(simulate_vision)
+    )
 
     return LaunchDescription([
         user_simulated_robot_launch_arg,
@@ -92,6 +106,6 @@ def generate_launch_description():
         face_node,
         audio_localization_node,
         simulated_camera_node,
-        claw_publisher_node
-        # group
+        claw_publisher_node,
+        octomap_server_node,
     ])
