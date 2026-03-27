@@ -33,7 +33,7 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(
             os.path.join(get_package_share_directory("xarm_moveit_config"), "launch", "lite6_moveit_realmove.launch.py")
         ),
-        launch_arguments={'robot_ip': '192.168.1.166'}.items(),
+        launch_arguments={'robot_ip': '192.168.1.166', 'add_realsense_d435i': 'true'}.items(),
         condition=UnlessCondition(use_simulated_robot)
         
     )
