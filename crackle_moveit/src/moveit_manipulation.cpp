@@ -1277,23 +1277,26 @@ CrackleManipulation::construct_reach_pose(geometry_msgs::msg::Pose object_pose,
   return target_pose;
 }
 
-std::vector<geometry_msgs::msg::Point> CrackleManipulation::cuboid_handler(std::vector<geometry_msgs::msg::Point> verts)
+std::vector<std::vector<float>> CrackleManipulation::cuboid_handler(std::vector<geometry_msgs::msg::Point> verts)
 {
 
+    // Copy the vector of points
+    std::vector<geometry_msgs::msg::Point> verts2 (verts);
+    RCLCPP_INFO(node_->get_logger(), "Copies the verts vector");
+
     // Find vertex point with smallest z.
-    std::vector<geometry_msgs::msg::Point>::iterator min_z_point_it = std::min_element(verts.begin(), verts.end(),
+    std::vector<geometry_msgs::msg::Point>::iterator min_z_point_it = std::min_element(verts2.begin(), verts2.end(),
                                                                         [](const geometry_msgs::msg::Point &p1, const geometry_msgs::msg::Point &p2){
                                                                             return p1.z < p2.z;
                                                                         });
 
-
+    RCLCPP_INFO(node_->get_logger(), "Found the pointer to the minimum z point");
     geometry_msgs::msg::Point min_z_point = *min_z_point_it;
+    RCLCPP_INFO(node_->get_logger(), "Dereferenced to obtain the minimum z point");
 
-
-    // Copy the vector of points and remove the min-z-point
-    std::vector<geometry_msgs::msg::Point> verts2 (verts);
+    // Remove the min-z-point
     verts2.erase(min_z_point_it);
-
+    RCLCPP_INFO(node_->get_logger(), "Removed the minimum z point");
 
     // Make the smallest z point the origin.
     for (int i = 0; i < verts2.size(); i++){
@@ -1304,15 +1307,17 @@ std::vector<geometry_msgs::msg::Point> CrackleManipulation::cuboid_handler(std::
         verts2.at(i) = shifted_point;
     }
 
+    RCLCPP_INFO(node_->get_logger(), "Made the smallest z point the origin");
 
     bool foundFlag = false;
     std::vector<geometry_msgs::msg::Point> basisVecs;
 
+    RCLCPP_INFO(node_->get_logger(), "Declared basisVecs");
 
     // Loop through remaining vertices until we find a orthogonal set of three.
     for (int i = 0; i < verts2.size(); i++){
-        for (int j = 1; i < verts2.size(); j++){
-            for (int k = 2; i < verts2.size(); k++){
+        for (int j = i+1; j < verts2.size(); j++){
+            for (int k = j+1; k < verts2.size(); k++){
                 double dot_ij = (verts2[i].x * verts2[j].x) + (verts2[i].y * verts2[j].y) + (verts2[i].z * verts2[j].z);
                 double dot_jk = (verts2[j].x * verts2[k].x) + (verts2[j].y * verts2[k].y) + (verts2[j].z * verts2[k].z);
                 double dot_ki = (verts2[k].x * verts2[i].x) + (verts2[k].y * verts2[i].y) + (verts2[k].z * verts2[i].z);
@@ -1333,26 +1338,41 @@ std::vector<geometry_msgs::msg::Point> CrackleManipulation::cuboid_handler(std::
         }    
     }
 
+    RCLCPP_INFO(node_->get_logger(), "Populated basisVecs");
 
     // sort the basis vectors in descending order of magnitude.
     std::stable_sort(basisVecs.begin(), basisVecs.end(), [](const geometry_msgs::msg::Point &p1, const geometry_msgs::msg::Point &p2){
                                                                 return sqrt(pow(p1.x, 2) + pow(p1.y, 2) + pow(p1.z, 2)) > sqrt(pow(p2.x, 2) + pow(p2.y, 2) + pow(p2.z, 2));
                                                             });
 
+    RCLCPP_INFO(node_->get_logger(), "Sorted basisVecs in descending order of magnitude");
 
     // find the most z-axis aligned basis vector. This is the height vector
     std::vector<geometry_msgs::msg::Point>::iterator best_z_basis_vec_it = std::max_element(basisVecs.begin(), basisVecs.end(),
                                                                                 [](const geometry_msgs::msg::Point &p1, const geometry_msgs::msg::Point &p2){
                                                                                     return p1.z < p2.z;
                                                                                 });
+    RCLCPP_INFO(node_->get_logger(), "Found pointer to most z aligned basis vec");
+    
     geometry_msgs::msg::Point best_z_basis_vec = *best_z_basis_vec_it;
+
+    RCLCPP_INFO(node_->get_logger(), "Assigned variable to most z aligned basis vec");
+
     // remove height vector and re-add it at the end.
     basisVecs.erase(best_z_basis_vec_it);
     basisVecs.push_back(best_z_basis_vec);
 
+    RCLCPP_INFO(node_->get_logger(), "Removed height vec and added it back at the end");
+    RCLCPP_INFO(node_->get_logger(), "Size of basisVecs: [%ld]", basisVecs.size());
+    RCLCPP_INFO(node_->get_logger(), "Height basisVec: [%f %f %f]", basisVecs.back().x, basisVecs.back().y, basisVecs.back().z);
+    
+    std::vector<std::vector<float>> basisVecsStdVec = {{basisVecs[0].x, basisVecs[0].y, basisVecs[0].z},
+                                                       {basisVecs[1].x, basisVecs[1].y, basisVecs[1].z}, 
+                                                       {basisVecs[2].x, basisVecs[2].y, basisVecs[2].z}};
 
-    // List of geometry_msgs/Point objects. These are vectors that span the length, width and height of the cuboid respectively. height being most z-aligned, length being longer remaining side.
-    return basisVecs;
+    RCLCPP_INFO(node_->get_logger(), "Made the floats std vector");
+
+    return basisVecsStdVec;
    
 }
 
@@ -1391,19 +1411,47 @@ CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object,
   double half_l = 0.0;
   double half_w = 0.0;
   std::vector<geometry_msgs::msg::Point> basisVecs;
+
+  // for when we add an .stl
+  if (object.primitives.empty()) {
+    shape_msgs::msg::SolidPrimitive prim = shape_msgs::msg::SolidPrimitive();
+    prim.type = shape_msgs::msg::SolidPrimitive::BOX;
+    object.primitives = {prim}; // Does this work??
+    RCLCPP_INFO(node_->get_logger(), "Added BOX Solid Primitive");
+  }
+
+  if (object.primitives[0].type != shape_msgs::msg::SolidPrimitive::BOX){
+    RCLCPP_INFO(node_->get_logger(), "BOX Primitive not successfully added!");
+  }
+  if (object.meshes.empty()){
+    RCLCPP_INFO(node_->get_logger(), "Collision Object has no meshes!");
+  }
+
   if (!object.primitives.empty()) {
     const auto &p = object.primitives[0];
+    RCLCPP_INFO(node_->get_logger(), "Accessed first Primitive of CollisionObject");
     switch (p.type) {
     case shape_msgs::msg::SolidPrimitive::BOX:
       if(!object.meshes.empty()){
         std::vector<geometry_msgs::msg::Point> verts ( std::begin(object.meshes[0].vertices), std::end(object.meshes[0].vertices) );
-        basisVecs = cuboid_handler(verts);
+        RCLCPP_INFO(node_->get_logger(), "Initialized mesh vertices vector");
+        std::vector<std::vector<float>> cuboidReturn = cuboid_handler(verts);
+        for (std::vector<float> basisVecStdVec : cuboidReturn){
+          RCLCPP_INFO(node_->get_logger(), "Accessed returned vector");
+          geometry_msgs::msg::Point basisVec = geometry_msgs::msg::Point();
+          basisVec.x = basisVecStdVec[0];
+          basisVec.y = basisVecStdVec[1];
+          basisVec.z = basisVecStdVec[2];
+          basisVecs.push_back(basisVec);
+        } 
+        RCLCPP_INFO(node_->get_logger(), "Obtained mesh basis vectors");
         double length = sqrt(pow(basisVecs[0].x, 2) + pow(basisVecs[0].y, 2) + pow(basisVecs[0].z, 2));
         double width  = sqrt(pow(basisVecs[1].x, 2) + pow(basisVecs[1].y, 2) + pow(basisVecs[1].z, 2));
         double height = sqrt(pow(basisVecs[2].x, 2) + pow(basisVecs[2].y, 2) + pow(basisVecs[2].z, 2));
         half_l = length / 2.0;
         half_w = width / 2.0;
         half_h = height / 2.0;
+        RCLCPP_INFO(node_->get_logger(), "Box Dimensions: [%f %f %f]", length, width, height);
       }
       else{
         half_h = p.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Z] / 2.0;
