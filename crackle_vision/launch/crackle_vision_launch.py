@@ -26,7 +26,8 @@ def generate_launch_description():
             'enable_sync': 'true',
             'enable_rgbd': 'true',
             'pointcloud.ordered_pc': 'true',
-            'colorizer': 'true'
+            'colorizer': 'true',
+            'publish_tf': 'false',
         }.items()  # Add any specific launch arguments if needed
     )
 

@@ -32,6 +32,7 @@ setup(
             'planner = crackle_planning.planner:main',
             'arm_planner = crackle_planning.arm_planner:main',
             'main_node = crackle_planning.main:main',
+            'api_test_node = crackle_planning.api_test_node:main',
         ],
     },
 )

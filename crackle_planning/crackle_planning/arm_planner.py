@@ -5,6 +5,11 @@ from xarm_msgs.srv import PlanExec, PlanPose, PlanJoint, PlanSingleStraight
 from geometry_msgs.msg import Pose, PoseStamped
 import threading
 
+
+"""
+!! THIS FILE IS FOR DEMOS ONLY !!
+"""
+
 class PlannerNode(Node):
     def __init__(self):
         super().__init__('planner_node')

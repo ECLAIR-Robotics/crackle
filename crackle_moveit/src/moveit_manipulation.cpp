@@ -593,7 +593,7 @@ bool CrackleManipulation::pick_up_object(
 
   // ---- Close gripper and attach object to the scene ---------------------------
   gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(true));
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  std::this_thread::sleep_for(std::chrono::milliseconds(1500));
 
   moveit_msgs::msg::AttachedCollisionObject attached;
   attached.link_name = "gripper_base";

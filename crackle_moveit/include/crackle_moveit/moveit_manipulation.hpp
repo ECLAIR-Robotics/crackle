@@ -25,6 +25,7 @@
 #include <tf2_ros/transform_listener.h>
 #include <std_srvs/srv/trigger.hpp>
 #include <visualization_msgs/msg/marker.hpp>
+#include <visualization_msgs/msg/marker.hpp>
 #include <moveit_msgs/msg/display_robot_state.hpp>
 #include <moveit_msgs/msg/display_trajectory.hpp>
 #include <shape_msgs/msg/solid_primitive.hpp>

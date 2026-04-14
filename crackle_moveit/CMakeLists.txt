@@ -67,6 +67,7 @@ install(TARGETS moveit_manipulation
 
 install( DIRECTORY
   launch
+  config
   DESTINATION share/${PROJECT_NAME}/
 )
 
