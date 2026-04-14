@@ -38,5 +38,6 @@
         "/home/tanay/crackle_ws/install/audio_serial_reader/lib/python3.10/site-packages",
         "/opt/ros/humble/lib/python3.10/site-packages",
         "/opt/ros/humble/local/lib/python3.10/dist-packages"
-    ]
+    ],
+    "ROS2.distro": "humble"
 }
