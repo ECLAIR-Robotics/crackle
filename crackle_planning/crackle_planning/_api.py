@@ -1,53 +1,91 @@
 import os
 import threading
 import atexit
-from typing import Any, Dict, List
-
-ROS_ENABLED = os.getenv("ROS_ENABLED", "false").lower() == "true"
-if ROS_ENABLED:
-    from crackle_planning.ros_interface import RosInterface
-    import rclpy
-    from rclpy.node import Node
-    from rclpy.executors import MultiThreadedExecutor
+from typing import Any, Dict, List, Optional
 
 # MOVE LATER
 import numpy as np
-from openai import OpenAI
-from _keys import openai_key
-os.environ["OPENAI_API_KEY"] = str(openai_key)
-client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+
+
+def _create_openai_client():
+    """Create an OpenAI client only when embedding utilities are used."""
+    try:
+        from openai import OpenAI
+    except Exception as exc:
+        raise RuntimeError(
+            "OpenAI package is not available. Install 'openai' to use embedding helpers."
+        ) from exc
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "OPENAI_API_KEY is not set. Export it before using embedding helpers."
+        )
+    return OpenAI(api_key=api_key)
 
 class PlannerAPI:
-    def __init__(self, use_ros: bool): 
+    def __init__(self, use_ros: bool, ros_node: Optional[Any] = None):
+        self.use_ros = use_ros
+        self.gripper_occupied = False
+        self.global_state: Dict[str, Any] = {}
+        self.ros_interface: Any = None
+
+        self._crackle_node = None
+        self._executor = None
+        self._spin_thread = None
+        self._owns_node = False
+        self._owns_rclpy_context = False
+
         if use_ros:
-            rclpy.init()
-            self._crackle_node = Node("crackle_node")
+            try:
+                import rclpy
+                from rclpy.executors import MultiThreadedExecutor
+                from rclpy.node import Node
+                from crackle_planning.ros_interface import RosInterface
+            except Exception as exc:
+                raise RuntimeError(
+                    "ROS dependencies for PlannerAPI are unavailable. Ensure ROS 2 and "
+                    "crackle_planning dependencies are sourced and installed."
+                ) from exc
+
+            if not rclpy.ok():
+                rclpy.init()
+                self._owns_rclpy_context = True
+
+            if ros_node is not None:
+                self._crackle_node = ros_node
+            else:
+                self._crackle_node = Node("crackle_node")
+                self._owns_node = True
+
             self._crackle_node.get_logger().info("Initialized PlannerAPI with ROS interface.")
             self.ros_interface = RosInterface(self._crackle_node)
-            self.global_state: Dict[str, Any] = {}
-            self._executor = MultiThreadedExecutor()
-            self._executor.add_node(self._crackle_node)
-            self._spin_thread = threading.Thread(target=self._executor.spin, daemon=True)
-            self._spin_thread.start()
+
+            if self._owns_node:
+                self._executor = MultiThreadedExecutor()
+                self._executor.add_node(self._crackle_node)
+                self._spin_thread = threading.Thread(target=self._executor.spin, daemon=True)
+                self._spin_thread.start()
+
             atexit.register(self._shutdown_ros)
 
         else:
             print("Warning: PlannerAPI initialized without ROS interface. Some functionalities may be limited.")
             self.ros_interface = None
-            self._crackle_node = None
-            self._executor = None
-        self.use_ros = use_ros
-        self.gripper_occupied = False
+            self._crackle_node = ros_node
 
     def _shutdown_ros(self):
         if not self.use_ros:
             return
         try:
-            if self._executor is not None:
+            import rclpy
+
+            if self._executor is not None and self._owns_node:
                 self._executor.shutdown(timeout_sec=1.0)
-            if self._crackle_node is not None:
+            if self._crackle_node is not None and self._owns_node:
                 self._crackle_node.destroy_node()
-            rclpy.try_shutdown()
+            if self._owns_rclpy_context:
+                rclpy.try_shutdown()
         except Exception as e:
             print(f"[PlannerAPI] ROS shutdown warning: {e}") 
 
@@ -56,6 +94,7 @@ class PlannerAPI:
     # MOVE LATER
     def embedding_from_string(self, text: str, model: str = "text-embedding-3-small") -> np.ndarray:
         """Get an embedding as a NumPy vector."""
+        client = _create_openai_client()
         resp = client.embeddings.create(model=model, input=text)
         # print("str: ", text, " | embedding: ", np.array(resp.data[0].embedding, dtype=np.float32))
         return np.array(resp.data[0].embedding, dtype=np.float32)
@@ -66,7 +105,7 @@ class PlannerAPI:
         strings: List[str],
         index_of_source_string: int,
         model: str = "text-embedding-3-small",
-    ) -> List[int]:
+    ) -> Optional[str]:
         """Return nearest neighbors of a given string (including itself first)."""
 
         # 1) embeddings for all strings
@@ -91,6 +130,7 @@ class PlannerAPI:
             return strings[closest_idx]
         return None
 
+<<<<<<< HEAD
     def pick_up(self, object_name : str): 
         """This function allows us to pick up object named object_name."""
         if (self.gripper_occupied):
@@ -105,14 +145,38 @@ class PlannerAPI:
     def look_at_sound_direction(self, wake_word_time: float): 
         """This function moves the robot towards the sound source/ direction of the user"""
         if self.use_ros:
+=======
+    def pick_up(self, object_name: str):
+        if self.gripper_occupied:
+            print("Gripper is already holding an object.")
+            return
+        if self.use_ros and self.ros_interface is not None:
+            self.ros_interface.clear_and_refresh_octomap()
+            self.ros_interface.call_pickup_service(object_name)
+            self.gripper_occupied = True
+        else:
+            print(f"Simulating pick up of object '{object_name}' without ROS.")
+    
+    def look_at_sound_direction(self, wake_word_time: float):
+        if self.use_ros and self.ros_interface is not None:
+>>>>>>> main
             self.ros_interface.look_at_person(wake_word_time)
         else:
             print("Simulating look at sound direction without ROS.")
 
+<<<<<<< HEAD
     def place(self): 
         """This function allows us to place object down"""
         print("Placing the object down.")
         pass
+=======
+    def place(self):
+        if self.use_ros and self.ros_interface is not None:
+            self.ros_interface.clear_and_refresh_octomap()
+            self.gripper_occupied = False
+        else:
+            print("Simulating place without ROS.")
+>>>>>>> main
 
     def get_position_of(self, obj_name: str): # 
         """This function allows us to get the position of the object at called obj_name"""
@@ -125,9 +189,17 @@ class PlannerAPI:
         print("Waving...")
         pass
     
+<<<<<<< HEAD
     def set_emotion(self, emotion: str):  
         """Sets the robot's emotion to the specified emotion"""
         if self.use_ros:
+=======
+    def wave(self):
+        pass
+    
+    def set_emotion(self, emotion: str):
+        if self.use_ros and self.ros_interface is not None:
+>>>>>>> main
             self.ros_interface.set_emotion(emotion)
         else:
             print(f"Simulating setting emotion to '{emotion}' without ROS.")
@@ -140,18 +212,33 @@ class PlannerAPI:
         """This function opens the gripper, allowing the robot to release the object it is holding on to."""
         pass
 
+<<<<<<< HEAD
     def dance_dance(self): 
         """The robot dances."""
         if self.use_ros:
+=======
+    def dance_dance(self):
+        if self.use_ros and self.ros_interface is not None:
+>>>>>>> main
             self.ros_interface.dance()
         else:
             print("Simulating dance maneuver without ROS.")
     
+<<<<<<< HEAD
     def get_global_state_value(self, key: str): 
         """Returns the value of the global state variable with the specified key. This can be used to store and retrieve information across different function calls and planning steps."""
         return self.global_state.get(key, None)
 
     def recognize_person(self): 
         """Used to recognize the person in front of the robot, and print their name"""
+=======
+    def get_global_state_value(self, key: str):
+        return self.global_state.get(key)
+
+    def recognize_person(self):
+        if self.ros_interface is None:
+            print("ROS interface unavailable; cannot recognize person.")
+            return
+>>>>>>> main
         names = self.ros_interface.recognize_person()
         print(f"Recognized persons: {names}")

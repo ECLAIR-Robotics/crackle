@@ -143,7 +143,7 @@ void loop()
         if (code == OPEN) {
             gripperServo.write(0);
         } else if (code == CLOSED) {
-            gripperServo.write(120);
+            gripperServo.write(100);
         }
     }
 

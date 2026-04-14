@@ -74,6 +74,8 @@ else
 fi
 
 echo "[5/5] Launching ROS 2 bringup with args: simulated:=$simulated simulate_vision:=$simulate_vision"
+echo "REMINDER: Launch claw_degree_publisher manually in a separate terminal:"
+echo "  ros2 run claw_degree_publisher claw_degree_publisher"
 # Do NOT 'exec' so cleanup trap still fires after ros2 exits
 ros2 launch crackle_bringup crackle_bringup.launch.py \
   simulated:="$simulated" \
