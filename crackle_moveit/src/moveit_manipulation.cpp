@@ -1284,6 +1284,10 @@ std::vector<std::vector<float>> CrackleManipulation::cuboid_handler(std::vector<
     std::vector<geometry_msgs::msg::Point> verts2 (verts);
     RCLCPP_INFO(node_->get_logger(), "Copies the verts vector");
 
+    for (geometry_msgs::msg::Point vert : verts2){
+      RCLCPP_INFO(node_->get_logger(), "Vert: [%f %f %f]", vert.x, vert.y, vert.z);
+    }
+
     // Find vertex point with smallest z.
     std::vector<geometry_msgs::msg::Point>::iterator min_z_point_it = std::min_element(verts2.begin(), verts2.end(),
                                                                         [](const geometry_msgs::msg::Point &p1, const geometry_msgs::msg::Point &p2){
@@ -1551,6 +1555,7 @@ CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object,
   // for (const auto &a : approaches) {
   for (const auto &a : oriented_approaches) {
     geometry_msgs::msg::Pose grasp;
+    // remember: const geometry_msgs::msg::Point &c = object.pose.position;
     grasp.position.x = c.x + a.offset.x();
     grasp.position.y = c.y + a.offset.y();
     grasp.position.z = c.z + a.offset.z();
