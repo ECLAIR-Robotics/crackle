@@ -130,6 +130,22 @@ class PlannerAPI:
             return strings[closest_idx]
         return None
 
+<<<<<<< HEAD
+    def pick_up(self, object_name : str): 
+        """This function allows us to pick up object named object_name."""
+        if (self.gripper_occupied):
+            print("Gripper is already holding an object.")
+            return
+        if self.use_ros:
+            # self.ros_interface.call
+            self.ros_interface.call_pickup_service(object_name) 
+        else:
+            print(f"Simulating pick up of object '{object_name}' without ROS.")
+    
+    def look_at_sound_direction(self, wake_word_time: float): 
+        """This function moves the robot towards the sound source/ direction of the user"""
+        if self.use_ros:
+=======
     def pick_up(self, object_name: str):
         if self.gripper_occupied:
             print("Gripper is already holding an object.")
@@ -143,44 +159,79 @@ class PlannerAPI:
     
     def look_at_sound_direction(self, wake_word_time: float):
         if self.use_ros and self.ros_interface is not None:
+>>>>>>> main
             self.ros_interface.look_at_person(wake_word_time)
         else:
             print("Simulating look at sound direction without ROS.")
 
+<<<<<<< HEAD
+    def place(self): 
+        """This function allows us to place object down"""
+        print("Placing the object down.")
+        pass
+=======
     def place(self):
         if self.use_ros and self.ros_interface is not None:
             self.ros_interface.clear_and_refresh_octomap()
             self.gripper_occupied = False
         else:
             print("Simulating place without ROS.")
+>>>>>>> main
 
-    def get_position_of(self, obj_name: str):
+    def get_position_of(self, obj_name: str): # 
+        """This function allows us to get the position of the object at called obj_name"""
+        print("Looking for object")
         pass
 
-    def orient_gripper(self, roll: float, pitch: float, yaw: float):
+    
+    def wave(self): 
+        """The Robot will wave at the user"""
+        print("Waving...")
         pass
     
+<<<<<<< HEAD
+    def set_emotion(self, emotion: str):  
+        """Sets the robot's emotion to the specified emotion"""
+        if self.use_ros:
+=======
     def wave(self):
         pass
     
     def set_emotion(self, emotion: str):
         if self.use_ros and self.ros_interface is not None:
+>>>>>>> main
             self.ros_interface.set_emotion(emotion)
         else:
             print(f"Simulating setting emotion to '{emotion}' without ROS.")
     
-    def close_gripper(self):
+    def close_gripper(self):  
+        """This function allows us to close the gripper. Can be used to conduct tasks like picking up and putting down objects, and shaking hands.""" 
         pass
 
-    def open_gripper(self):
+    def open_gripper(self): 
+        """This function opens the gripper, allowing the robot to release the object it is holding on to."""
         pass
 
+<<<<<<< HEAD
+    def dance_dance(self): 
+        """The robot dances."""
+        if self.use_ros:
+=======
     def dance_dance(self):
         if self.use_ros and self.ros_interface is not None:
+>>>>>>> main
             self.ros_interface.dance()
         else:
             print("Simulating dance maneuver without ROS.")
     
+<<<<<<< HEAD
+    def get_global_state_value(self, key: str): 
+        """Returns the value of the global state variable with the specified key. This can be used to store and retrieve information across different function calls and planning steps."""
+        return self.global_state.get(key, None)
+
+    def recognize_person(self): 
+        """Used to recognize the person in front of the robot, and print their name"""
+=======
     def get_global_state_value(self, key: str):
         return self.global_state.get(key)
 
@@ -188,5 +239,6 @@ class PlannerAPI:
         if self.ros_interface is None:
             print("ROS interface unavailable; cannot recognize person.")
             return
+>>>>>>> main
         names = self.ros_interface.recognize_person()
         print(f"Recognized persons: {names}")

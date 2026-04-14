@@ -15,7 +15,7 @@ import numpy as np
 import openwakeword
 from openwakeword.model import Model
 import multiprocessing
-from typing import List, Dict
+from typing import List, Dict, Any
 import pyaudio
 import os
 from _api import PlannerAPI
@@ -23,8 +23,9 @@ from _api import PlannerAPI
 import wave
 from openai import OpenAI
 from _llm import GptAPI
-# from playsound import playsound
-from _keys import openai_key
+from playsound3 import playsound
+
+openai_key = os.environ.get("OPENAI_API_KEY")
 
 # openwakeword.utils.download_models()
 
@@ -33,7 +34,7 @@ CHANNELS = 1
 RATE = 16000
 CHUNK = 1280
 
-ROS_ENABLED = os.getenv("ROS_ENABLED", "false").lower() == "true"
+ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
 print(f"ROS_ENABLED: {ROS_ENABLED}")
 
 class CrackleState(Enum):
@@ -71,8 +72,9 @@ class CrackleFSM:
 
         # Key you'll use in the prediction dict
         self.WAKEWORD_NAME = "leeoh"
+        self.WAKEWORD_NAME = "leeoh"
 
-        from openwakeword.model import Model
+        #from openwakeword.model import Model
 
         self._audio = pyaudio.PyAudio()
         self._mic_stream = self._audio.open(
@@ -88,14 +90,21 @@ class CrackleFSM:
             wakeword_models=[custom_model_path],
             inference_framework=self.INFERENCE_FRAMEWORK,
         )
-        self._n_models = len(self._owwModel.models.keys())
+        # self._n_models = len(self._owwModel.models.keys())
 
-        self.gpt_api = GptAPI(key=openai_key)
+        
+        self.gpt_api = GptAPI()
+
+        #Stores the current command/prompt 
+        self.current_command = ""
+
+        #The context window of fsm 
+        self.context_window = [] 
 
         print(f"Initialized FSM in state: {self._state}")
 
 
-    def _add_task(self, coro: any):
+    def _add_task(self, coro: Any):
         task = asyncio.create_task(coro)
         self._tasks.put(task)
         return task
@@ -135,10 +144,10 @@ class CrackleFSM:
                     self._state = CrackleState.LISTENING
                     wake_wall_time = time.time() # seconds float
 
-                    # Trigger immediately; ROS will wait up to ~0.5s for a fresh sample at/after this time
+                #     # Trigger immediately; ROS will wait up to ~0.5s for a fresh sample at/after this time
                     self.planner_api.look_at_sound_direction(wake_wall_time)
 
-                    # # Optionally flush model state
+                #     # # Optionally flush model state
                     for _ in range(15):
                         audio = np.frombuffer(self._mic_stream.read(CHUNK), dtype=np.int16)
                         _ = self._owwModel.predict(audio)
@@ -147,8 +156,8 @@ class CrackleFSM:
                     break
 
         stop_event_scanning = asyncio.Event()
-        scan_task = asyncio.create_task(scanning_thread("Scanner", stop_event_scanning))
         listen_task = asyncio.create_task(listening_thread("Listener", stop_event_scanning))
+        scan_task = asyncio.create_task(scanning_thread("Scanner", stop_event_scanning))
         self._running_threads.extend([scan_task, listen_task])
         await asyncio.gather(scan_task, listen_task)
 
@@ -156,7 +165,23 @@ class CrackleFSM:
         # ...
         await asyncio.sleep(2)  # Simulate task execution time
         print("Entering TASK state: Executing task...")
-        # main_planner() 
+        print(f"Current command: {self.current_command}")
+
+        # main_planner(self, self.current_command)        #main_planner()
+        response = self.gpt_api.get_command(self, self.current_command)
+        api = PlannerAPI(ROS_ENABLED)
+        if response.dialoge is not None:
+            output = self.gpt_api.speak_text_eleven_labs(response.dialoge)
+            playsound(output, block=True)
+            print("[INFO] Sound played")
+        else:
+            print("[ERROR] response dialogue was none")
+
+        if response.code is not None:
+            exec(response.code)
+
+        print("TASK COMPLETED")
+        self._state = CrackleState.IDLE
         pass
         
     async def handle_resetting(self):
@@ -190,8 +215,6 @@ class CrackleFSM:
             wf.setframerate(sample_rate)
             wf.writeframes(samples.tobytes())
 
-        print(f"Saved WAV: {filename}")
-
 
 
     async def main_loop(self):
@@ -204,6 +227,7 @@ class CrackleFSM:
                 t = asyncio.create_task(self.handle_idle())
                 await t
             elif self._state == CrackleState.LISTENING:
+                print("State is LISTEN")
                 print("Crackle is Listening now...")
                 # start listening for a command (call function)
                 samples = self.record_output(5)          # record 5 seconds
@@ -211,34 +235,34 @@ class CrackleFSM:
                 self.save_as_wav(samples, 16000, "out.wav")  # save it
                 transcribed_words = self.gpt_api.speech_to_text("out.wav")
                 print(f"Transcribed words: {transcribed_words}")
-
-
                 # Convert speech to text
                 text = self.gpt_api.speech_to_text("out.wav")
-                # responseWords, emotion = self.gpt_api.parseTalkResponse(text)
+                self.current_command = text
+                self._state = CrackleState.TASK #start working on the task/just talk back
+
                 # print("Crackle's response: ", responseWords)
                 # print("Crackle's emotion: ", emotion)
                 # self.gpt_api.speakText(responseWords, output_path="response.mp3")
-                action = self.gpt_api.get_command(text)
-                responseWords = action["dialogue"]
-                self.gpt_api.speak_text_eleven_labs(responseWords, output_path="response.mp3")
+                #action = self.gpt_api.get_command(text)
+                #responseWords = action["dialogue"]
+                #self.gpt_api.speak_text_eleven_labs(responseWords, output_path="response.mp3")
                 # self.gpt_api.speak_text_eleven_labs()
                 # playsound("response.mp3", block=True)
-                emotion = action["emotion"]
-                self.planner_api.set_emotion(emotion)
-                api = self.planner_api
-                exec(action["code"])
-                if "dance" in text.lower():
-                    print("Command recognized: Dance")
-                    # Execute dance action
-                    print("Crackle is dancing now!")
-                    self.planner_api.dance_dance()
-                    print("Crackle finished dancing.")
+                #emotion = action["emotion"]
+                #self.planner_api.set_emotion(emotion)
+                #api = self.planner_api
+                #exec(action["code"])
+                # if "dance" in text.lower():
+                #     print("Command recognized: Dance")
+                #     # Execute dance action
+                #     print("Crackle is dancing now!")
+                #     self.planner_api.dance_dance()
+                #     print("Crackle finished dancing.")
 
-                print(f"Transcribed text: {text}")
+                # print(f"Transcribed text: {text}")
 
                 # For simplicity, we transition back to IDLE after listening
-                self._state = CrackleState.IDLE
+                #self._state = CrackleState.IDLE
                 
             elif self._state == CrackleState.TASK:
                 print("State is TASK")
@@ -262,7 +286,7 @@ async def func3():
 
 def main():
     fsm = CrackleFSM()
-    fsm._state = CrackleState.TASK
+    #fsm._state = CrackleState.TASK
     print(f"Initial state: {fsm._state}")
     main_thread = threading.Thread(target=lambda: asyncio.run(fsm.main_loop()), daemon=True)
     main_thread.start()

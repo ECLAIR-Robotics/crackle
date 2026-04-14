@@ -3,27 +3,40 @@ from numpy import save
 import openai
 from openai import OpenAI
 import json
-from _keys import openai_key
+# from _keys import openai_key
 from _api import PlannerAPI
 from parse import parse_functions_to_json
 import os
+import inspect
+from typing import Any
+from _keys import openai_key
 from elevenlabs import ElevenLabs
+from dataclasses import dataclass
+from playsound3 import playsound
 
-# import rclpy
-# from rclpy.node import Node
-# from rclpy.executors import MultiThreadedExecutor
-
-ROS_ENABLED = os.getenv("ROS_ENABLED", "false").lower() == "true"
+ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
 if ROS_ENABLED:
     from crackle_planning.ros_interface import RosInterface
 
+
+@dataclass
+class GetCommandResponse:
+    dialoge: str | None
+    code: str | None
+    emotion: str | None
+
 class GptAPI:
-    def __init__(self, key: str):
-        self.api_key = key
-        openai.api_key = openai_key  # Set API key once in the constructor
-        os.environ["OPENAI_API_KEY"] = str(openai_key)
-        self.client = OpenAI()
-        self.tts = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
+    def __init__(self):
+        self.api_key = openai_key
+        if not self.api_key:
+            raise EnvironmentError(
+                "OPENAI_API_KEY is not set. Export it in your shell:\n"
+                "  export OPENAI_API_KEY='sk-...'\n"
+                "Or add it to ~/.bashrc and run: source ~/.bashrc"
+            )
+        print("API key length:", len(self.api_key))
+        self.client = OpenAI(api_key=self.api_key)
+        self.tts = ElevenLabs(api_key=os.environ.get("ELEVENLABS_API_KEY"))
 
 
     def getTalkBack(self, prompt):
@@ -111,9 +124,19 @@ class GptAPI:
 
         return [response_text, emotion]
 
+    def get_command(self, fsm_instance, prompt: str, ros_interface: Any = None):
+        def get_api_signatures(cls):
+            methods = inspect.getmembers(cls, predicate=inspect.isfunction)
+            signatures = []
+            for name, func in methods:
+                if name.startswith('_'): continue
+                sig = str(inspect.signature(func))
+                doc = inspect.getdoc(func) or "No description provided."
+                signatures.append(f"  - def {name}{sig}: # {doc}")
+            return "\n".join(signatures)
 
-    def get_command(self, prompt: str, ros_interface: any = None):
-        self.client = OpenAI()
+        api_docs = get_api_signatures(PlannerAPI)
+        planner_api = PlannerAPI(ROS_ENABLED)
 
         # Single tool that returns dialogue + code + emotion together
         tools = [
@@ -125,7 +148,8 @@ class GptAPI:
                     "1) dialogue: a short conversational reply to the user.\n"
                     "2) code: Python code using only pick_up(self, object_name: str) "
                     "   and place(self) in the correct order to execute the user's request.\n"
-                    "3) emotion: one word describing your emotion toward the user input.\n"
+                    "3) emotion: one word describing your emotion toward the user/input.\n"
+                    "4) continue_talking: A boolean value indicating whether to continue the conversation or not.\n"
                 ),
                 "parameters": {
                     "type": "object",
@@ -143,17 +167,22 @@ class GptAPI:
                             "description": (
                                 "Return Executable Python code ONLY. No explanations or comments. "
                                 "Use ONLY these existing methods:\n"
-                                "  - def pick_up(self, object_name: str)\n"
-                                "  - def place(self)\n"
+                                f"{api_docs}\n"
+                                # "  - def pick_up(self, object_name: str)\n"
+                                # "  - def place(self)\n"
                                 "Return an empty string if the user prompt isn't relevant to the exisiting methods "
                                 "above. They belong to the api instance. So make sure to write code that " 
                                 "calls these methods from api instance. If object has a name that is "
                                 "more than one string, object_name should be a single lowercase string " 
                                 "with the strings of the name connected with an '_'. "
                                 "Assume 'self' is already in scope so no need to pass it in. "
-                                "Do not redefine these. For example, if you were to pick up and "
+                                "Do not redefine these."
+                                "For example, if you were to call the place method, it should be called as such: api.place() "
                                 "place an object called 'x y', code would look like this:\n"
-                                "api.pick_up(\"x_y\")\\api.place()."
+                                "Remember that inorder to interact with an object, the robot must know the location of the object"
+                                # "For example, if you were to pick up and "
+                                # "place an object called 'x y', code would look like this:\n"
+                                # "api.pick_up(\"x_y\")\\api.place()"
                             ),
                         },
                         "emotion": {
@@ -163,8 +192,14 @@ class GptAPI:
                                 "'not_impressed', 'evil', 'flirty', 'aww', 'wtf'."
                             ),
                         },
+                        "continue_talking": {
+                            "type": "boolean",
+                            "description": (
+                                " Return True if the user just wants to have a conversation and does not want you to conduct a task."
+                            ),
+                        },
                     },
-                    "required": ["dialogue", "code", "emotion"],
+                    "required": ["dialogue", "code", "emotion", "continue_talking"],
                     "additionalProperties": False,
                 },
                 "strict": True,
@@ -183,59 +218,96 @@ class GptAPI:
             "- Put a single emotion word in the 'emotion' field.\n"
         )
 
-        input_items = [
+        self.input_items = [
             {"role": "developer", "content": instructions},
             {"role": "user", "content": prompt},
         ]
 
+        #TODO look at this 
+        fsm_instance.context_window.append(self.input_items)
+
         # Important: tool_choice is just the string "required" here.
         # Since we only define one custom tool, the model is forced to call it.
-        response = self.client.responses.create(
-            model="gpt-5-mini",
-            reasoning={"effort": "minimal"},
-            tools=tools,
-            tool_choice="required",
-            input=input_items,
-        )
+        while (True):
+            response = self.client.responses.create(
+                model="gpt-5-mini",
+                reasoning={"effort": "minimal"},
+                tools=tools,
+                tool_choice="required",
+                input=self.input_items,
+            )
 
-        dialogue_val = None
-        code_val = None
-        emotion_val = None
+            dialogue_val = None
+            code_val = None
+            emotion_val = None
+            continue_talking_val = None
 
-        # The tool call comes back as a `function_call` item in response.output
-        for item in response.output:
-            if item.type != "function_call":
-                continue
-            if item.name != "make_response":
-                continue
+            # The tool call comes back as a `function_call` item in response.output
+            for item in response.output:
+                if item.type != "function_call":
+                    continue
+                if item.name != "make_response":
+                    continue
 
-            args = json.loads(item.arguments or "{}")
-            dialogue_val = args.get("dialogue", "")
-            code_val = args.get("code", "")
-            emotion_val = args.get("emotion", "")
+                args = json.loads(item.arguments or "{}")
+                dialogue_val = args.get("dialogue", "")
+                code_val = args.get("code", "")
+                emotion_val = args.get("emotion", "")
+                continue_talking_val = args.get("continue_talking", False)
 
+            # Return all three so your planner can use them
+            if (not continue_talking_val):
+                # return {
+                #     "dialogue": dialogue_val,
+                #     "code": code_val,
+                #     "emotion": emotion_val,
+                # }
+                return GetCommandResponse(
+                    dialoge=str(dialogue_val) if dialogue_val is not None else None,
+                    code=str(code_val) if code_val is not None else None,
+                    emotion=str(emotion_val) if emotion_val is not None else None
+                )
+            if dialogue_val is not None:
+                print("Dialogue:", dialogue_val)
+                output = self.speak_text_eleven_labs(dialogue_val)
+                playsound(output, block=True)
+                
+            else:
+                print("WARNING: No dialogue returned.")
+            self.input_items.append({
+                "role": "assistant", 
+                "content": json.dumps({"dialogue": dialogue_val, "emotion": emotion_val}) 
+            })
+            samples = fsm_instance.record_output(5)          # record 5 seconds
+            print("Recording complete.")
+            fsm_instance.save_as_wav(samples, 16000, "out.wav")  # save it
+            transcribed_words = fsm_instance.gpt_api.speech_to_text("out.wav")
+            print(f"Transcribed words: {transcribed_words}")
+            # Convert speech to text
+            text = fsm_instance.gpt_api.speech_to_text("out.wav")
+            print(text)
+            # print(f"DEBUG HISTORY: {json.dumps(self.input_items, indent=2)}")
+            self.input_items.append({"role": "user", "content": text})
+    
         # Debug prints if you want them
-        if dialogue_val is not None:
-            print("Dialogue:", dialogue_val)
-        else:
-            print("WARNING: No dialogue returned.")
+        # if dialogue_val is not None:
+        #     print("Dialogue:", dialogue_val)
+        # else:
+        #     print("WARNING: No dialogue returned.")
 
-        if code_val is not None:
-            print("Code:", code_val)
-        else:
-            print("WARNING: No code returned.")
+        # if code_val is not None:
+        #     print("Code:", code_val)
+        # else:
+        #     print("WARNING: No code returned.")
 
-        if emotion_val is not None:
-            print("Emotion:", emotion_val)
-        else:
-            print("WARNING: No emotion returned.")
+        # if emotion_val is not None:
+        #     print("Emotion:", emotion_val)
+        # else:
+        #     print("WARNING: No emotion returned.")
 
-        # Return all three so your planner can use them
-        return {
-            "dialogue": dialogue_val,
-            "code": code_val,
-            "emotion": emotion_val,
-        }
+        # if continue_talking_val is not None:
+        #     print("Continue Talking:", continue_talking_val)
+        # else:            print("WARNING: No continue_talking value returned.")
     
     def speakText(self, text: str, output_path: str = "speech_output.mp3",
                   voice: str = "alloy", model: str = "gpt-4o-mini-tts"):
@@ -283,7 +355,7 @@ class GptAPI:
         return transcript.text
     
 if __name__ == "__main__":
-    gpt_api = GptAPI(openai_key)
+    gpt_api = GptAPI()
     # return {
     #         "dialogue": dialogue_val,
     #         "code": code_val,
