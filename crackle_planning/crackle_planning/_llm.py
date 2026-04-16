@@ -3,22 +3,30 @@ from numpy import save
 import openai
 from openai import OpenAI
 import json
-from _keys import openai_key
+# from _keys import openai_key
 from _api import PlannerAPI
 from parse import parse_functions_to_json
 import os
 import inspect
+from typing import Any
+from _keys import openai_key
 from elevenlabs import ElevenLabs
+from dataclasses import dataclass
+from playsound3 import playsound
 
-# import rclpy
-# from rclpy.node import Node
-# from rclpy.executors import MultiThreadedExecutor
-
-ROS_ENABLED = os.getenv("ROS_ENABLED", "false").lower() == "true"
+ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
 if ROS_ENABLED:
     from crackle_planning.ros_interface import RosInterface
 
+
+@dataclass
+class GetCommandResponse:
+    dialoge: str | None
+    code: str | None
+    emotion: str | None
+
 class GptAPI:
+<<<<<<< HEAD
     def __init__(self, key: str):
         self.api_key = key
         openai.api_key = openai_key  # Set API key once in the constructor
@@ -27,6 +35,19 @@ class GptAPI:
         self.tts = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
         #The context window of fsm 
         self.context_window = [] 
+=======
+    def __init__(self):
+        self.api_key = openai_key
+        if not self.api_key:
+            raise EnvironmentError(
+                "OPENAI_API_KEY is not set. Export it in your shell:\n"
+                "  export OPENAI_API_KEY='sk-...'\n"
+                "Or add it to ~/.bashrc and run: source ~/.bashrc"
+            )
+        print("API key length:", len(self.api_key))
+        self.client = OpenAI(api_key=self.api_key)
+        self.tts = ElevenLabs(api_key=os.environ.get("ELEVENLABS_API_KEY"))
+>>>>>>> 9b7b39ee52e6369e5a3bf89521c69dd5aa507a5e
 
 
     def getTalkBack(self, prompt):
@@ -114,9 +135,7 @@ class GptAPI:
 
         return [response_text, emotion]
 
-
-    def get_command(self, fsm_instance, prompt: str, ros_interface: any = None):
-        self.client = OpenAI()
+    def get_command(self, fsm_instance, prompt: str, ros_interface: Any = None):
         def get_api_signatures(cls):
             methods = inspect.getmembers(cls, predicate=inspect.isfunction)
             signatures = []
@@ -157,7 +176,7 @@ class GptAPI:
                         "code": {
                             "type": "string",
                             "description": (
-                                "ReturnExecutable Python code ONLY. No explanations or comments. "
+                                "Return Executable Python code ONLY. No explanations or comments. "
                                 "Use ONLY these existing methods:\n"
                                 f"{api_docs}\n"
                                 # "  - def pick_up(self, object_name: str)\n"
@@ -253,16 +272,30 @@ class GptAPI:
 
             # Return all three so your planner can use them
             if (not continue_talking_val):
+<<<<<<< HEAD
                 break
+=======
+>>>>>>> 9b7b39ee52e6369e5a3bf89521c69dd5aa507a5e
                 # return {
                 #     "dialogue": dialogue_val,
                 #     "code": code_val,
                 #     "emotion": emotion_val,
                 # }
+<<<<<<< HEAD
             
             #Talking if required
+=======
+                return GetCommandResponse(
+                    dialoge=str(dialogue_val) if dialogue_val is not None else None,
+                    code=str(code_val) if code_val is not None else None,
+                    emotion=str(emotion_val) if emotion_val is not None else None
+                )
+>>>>>>> 9b7b39ee52e6369e5a3bf89521c69dd5aa507a5e
             if dialogue_val is not None:
                 print("Dialogue:", dialogue_val)
+                output = self.speak_text_eleven_labs(dialogue_val)
+                playsound(output, block=True)
+                
             else:
                 print("WARNING: No dialogue returned.")
 
@@ -351,7 +384,7 @@ class GptAPI:
                 if chunk:
                     f.write(chunk)
 
-        return output_path
+        return output_path  
 
     
     def speech_to_text(self, speechFile, model="whisper-1"):
@@ -364,7 +397,7 @@ class GptAPI:
         return transcript.text
     
 if __name__ == "__main__":
-    gpt_api = GptAPI(openai_key)
+    gpt_api = GptAPI()
     # return {
     #         "dialogue": dialogue_val,
     #         "code": code_val,

@@ -1,0 +1,4 @@
+# Execute the last stored plan/trajectory
+bool wait
+---
+bool success

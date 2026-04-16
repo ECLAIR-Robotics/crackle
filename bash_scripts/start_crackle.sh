@@ -5,8 +5,8 @@
 
 set -Eeuo pipefail
 
-WS_DIR="/home/tanay/crackle_ws"
-FACE_EXEC="/home/tanay/crackle_face/game/bin/Debug/face_exec"
+WS_DIR="$HOME/crackle_ws"
+FACE_EXEC="$HOME/crackle_face/game/bin/Debug/face_exec"
 LOG_DIR="$WS_DIR/logs"
 
 # --- Parse flags ---
@@ -26,19 +26,19 @@ cd "$WS_DIR"
 
 mkdir -p "$LOG_DIR"
 
-echo "[2/5] Starting face executable: $FACE_EXEC"
-[[ -x "$FACE_EXEC" ]] || { echo "ERROR: face_exec missing or not executable: $FACE_EXEC"; exit 1; }
-nohup "$FACE_EXEC" >"$LOG_DIR/face_exec.log" 2>&1 &
-FACE_PID=$!
-echo "face_exec started with PID $FACE_PID (logs: $LOG_DIR/face_exec.log)"
+# echo "[2/5] Starting face executable: $FACE_EXEC"
+# [[ -x "$FACE_EXEC" ]] || { echo "ERROR: face_exec missing or not executable: $FACE_EXEC"; exit 1; }
+# nohup "$FACE_EXEC" >"$LOG_DIR/face_exec.log" 2>&1 &
+# FACE_PID=$!
+# echo "face_exec started with PID $FACE_PID (logs: $LOG_DIR/face_exec.log)"
 
-cleanup() {
-  if kill -0 "$FACE_PID" 2>/dev/null; then
-    echo "Stopping face_exec (PID $FACE_PID)..."
-    kill "$FACE_PID" 2>/dev/null || true
-  fi
-}
-trap cleanup EXIT INT TERM
+# cleanup() {
+#  if kill -0 "$FACE_PID" 2>/dev/null; then
+#    echo "Stopping face_exec (PID $FACE_PID)..."
+#    kill "$FACE_PID" 2>/dev/null || true
+#  fi
+# }
+# trap cleanup EXIT INT TERM
 
 echo "[3/5] Loading shell rc (aliases)"
 shopt -s expand_aliases || true
@@ -74,6 +74,8 @@ else
 fi
 
 echo "[5/5] Launching ROS 2 bringup with args: simulated:=$simulated simulate_vision:=$simulate_vision"
+echo "REMINDER: Launch claw_degree_publisher manually in a separate terminal:"
+echo "  ros2 run claw_degree_publisher claw_degree_publisher"
 # Do NOT 'exec' so cleanup trap still fires after ros2 exits
 ros2 launch crackle_bringup crackle_bringup.launch.py \
   simulated:="$simulated" \

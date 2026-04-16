@@ -1,18 +1,22 @@
-from typing import List
+from typing import List, Optional
 import time
 import rclpy
 import numpy as np
 #from crackle_interfaces.srv import PickupObject, LookAt
+
 
 from sensor_msgs.msg import Image
 from rclpy.callback_groups import ReentrantCallbackGroup
 from geometry_msgs.msg import Vector3Stamped
 from std_msgs.msg import String 
 from visualization_msgs.msg import Marker
-from std_srvs.srv import Trigger
+from std_srvs.srv import Trigger, Empty
 from rclpy.node import Node
 from rclpy.time import Time
+<<<<<<< HEAD
 #import face_recognition
+=======
+>>>>>>> main
 
 class AudioDirectionWindow:
     class AudioDirectionEntry:
@@ -97,6 +101,10 @@ class RosInterface:
             String, "/face/emotion", 10
         )
 
+        self.__clear_octomap_client = node.create_client(
+            Empty, "/clear_octomap"
+        )
+
     def update_color_image(self, msg: Image):
         self._latest_image = msg
 
@@ -146,7 +154,7 @@ class RosInterface:
         # Fallback: return the freshest we saw (may be slightly earlier)
         return best
 
-    def look_at_person(self, wake_word_time: float = None):
+    def look_at_person(self, wake_word_time: Optional[float] = None):
         if wake_word_time is not None:
             closest_direction_entry = self.wait_for_direction_after(wake_word_time, timeout=0.5)
         else:
@@ -218,6 +226,7 @@ class RosInterface:
         future = self.__look_at_client.call_async(req)
         return self._wait_for_future(future, timeout=10.0)
     
+<<<<<<< HEAD
     def wave(self):
         self._node.get_logger().info("Executing wave maneuver...")
         # Implement wave maneuver logic here
@@ -226,6 +235,26 @@ class RosInterface:
         req = Trigger.Request()
         future = self.__wave_client.call_async(req)
         return self._wait_for_future(future, timeout=10.0)
+=======
+    def clear_and_refresh_octomap(self, settle_time: float = 1.5):
+        """Clear MoveIt's OctoMap and wait for fresh depth data to repopulate.
+
+        Called before every pick or place so the planner sees an up-to-date
+        3-D collision map of any objects YOLO didn't detect.
+        """
+        if not self.__clear_octomap_client.wait_for_service(timeout_sec=2.0):
+            self._node.get_logger().warn(
+                "clear_octomap service not available — skipping OctoMap refresh"
+            )
+            return
+        future = self.__clear_octomap_client.call_async(Empty.Request())
+        self._wait_for_future(future, timeout=3.0)
+        self._node.get_logger().info(
+            f"OctoMap cleared — waiting {settle_time}s for repopulation..."
+        )
+        time.sleep(settle_time)
+        self._node.get_logger().info("OctoMap refreshed, proceeding with motion")
+>>>>>>> 9b7b39ee52e6369e5a3bf89521c69dd5aa507a5e
 
     def dance(self):
         self._node.get_logger().info("Executing dance maneuver...")
@@ -244,6 +273,25 @@ class RosInterface:
         self.__emotion_publisher.publish(msg)
 
     def recognize_person(self) -> List[str]:
+        try:
+            import face_recognition  # type: ignore[import-not-found]
+        except ImportError:
+            self._node.get_logger().warn(
+                "face_recognition is not installed; skipping recognize_person."
+            )
+            return []
+
+        if self._latest_image is None:
+            self._node.get_logger().info("No camera image available yet.")
+            return []
+
+        # NOTE: Conversion bridge is not wired in this class currently.
+        # Keep this method non-fatal for now so other API calls still work.
+        self._node.get_logger().warn(
+            "recognize_person is not fully configured (missing image bridge); skipping."
+        )
+        return []
+
         face_locations = face_recognition.face_locations(self.bridge.imgmsg_to_cv2(self.color_image, desired_encoding="bgr8"), model="cnn")
         print(f"Detected {len(face_locations)} face(s)")
         print(face_locations)

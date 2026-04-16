@@ -44,6 +44,7 @@ ament_target_dependencies(moveit_manipulation
 
 ament_target_dependencies(moveit_scene_updater
   moveit_ros_planning_interface
+  crackle_interfaces
   ${dependencies}
 )
 
@@ -66,6 +67,7 @@ install(TARGETS moveit_manipulation
 
 install( DIRECTORY
   launch
+  config
   DESTINATION share/${PROJECT_NAME}/
 )
 

@@ -7,7 +7,7 @@ from _keys import openai_key
 #     from ros_interface import RosInterface
 from _llm import GptAPI
 from _api import PlannerAPI
-from playsound import playsound
+from playsound3 import playsound
 import time
 import speech_recognition as sr
 import pyttsx3
