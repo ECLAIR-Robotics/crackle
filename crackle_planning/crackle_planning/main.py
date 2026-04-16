@@ -95,9 +95,6 @@ class CrackleFSM:
         #Stores the current command/prompt 
         self.current_command = ""
 
-        #The context window of fsm 
-        self.context_window = [] 
-
         print(f"Initialized FSM in state: {self._state}")
 
 

@@ -25,6 +25,8 @@ class GptAPI:
         os.environ["OPENAI_API_KEY"] = str(openai_key)
         self.client = OpenAI()
         self.tts = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
+        #The context window of fsm 
+        self.context_window = [] 
 
 
     def getTalkBack(self, prompt):
@@ -126,7 +128,7 @@ class GptAPI:
             return "\n".join(signatures)
 
         api_docs = get_api_signatures(PlannerAPI)
-        planner_api = PlannerAPI(ROS_ENABLED)
+        api = PlannerAPI(ROS_ENABLED)
 
         # Single tool that returns dialogue + code + emotion together
         tools = [
@@ -213,9 +215,18 @@ class GptAPI:
             {"role": "user", "content": prompt},
         ]
 
-        #TODO look at this 
-        fsm_instance.context_window.append(self.input_items)
 
+        #Setting up the context window
+        if (len(self.context_window)):
+            self.context_window.append(self.input_items)
+        else:
+            self.context_window.append(self.input_items)        
+
+
+        dialogue_val = None
+        code_val = None
+        emotion_val = None
+        continue_talking_val = None
         # Important: tool_choice is just the string "required" here.
         # Since we only define one custom tool, the model is forced to call it.
         while (True):
@@ -226,11 +237,6 @@ class GptAPI:
                 tool_choice="required",
                 input=self.input_items,
             )
-
-            dialogue_val = None
-            code_val = None
-            emotion_val = None
-            continue_talking_val = None
 
             # The tool call comes back as a `function_call` item in response.output
             for item in response.output:
@@ -247,15 +253,26 @@ class GptAPI:
 
             # Return all three so your planner can use them
             if (not continue_talking_val):
-                return {
-                    "dialogue": dialogue_val,
-                    "code": code_val,
-                    "emotion": emotion_val,
-                }
+                break
+                # return {
+                #     "dialogue": dialogue_val,
+                #     "code": code_val,
+                #     "emotion": emotion_val,
+                # }
+            
+            #Talking if required
             if dialogue_val is not None:
                 print("Dialogue:", dialogue_val)
             else:
                 print("WARNING: No dialogue returned.")
+
+            #Do the task if code was generated
+            if code_val is not None:
+                exec(code_val)
+            else:
+                print("WARNING: No code generated")
+            
+            #Prepping for next itteration
             self.input_items.append({
                 "role": "assistant", 
                 "content": json.dumps({"dialogue": dialogue_val, "emotion": emotion_val}) 
@@ -270,6 +287,16 @@ class GptAPI:
             print(text)
             # print(f"DEBUG HISTORY: {json.dumps(self.input_items, indent=2)}")
             self.input_items.append({"role": "user", "content": text})
+        
+        if dialogue_val is not None:
+            print("Dialogue:", dialogue_val)
+        else:
+            print("WARNING: No dialogue returned.")
+        
+        if code_val is not None:
+            exec(code_val)
+        else:
+            print("WARNING: No code generated")
     
         # Debug prints if you want them
         # if dialogue_val is not None:

@@ -89,6 +89,10 @@ class RosInterface:
             Trigger, "/crackle_manipulation/dance"
         )
 
+        self.__wave_client = node.create_client( 
+            Trigger, "/crackle_manipulation/wave"
+        )
+
         self.__emotion_publisher = node.create_publisher(
             String, "/face/emotion", 10
         )
@@ -214,6 +218,15 @@ class RosInterface:
         future = self.__look_at_client.call_async(req)
         return self._wait_for_future(future, timeout=10.0)
     
+    def wave(self):
+        self._node.get_logger().info("Executing wave maneuver...")
+        # Implement wave maneuver logic here
+        while not self.__wave_client.wait_for_service(timeout_sec=1.0):
+            self._node.get_logger().info('Wave service not available, waiting again...')
+        req = Trigger.Request()
+        future = self.__wave_client.call_async(req)
+        return self._wait_for_future(future, timeout=10.0)
+
     def dance(self):
         self._node.get_logger().info("Executing dance maneuver...")
         # Implement dance maneuver logic here

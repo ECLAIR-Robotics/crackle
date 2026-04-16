@@ -50,7 +50,6 @@ class PlannerAPI:
             print("Gripper is already holding an object.")
             return
         if self.use_ros:
-            self.ros_interface.call
             self.ros_interface.call_pickup_service(object_name) 
         else:
             print(f"Simulating pick up of object '{object_name}' without ROS.")
