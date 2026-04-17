@@ -25,6 +25,7 @@
 #include <tf2_ros/transform_listener.h>
 #include <std_srvs/srv/trigger.hpp>
 #include <visualization_msgs/msg/marker.hpp>
+#include <visualization_msgs/msg/marker.hpp>
 #include <moveit_msgs/msg/display_robot_state.hpp>
 #include <moveit_msgs/msg/display_trajectory.hpp>
 #include <shape_msgs/msg/solid_primitive.hpp>
@@ -84,7 +85,8 @@ public:
                       crackle_interfaces::srv::PlaceObject::Response::SharedPtr response);
     bool look_at(crackle_interfaces::srv::LookAt::Request::SharedPtr request,
                  crackle_interfaces::srv::LookAt::Response::SharedPtr response);
-    std::vector<geometry_msgs::msg::Point> cuboid_handler(std::vector<geometry_msgs::msg::Point> verts);
+    std::vector<std::vector<float>> cuboid_handler(std::vector<geometry_msgs::msg::Point> verts);
+    // void cuboid_handler(std::vector<geometry_msgs::msg::Point> verts, std::vector<geometry_msgs::msg::Point> basisVecs);
 
     rclcpp::Logger &getLogger() { return logger_; }
     rclcpp::Node::SharedPtr node_;
