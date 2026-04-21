@@ -3,7 +3,13 @@ from typing import List
 import numpy as np
 import openai
 from openai import OpenAI
-from _keys import openai_key
+
+ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
+
+if ROS_ENABLED:
+    from crackle_planning._keys import openai_key
+else:
+    from _keys import openai_key
 
 os.environ["OPENAI_API_KEY"] = str(openai_key)
 client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])

@@ -2,21 +2,18 @@ from typing import List, Optional
 import time
 import rclpy
 import numpy as np
-#from crackle_interfaces.srv import PickupObject, LookAt
+from crackle_interfaces.srv import FindObjects, PickupObject, LookAt
+from moveit_msgs.srv import GetPlanningScene
 
 
 from sensor_msgs.msg import Image
 from rclpy.callback_groups import ReentrantCallbackGroup
 from geometry_msgs.msg import Vector3Stamped
-from std_msgs.msg import String 
+from std_msgs.msg import Bool, String
 from visualization_msgs.msg import Marker
 from std_srvs.srv import Trigger, Empty
 from rclpy.node import Node
 from rclpy.time import Time
-<<<<<<< HEAD
-#import face_recognition
-=======
->>>>>>> main
 
 class AudioDirectionWindow:
     class AudioDirectionEntry:
@@ -56,9 +53,9 @@ class RosInterface:
     def __init__(self, node: Node):
         self._node = node
         self._latest_image = None
-        # self._pickup_service_client = node.create_client(
-        #     PickupObject, "crackle_manipulation/pickup_object"
-        # )
+        self._pickup_service_client = node.create_client(
+            PickupObject, "crackle_manipulation/pickup_object"
+        )
         self.latest_audio_direction = AudioDirectionWindow(
             50
         )  # 50 sample window that consists of a timestamp and a Vector
@@ -81,9 +78,9 @@ class RosInterface:
             callback_group=self.__multi_callback_group,
         )
 
-        # self.__look_at_client = node.create_client(
-        #     LookAt, "crackle_manipulation/look_at"
-        # )
+        self.__look_at_client = node.create_client(
+            LookAt, "crackle_manipulation/look_at"
+        )
 
         self.__look_at_marker_publisher = node.create_publisher(
             Marker, "planner/look_at_marker", 10
@@ -101,10 +98,28 @@ class RosInterface:
             Empty, "/clear_octomap"
         )
 
+        self.__scan_client = node.create_client(
+            Trigger, "vision/scan"
+        )
+
+        self.__get_planning_scene_client = node.create_client(
+            GetPlanningScene, "/get_planning_scene"
+        )
+
+        self.__claw_command_publisher = node.create_publisher(
+            Bool, "/claw/command", 10
+        )
+
+        self.__find_objects_client = node.create_client(
+            FindObjects, "vision/find_objects"
+        )
+
     def update_color_image(self, msg: Image):
+        """Store the latest color image from the camera."""
         self._latest_image = msg
 
     def spin_internal_node(self):
+        """Block the calling thread and spin the internal ROS node."""
         rclpy.spin(self._node)
 
     def _wait_for_future(
@@ -119,6 +134,7 @@ class RosInterface:
         return future.result() if future.done() else None
 
     def update_audio_direction(self, direction: Vector3Stamped):
+        """Buffer an incoming audio direction sample, discarding NaN vectors."""
         # check for nans
         if (
             direction.vector.x != direction.vector.x
@@ -128,7 +144,47 @@ class RosInterface:
             return
         self.latest_audio_direction.add_direction(direction, self._node)
 
+    def get_scene_object_names(self) -> List[str]:
+        """Get the names of all collision objects currently in the MoveIt planning scene."""
+        if not self.__get_planning_scene_client.wait_for_service(timeout_sec=2.0):
+            self._node.get_logger().warn("GetPlanningScene service not available")
+            return []
+        req = GetPlanningScene.Request()
+        req.components.components = 1  # WORLD_OBJECT_NAMES
+        future = self.__get_planning_scene_client.call_async(req)
+        result = self._wait_for_future(future, timeout=5.0)
+        if result is None:
+            return []
+        names = [obj.id for obj in result.scene.world.collision_objects]
+        self._node.get_logger().info(f"Scene objects: {names}")
+        return names
+
+    def call_scan_service(self) -> bool:
+        """Trigger the vision node to scan for all objects and publish them as collision objects."""
+        if not self.__scan_client.wait_for_service(timeout_sec=2.0):
+            self._node.get_logger().warn("vision/scan service not available")
+            return False
+        req = Trigger.Request()
+        future = self.__scan_client.call_async(req)
+        result = self._wait_for_future(future, timeout=15.0)
+        return result is not None
+
+    def call_find_objects(self, names: List[str]) -> List[str]:
+        """Call the vision find_objects service and return the names of detected objects."""
+        if not self.__find_objects_client.wait_for_service(timeout_sec=2.0):
+            self._node.get_logger().warn("vision/find_objects service not available")
+            return []
+        req = FindObjects.Request()
+        req.names = names
+        future = self.__find_objects_client.call_async(req)
+        result = self._wait_for_future(future, timeout=15.0)
+        if result is None:
+            return []
+        self._node.get_logger().info(f"FindObjects returned: {result.names}")
+        return list(result.names)
+
     def call_pickup_service(self, object_name: str):
+        """Call the manipulation pickup service for the given object name."""
         while not self._pickup_service_client.wait_for_service(timeout_sec=1.0):
             self._node.get_logger().info("Service not available, waiting again...")
         request = PickupObject.Request()
@@ -151,6 +207,7 @@ class RosInterface:
         return best
 
     def look_at_person(self, wake_word_time: Optional[float] = None):
+        """Point the robot's head toward the audio direction closest to the wake word time."""
         if wake_word_time is not None:
             closest_direction_entry = self.wait_for_direction_after(wake_word_time, timeout=0.5)
         else:
@@ -242,6 +299,7 @@ class RosInterface:
         self._node.get_logger().info("OctoMap refreshed, proceeding with motion")
 
     def dance(self):
+        """Trigger the dance service to perform a dance routine."""
         self._node.get_logger().info("Executing dance maneuver...")
         # Implement dance maneuver logic here
         while not self.__dance_client.wait_for_service(timeout_sec=1.0):
@@ -251,13 +309,29 @@ class RosInterface:
         return self._wait_for_future(future, timeout=20.0)
     
     def set_emotion(self, emotion: str):
+        """Publish the given emotion string to the face display topic."""
         self._node.get_logger().info(f"Setting robot emotion to: {emotion}")
         # Implement emotion setting logic here
         msg = String()
         msg.data = emotion
         self.__emotion_publisher.publish(msg)
 
+    def close_gripper(self):
+        """Send a close command to the claw gripper."""
+        self._node.get_logger().info("Closing gripper...")
+        msg = Bool()
+        msg.data = True
+        self.__claw_command_publisher.publish(msg)
+
+    def open_gripper(self):
+        """Send an open command to the claw gripper."""
+        self._node.get_logger().info("Opening gripper...")
+        msg = Bool()
+        msg.data = False
+        self.__claw_command_publisher.publish(msg)
+
     def recognize_person(self) -> List[str]:
+        """Attempt to identify people in the latest camera image using face recognition."""
         try:
             import face_recognition  # type: ignore[import-not-found]
         except ImportError:

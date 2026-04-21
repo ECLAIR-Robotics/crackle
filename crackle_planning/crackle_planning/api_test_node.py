@@ -4,7 +4,14 @@ import rclpy
 from rclpy.node import Node
 from std_srvs.srv import Trigger
 
-from crackle_planning._api import PlannerAPI
+import os
+
+ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
+
+if ROS_ENABLED:
+    from crackle_planning._api import PlannerAPI
+else:
+    from _api import PlannerAPI
 
 
 class ApiTestNode(Node):

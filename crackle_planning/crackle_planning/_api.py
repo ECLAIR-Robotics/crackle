@@ -41,7 +41,11 @@ class PlannerAPI:
                 import rclpy
                 from rclpy.executors import MultiThreadedExecutor
                 from rclpy.node import Node
-                from crackle_planning.ros_interface import RosInterface
+                ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
+                if ROS_ENABLED:
+                    from crackle_planning.ros_interface import RosInterface
+                else:
+                    from ros_interface import RosInterface
             except Exception as exc:
                 raise RuntimeError(
                     "ROS dependencies for PlannerAPI are unavailable. Ensure ROS 2 and "
@@ -130,115 +134,101 @@ class PlannerAPI:
             return strings[closest_idx]
         return None
 
-<<<<<<< HEAD
-    def pick_up(self, object_name : str): 
-        """This function allows us to pick up object named object_name."""
-        if (self.gripper_occupied):
-            print("Gripper is already holding an object.")
-            return
-        if self.use_ros:
-            # self.ros_interface.call
-            self.ros_interface.call_pickup_service(object_name) 
-        else:
-            print(f"Simulating pick up of object '{object_name}' without ROS.")
-    
-    def look_at_sound_direction(self, wake_word_time: float): 
-        """This function moves the robot towards the sound source/ direction of the user"""
-        if self.use_ros:
-=======
+    def _find_similar_object(self, target: str, scene_objects: List[str]) -> Optional[str]:
+        """Use embedding similarity to find the closest matching object in the scene."""
+        if not scene_objects:
+            return None
+        # Append target to the list so recommendations_from_strings can compare it
+        # against all scene objects. The target is at index len(scene_objects).
+        return self.recommendations_from_strings(
+            scene_objects + [target],
+            len(scene_objects),
+        )
+
     def pick_up(self, object_name: str):
+        """Pick up the named object using the robot's gripper."""
         if self.gripper_occupied:
             print("Gripper is already holding an object.")
             return
         if self.use_ros and self.ros_interface is not None:
+            # First check if a matching object already exists in the planning scene
+            scene_objects = self.ros_interface.get_scene_object_names()
+            matched_name = self._find_similar_object(object_name, scene_objects)
+
+            # If no close enough match, use vision to detect and add the object
+            if matched_name is None:
+                print(f"Object '{object_name}' not found in scene. Calling find_objects...")
+                found_names = self.ros_interface.call_find_objects([object_name])
+                if found_names:
+                    matched_name = found_names[0]
+
+            if matched_name is None:
+                print(f"Could not find object '{object_name}' in the scene.")
+                return
+
+            print(f"Matched '{object_name}' to scene object '{matched_name}'")
             self.ros_interface.clear_and_refresh_octomap()
-            self.ros_interface.call_pickup_service(object_name)
+            self.ros_interface.call_pickup_service(matched_name)
             self.gripper_occupied = True
         else:
             print(f"Simulating pick up of object '{object_name}' without ROS.")
     
     def look_at_sound_direction(self, wake_word_time: float):
+        """Turn the robot's head to face the direction of the detected sound."""
         if self.use_ros and self.ros_interface is not None:
->>>>>>> main
             self.ros_interface.look_at_person(wake_word_time)
         else:
             print("Simulating look at sound direction without ROS.")
 
-<<<<<<< HEAD
-    def place(self): 
-        """This function allows us to place object down"""
-        print("Placing the object down.")
-        pass
-=======
     def place(self):
+        """Place the currently held object down and release the gripper."""
         if self.use_ros and self.ros_interface is not None:
             self.ros_interface.clear_and_refresh_octomap()
             self.gripper_occupied = False
         else:
             print("Simulating place without ROS.")
->>>>>>> main
 
-    def get_position_of(self, obj_name: str): # 
-        """This function allows us to get the position of the object at called obj_name"""
-        print("Looking for object")
-        pass
-
-    
     def wave(self): 
         """The Robot will wave at the user"""
         print("Waving...")
         pass
     
-<<<<<<< HEAD
-    def set_emotion(self, emotion: str):  
-        """Sets the robot's emotion to the specified emotion"""
-        if self.use_ros:
-=======
-    def wave(self):
-        pass
-    
     def set_emotion(self, emotion: str):
+        """Set the robot's displayed emotion to the given emotion string."""
         if self.use_ros and self.ros_interface is not None:
->>>>>>> main
             self.ros_interface.set_emotion(emotion)
         else:
             print(f"Simulating setting emotion to '{emotion}' without ROS.")
     
-    def close_gripper(self):  
-        """This function allows us to close the gripper. Can be used to conduct tasks like picking up and putting down objects, and shaking hands.""" 
-        pass
-
-    def open_gripper(self): 
-        """This function opens the gripper, allowing the robot to release the object it is holding on to."""
-        pass
-
-<<<<<<< HEAD
-    def dance_dance(self): 
-        """The robot dances."""
-        if self.use_ros:
-=======
-    def dance_dance(self):
+    def close_gripper(self):
+        """This function allows us to close the gripper. Can be used to conduct tasks like picking up and putting down objects, and shaking hands."""
         if self.use_ros and self.ros_interface is not None:
->>>>>>> main
+            self.ros_interface.close_gripper()
+        else:
+            print("Simulating close gripper without ROS.")
+
+    def open_gripper(self):
+        """This function opens the gripper, allowing the robot to release the object it is holding on to."""
+        if self.use_ros and self.ros_interface is not None:
+            self.ros_interface.open_gripper()
+        else:
+            print("Simulating open gripper without ROS.")
+
+    def dance_dance(self):
+        """Make the robot perform a dance routine."""
+        if self.use_ros and self.ros_interface is not None:
             self.ros_interface.dance()
         else:
             print("Simulating dance maneuver without ROS.")
     
-<<<<<<< HEAD
-    def get_global_state_value(self, key: str): 
-        """Returns the value of the global state variable with the specified key. This can be used to store and retrieve information across different function calls and planning steps."""
-        return self.global_state.get(key, None)
-
-    def recognize_person(self): 
-        """Used to recognize the person in front of the robot, and print their name"""
-=======
     def get_global_state_value(self, key: str):
+        """Retrieve a value from the planner's global state dictionary by key."""
         return self.global_state.get(key)
 
     def recognize_person(self):
+        """Identify and recognize the person currently visible to the robot."""
         if self.ros_interface is None:
             print("ROS interface unavailable; cannot recognize person.")
             return
->>>>>>> main
         names = self.ros_interface.recognize_person()
         print(f"Recognized persons: {names}")

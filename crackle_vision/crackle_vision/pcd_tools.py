@@ -45,6 +45,8 @@ def get_best_approx(pcd: o3d.geometry.PointCloud) -> Tuple[o3d.geometry.Triangle
     cuboid_accuracy = np.abs(pcd_hull.get_volume() - min_cuboid.get_volume())
     sphere_accuracy = np.abs(pcd_hull.get_volume() - avg_sphere.get_volume())
 
+    min_cuboid.compute_vertex_normals()
+    return min_cuboid, SolidPrimitive.BOX, quaternion
     if (cuboid_accuracy < sphere_accuracy):
         min_cuboid.compute_vertex_normals()
         return min_cuboid, SolidPrimitive.BOX, quaternion

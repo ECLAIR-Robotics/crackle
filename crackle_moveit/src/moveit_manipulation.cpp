@@ -504,7 +504,7 @@ bool CrackleManipulation::pick_up_object(
   // ---- Generate grasp candidates -----------------------------------------------
   constexpr double approach_dist = 0.08; // metres – gripper offset from object
   constexpr double pregrasp_dist = 0.20; // metres – retreat along approach axis
-  constexpr double lift_dist = 0.10;     // metres – straight-up post-grasp lift
+  constexpr double lift_dist = 0.20;     // metres – straight-up post-grasp lift
   constexpr double tool_width = 0.10;
 
   std::vector<geometry_msgs::msg::Pose> grasp_candidates =
@@ -653,7 +653,7 @@ bool CrackleManipulation::pick_up_object(
 std::vector<geometry_msgs::msg::Pose>
 CrackleManipulation::find_place_poses_on_table(
     const std::string &object_name, const std::string &table_name) {
-  constexpr double approach_dist_place = 0.08; // EEF offset above object centre
+  constexpr double approach_dist_place = 0.12; // EEF offset above object centre
   constexpr double clearance = 0.04;           // extra safety margin (m)
   constexpr double grid_step = 0.12;           // grid spacing (m)
   constexpr double edge_margin = 0.05;         // keep away from table edge (m)

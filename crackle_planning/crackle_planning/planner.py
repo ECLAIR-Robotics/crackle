@@ -1,12 +1,16 @@
 import math
-from _keys import openai_key
+import os
 
-# ROS_ENABLED = os.getenv("ROS_ENABLED", "false").lower() == "true"
+ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
 
-# if ROS_ENABLED:
-#     from ros_interface import RosInterface
-from _llm import GptAPI
-from _api import PlannerAPI
+if ROS_ENABLED:
+    from crackle_planning._keys import openai_key
+    from crackle_planning._llm import GptAPI
+    from crackle_planning._api import PlannerAPI
+else:
+    from _keys import openai_key
+    from _llm import GptAPI
+    from _api import PlannerAPI
 from playsound3 import playsound
 import time
 import speech_recognition as sr

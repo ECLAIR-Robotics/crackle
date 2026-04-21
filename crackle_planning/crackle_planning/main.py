@@ -18,11 +18,10 @@ import multiprocessing
 from typing import List, Dict, Any
 import pyaudio
 import os
-from _api import PlannerAPI
+
 # from planner import main_planner
 import wave
 from openai import OpenAI
-from _llm import GptAPI
 from playsound3 import playsound
 
 openai_key = os.environ.get("OPENAI_API_KEY")
@@ -36,6 +35,13 @@ CHUNK = 1280
 
 ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
 print(f"ROS_ENABLED: {ROS_ENABLED}")
+
+if ROS_ENABLED:
+    from crackle_planning._api import PlannerAPI
+    from crackle_planning._llm import GptAPI
+else:
+    from _api import PlannerAPI
+    from _llm import GptAPI
 
 class CrackleState(Enum):
     IDLE = "idle"
@@ -65,7 +71,9 @@ class CrackleFSM:
 
         # Path to your custom TFLite model
         custom_model_path = os.path.join(
-            os.path.dirname(__file__),
+            os.environ.get("HOME", ""),
+            "crackle_ws", "src", "crackle",
+            "crackle_planning", "crackle_planning",
             "leeoh.tflite",
         )
         print("custom_model_path:", custom_model_path)
@@ -169,6 +177,7 @@ class CrackleFSM:
 
         # main_planner(self, self.current_command)        #main_planner()
         response = self.gpt_api.get_command(self, self.current_command)
+        print(f"Response: {response}")
         api = PlannerAPI(ROS_ENABLED)
         if response.dialoge is not None:
             output = self.gpt_api.speak_text_eleven_labs(response.dialoge)
@@ -177,8 +186,16 @@ class CrackleFSM:
         else:
             print("[ERROR] response dialogue was none")
 
+        if response.continue_talking:
+            print("Continuing conversation — returning to LISTENING state")
+            self._state = CrackleState.LISTENING
+            return
+
         if response.code is not None:
+            print(f"Executing code: {response.code}")
             exec(response.code)
+        else:
+            print("[ERROR] response code was noneP")
 
         print("TASK COMPLETED")
         self._state = CrackleState.IDLE
@@ -196,14 +213,59 @@ class CrackleFSM:
         await asyncio.sleep(2)  # Simulate failure handling time
         pass
 
-    def record_output(self, seconds, samplerate=16000, chunk=1024):
-        """records audio from the microphone for a set number of seconds"""
-        frames = int(seconds * samplerate / chunk)
-        buf = []
+    def record_output(
+        self,
+        max_seconds: float = 15.0,
+        silence_duration: float = 1.2,
+        silence_rms_threshold: float = 500.0,
+        start_timeout: float = 5.0,
+        samplerate: int = 16000,
+        chunk: int = 1024,
+    ):
+        """Record audio until the speaker pauses, or max_seconds is reached.
 
-        for _ in range(frames):
+        Uses a simple RMS threshold as a voice activity detector: waits for the
+        speaker to start, then stops after `silence_duration` seconds of
+        continuous quiet. `start_timeout` bounds how long we wait for any
+        speech to begin before giving up.
+        """
+        chunks_per_second = samplerate / chunk
+        max_frames = int(max_seconds * chunks_per_second)
+        silence_frames_needed = int(silence_duration * chunks_per_second)
+        start_timeout_frames = int(start_timeout * chunks_per_second)
+
+        # Drain any stale audio that buffered up while we weren't reading
+        # (e.g. the robot's own TTS picked up by the mic during playback).
+        try:
+            available = self._mic_stream.get_read_available()
+            while available > 0:
+                self._mic_stream.read(available, exception_on_overflow=False)
+                available = self._mic_stream.get_read_available()
+        except Exception as e:
+            print(f"mic flush warning: {e}")
+
+        buf = []
+        has_spoken = False
+        silent_count = 0
+
+        for frame_idx in range(max_frames):
             data = self._mic_stream.read(chunk, exception_on_overflow=False)
-            buf.append(np.frombuffer(data, dtype=np.int16))
+            samples = np.frombuffer(data, dtype=np.int16)
+            buf.append(samples)
+
+            rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
+
+            if rms > silence_rms_threshold:
+                has_spoken = True
+                silent_count = 0
+            else:
+                if has_spoken:
+                    silent_count += 1
+                    if silent_count >= silence_frames_needed:
+                        break
+                elif frame_idx >= start_timeout_frames:
+                    # No speech ever started — bail out.
+                    break
 
         return np.concatenate(buf)
     
@@ -230,7 +292,7 @@ class CrackleFSM:
                 print("State is LISTEN")
                 print("Crackle is Listening now...")
                 # start listening for a command (call function)
-                samples = self.record_output(5)          # record 5 seconds
+                samples = self.record_output()           # record until the speaker stops
                 print("Recording complete.")
                 self.save_as_wav(samples, 16000, "out.wav")  # save it
                 transcribed_words = self.gpt_api.speech_to_text("out.wav")
@@ -268,21 +330,6 @@ class CrackleFSM:
                 print("State is TASK")
                 t = asyncio.create_task(self.handle_task())
                 await t
-
-
-
-async def func1():
-    print("Function 1 started")
-    await asyncio.sleep(3)
-    print("Function 1 completed")
-async def func2():
-    print("Function 2 started")
-    await asyncio.sleep(1)
-    print("Function 2 co1pleted")
-async def func3():
-    print("Function 3 started")
-    await asyncio.sleep(3)
-    print("Function 3 completed")
 
 def main():
     fsm = CrackleFSM()

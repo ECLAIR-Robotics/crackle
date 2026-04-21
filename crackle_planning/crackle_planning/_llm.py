@@ -4,26 +4,31 @@ import openai
 from openai import OpenAI
 import json
 # from _keys import openai_key
-from _api import PlannerAPI
-from parse import parse_functions_to_json
+
 import os
 import inspect
 from typing import Any
-from _keys import openai_key
 from elevenlabs import ElevenLabs
 from dataclasses import dataclass
 from playsound3 import playsound
 
 ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
 if ROS_ENABLED:
+    from crackle_planning.parse import parse_functions_to_json
+    from crackle_planning._keys import openai_key
     from crackle_planning.ros_interface import RosInterface
-
+    from crackle_planning._api import PlannerAPI
+else:
+    from parse import parse_functions_to_json
+    from _keys import openai_key
+    from _api import PlannerAPI
 
 @dataclass
 class GetCommandResponse:
     dialoge: str | None
     code: str | None
     emotion: str | None
+    continue_talking: bool = False
 
 class GptAPI:
     def __init__(self):
@@ -37,6 +42,23 @@ class GptAPI:
         print("API key length:", len(self.api_key))
         self.client = OpenAI(api_key=self.api_key)
         self.tts = ElevenLabs(api_key=os.environ.get("ELEVENLABS_API_KEY"))
+
+        self._instructions = (
+            "Your name is Lleo. You are a helpful, strongly midwestern / minnesotan, "
+            "almost Fargo-like robot assistant with a strong obsession with movies "
+            "and movie references. You are great at breaking down tasks into small "
+            "steps and interacting with the real world by generating Python code.\n\n"
+            "For EVERY user prompt, you MUST call the tool 'make_response' exactly once.\n"
+            "- Do NOT send any normal assistant text.\n"
+            "- Put your conversational reply in the 'dialogue' field.\n"
+            "- Put ONLY executable Python code in the 'code' field.\n"
+            "- Put a single emotion word in the 'emotion' field.\n"
+        )
+        # Persistent conversation history — survives across get_command calls so the
+        # whole run of the FSM shares one context window with the model.
+        self.input_items = [
+            {"role": "developer", "content": self._instructions},
+        ]
 
 
     def getTalkBack(self, prompt):
@@ -170,6 +192,9 @@ class GptAPI:
                                 f"{api_docs}\n"
                                 # "  - def pick_up(self, object_name: str)\n"
                                 # "  - def place(self)\n"
+                                "Utilize all the methonds from the api to the best of your abilities inorder to achieve the goals of the user"
+                                "Identify whether the user only wants to interact with you, or wants you to execute an action."
+                                "For instace, if the user says hi to you or compliments you, call the wave or dance method."
                                 "Return an empty string if the user prompt isn't relevant to the exisiting methods "
                                 "above. They belong to the api instance. So make sure to write code that " 
                                 "calls these methods from api instance. If object has a name that is "
@@ -206,109 +231,54 @@ class GptAPI:
             }
         ]
 
-        instructions = (
-            "Your name is Lleo. You are a helpful, strongly midwestern / minnesotan, "
-            "almost Fargo-like robot assistant with a strong obsession with movies "
-            "and movie references. You are great at breaking down tasks into small "
-            "steps and interacting with the real world by generating Python code.\n\n"
-            "For EVERY user prompt, you MUST call the tool 'make_response' exactly once.\n"
-            "- Do NOT send any normal assistant text.\n"
-            "- Put your conversational reply in the 'dialogue' field.\n"
-            "- Put ONLY executable Python code in the 'code' field.\n"
-            "- Put a single emotion word in the 'emotion' field.\n"
-        )
-
-        self.input_items = [
-            {"role": "developer", "content": instructions},
-            {"role": "user", "content": prompt},
-        ]
-
-        #TODO look at this 
-        fsm_instance.context_window.append(self.input_items)
+        # Append the new user prompt to the persistent history
+        user_msg = {"role": "user", "content": prompt}
+        self.input_items.append(user_msg)
+        fsm_instance.context_window.append(user_msg)
 
         # Important: tool_choice is just the string "required" here.
         # Since we only define one custom tool, the model is forced to call it.
-        while (True):
-            response = self.client.responses.create(
-                model="gpt-5-mini",
-                reasoning={"effort": "minimal"},
-                tools=tools,
-                tool_choice="required",
-                input=self.input_items,
-            )
+        response = self.client.responses.create(
+            model="gpt-5-mini",
+            reasoning={"effort": "minimal"},
+            tools=tools,
+            tool_choice="required",
+            input=self.input_items,
+        )
 
-            dialogue_val = None
-            code_val = None
-            emotion_val = None
-            continue_talking_val = None
+        dialogue_val = None
+        code_val = None
+        emotion_val = None
+        continue_talking_val = False
 
-            # The tool call comes back as a `function_call` item in response.output
-            for item in response.output:
-                if item.type != "function_call":
-                    continue
-                if item.name != "make_response":
-                    continue
+        # The tool call comes back as a `function_call` item in response.output
+        for item in response.output:
+            if item.type != "function_call":
+                continue
+            if item.name != "make_response":
+                continue
 
-                args = json.loads(item.arguments or "{}")
-                dialogue_val = args.get("dialogue", "")
-                code_val = args.get("code", "")
-                emotion_val = args.get("emotion", "")
-                continue_talking_val = args.get("continue_talking", False)
+            args = json.loads(item.arguments or "{}")
+            dialogue_val = args.get("dialogue", "")
+            code_val = args.get("code", "")
+            emotion_val = args.get("emotion", "")
+            continue_talking_val = args.get("continue_talking", False)
 
-            # Return all three so your planner can use them
-            if (not continue_talking_val):
-                # return {
-                #     "dialogue": dialogue_val,
-                #     "code": code_val,
-                #     "emotion": emotion_val,
-                # }
-                return GetCommandResponse(
-                    dialoge=str(dialogue_val) if dialogue_val is not None else None,
-                    code=str(code_val) if code_val is not None else None,
-                    emotion=str(emotion_val) if emotion_val is not None else None
-                )
-            if dialogue_val is not None:
-                print("Dialogue:", dialogue_val)
-                output = self.speak_text_eleven_labs(dialogue_val)
-                playsound(output, block=True)
-                
-            else:
-                print("WARNING: No dialogue returned.")
-            self.input_items.append({
-                "role": "assistant", 
-                "content": json.dumps({"dialogue": dialogue_val, "emotion": emotion_val}) 
-            })
-            samples = fsm_instance.record_output(5)          # record 5 seconds
-            print("Recording complete.")
-            fsm_instance.save_as_wav(samples, 16000, "out.wav")  # save it
-            transcribed_words = fsm_instance.gpt_api.speech_to_text("out.wav")
-            print(f"Transcribed words: {transcribed_words}")
-            # Convert speech to text
-            text = fsm_instance.gpt_api.speech_to_text("out.wav")
-            print(text)
-            # print(f"DEBUG HISTORY: {json.dumps(self.input_items, indent=2)}")
-            self.input_items.append({"role": "user", "content": text})
-    
-        # Debug prints if you want them
-        # if dialogue_val is not None:
-        #     print("Dialogue:", dialogue_val)
-        # else:
-        #     print("WARNING: No dialogue returned.")
+        # Persist the assistant's reply so the next turn has full context
+        assistant_msg = {
+            "role": "assistant",
+            "content": json.dumps({"dialogue": dialogue_val, "emotion": emotion_val}),
+        }
+        self.input_items.append(assistant_msg)
+        fsm_instance.context_window.append(assistant_msg)
 
-        # if code_val is not None:
-        #     print("Code:", code_val)
-        # else:
-        #     print("WARNING: No code returned.")
-
-        # if emotion_val is not None:
-        #     print("Emotion:", emotion_val)
-        # else:
-        #     print("WARNING: No emotion returned.")
-
-        # if continue_talking_val is not None:
-        #     print("Continue Talking:", continue_talking_val)
-        # else:            print("WARNING: No continue_talking value returned.")
-    
+        return GetCommandResponse(
+            dialoge=str(dialogue_val) if dialogue_val is not None else None,
+            code=str(code_val) if code_val is not None else None,
+            emotion=str(emotion_val) if emotion_val is not None else None,
+            continue_talking=bool(continue_talking_val),
+        )
+   
     def speakText(self, text: str, output_path: str = "speech_output.mp3",
                   voice: str = "alloy", model: str = "gpt-4o-mini-tts"):
         """
