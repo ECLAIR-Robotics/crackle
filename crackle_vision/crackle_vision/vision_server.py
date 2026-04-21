@@ -406,7 +406,7 @@ class VisionServerNode(Node):
                         collision_object = CollisionObject()
                         collision_object.header.frame_id = "camera_depth_optical_frame"
                         collision_object.id = name
-                        collision_object.pose = pose # ! checking if this messes up the position of the mesh
+                        collision_object.pose = pose # ! checking if this messes up the position of the mesh --> it does not, after we set mesh vertex coordinates to be relative to pose position (object center).
                         collision_object.primitives.append(object_solid_primitive)
                         collision_object.primitive_poses.append(pose) # <-- When we tested the mesh method, this was commented --> there was no primitive pose?
 

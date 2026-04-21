@@ -1,5 +1,5 @@
 {
-    "cmake.sourceDirectory": "/wsl.localhost/Ubuntu-22.04/home/sansk/crackle_ws/src/crackle/crackle_moveit",
+    "cmake.sourceDirectory": "/home/tanay/crackle_ws/src/crackle/crackle_description",
     "CodeGPT.apiKey": "CodeGPT Plus Beta",
     "python.autoComplete.extraPaths": [
         "/home/tanay/crackle_ws/install/xarm_msgs/local/lib/python3.10/dist-packages",
