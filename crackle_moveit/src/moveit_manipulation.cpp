@@ -1354,7 +1354,7 @@ std::vector<std::vector<float>> CrackleManipulation::cuboid_handler(std::vector<
     // find the most z-axis aligned basis vector. This is the height vector
     std::vector<geometry_msgs::msg::Point>::iterator best_z_basis_vec_it = std::max_element(basisVecs.begin(), basisVecs.end(),
                                                                                 [](const geometry_msgs::msg::Point &p1, const geometry_msgs::msg::Point &p2){
-                                                                                    return p1.z < p2.z;
+                                                                                    return p1.z / sqrt(pow(p1.x, 2) + pow(p1.y, 2) + pow(p1.z, 2)) < p2.z / sqrt(pow(p2.x, 2) + pow(p2.y, 2) + pow(p2.z, 2));
                                                                                 });
     RCLCPP_INFO(node_->get_logger(), "Found pointer to most z aligned basis vec");
     
@@ -1375,6 +1375,9 @@ std::vector<std::vector<float>> CrackleManipulation::cuboid_handler(std::vector<
                                                        {basisVecs[2].x, basisVecs[2].y, basisVecs[2].z}};
 
     RCLCPP_INFO(node_->get_logger(), "Made the floats std vector");
+    RCLCPP_INFO(node_->get_logger(), "Vector 0: [%f %f %f]", basisVecs[0].x, basisVecs[0].y, basisVecs[0].z);
+    RCLCPP_INFO(node_->get_logger(), "Vector 1: [%f %f %f]", basisVecs[1].x, basisVecs[1].y, basisVecs[1].z);
+    RCLCPP_INFO(node_->get_logger(), "Vector 2: [%f %f %f]", basisVecs[2].x, basisVecs[2].y, basisVecs[2].z);
 
     return basisVecsStdVec;
    
@@ -1509,6 +1512,7 @@ CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object,
       normalized_vec.y = basisVec.y / mag;
       normalized_vec.z = basisVec.z / mag;
       normalizedBasisVecs.push_back(normalized_vec);
+      RCLCPP_INFO(node_->get_logger(), "Normalized Vec: [%f %f %f]", normalized_vec.x, normalized_vec.y, normalized_vec.z);
     }
 
     // 1. Top-down: tool +Z points toward -Height of box ("downward")
