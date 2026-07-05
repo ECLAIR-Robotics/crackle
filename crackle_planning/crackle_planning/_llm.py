@@ -300,8 +300,8 @@ class GptAPI:
         )
 
     def speak_text_eleven_labs(self, text: str):
-        """Stream TTS audio directly to speakers via PCM — no file I/O, low latency."""
-        import sounddevice as sd
+        """Stream TTS audio directly to speakers via paplay — no file I/O, low latency."""
+        import subprocess
 
         audio_stream = self.tts.text_to_speech.convert(
             voice_id="Tu7yBVBgg8rrFciOxBRm",
@@ -310,11 +310,15 @@ class GptAPI:
             output_format="pcm_16000",
         )
 
-        sample_rate = 16000
-        with sd.OutputStream(samplerate=sample_rate, channels=1, dtype='int16') as stream:
-            for chunk in audio_stream:
-                if chunk:
-                    stream.write(np.frombuffer(chunk, dtype=np.int16))
+        proc = subprocess.Popen(
+            ["paplay", "--raw", "--format=s16le", "--rate=16000", "--channels=1"],
+            stdin=subprocess.PIPE,
+        )
+        for chunk in audio_stream:
+            if chunk:
+                proc.stdin.write(chunk)
+        proc.stdin.close()
+        proc.wait()
 
     
     def speech_to_text(self, speechFile, model="whisper-1"):
@@ -327,18 +331,15 @@ class GptAPI:
         return transcript.text
     
 if __name__ == "__main__":
+    class _MockFSM:
+        context_window = []
+
     gpt_api = GptAPI()
-    # return {
-    #         "dialogue": dialogue_val,
-    #         "code": code_val,
-    #         "emotion": emotion_val,
-    #     }
-    output = gpt_api.get_command("Hey Leo you suck. You need to prove to me that you do not suck. Also, you're looking mighty sexy today. Can you please bring me the water bottle?")
-    gpt_api.speak_text_eleven_labs(output["dialogue"])
-    # RosInterface.set_emotion(output["emotion"])
-    api = PlannerAPI(ROS_ENABLED)
-    api.set_emotion(output["emotion"]) 
-    exec(output["code"])
+    output = gpt_api.get_command(_MockFSM(), "Hey Leo, can you please bring me the water bottle?")
+    print(f"Dialogue: {output.dialoge}")
+    print(f"Emotion:  {output.emotion}")
+    print(f"Code:     {output.code}")
+    gpt_api.speak_text_eleven_labs(output.dialoge)
 
 
 
