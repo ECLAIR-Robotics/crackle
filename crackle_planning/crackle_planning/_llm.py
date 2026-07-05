@@ -1,5 +1,5 @@
 # from crackle_planning.planner_lib._keys import key
-from numpy import save
+import numpy as np
 import openai
 from openai import OpenAI
 import json
@@ -10,7 +10,6 @@ import inspect
 from typing import Any
 from elevenlabs import ElevenLabs
 from dataclasses import dataclass
-from playsound3 import playsound
 
 ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
 if ROS_ENABLED:
@@ -300,19 +299,22 @@ class GptAPI:
             input=text,
         )
 
-    def speak_text_eleven_labs(self, text: str, output_path: str = "speech_output.mp3"):
+    def speak_text_eleven_labs(self, text: str):
+        """Stream TTS audio directly to speakers via PCM — no file I/O, low latency."""
+        import sounddevice as sd
+
         audio_stream = self.tts.text_to_speech.convert(
             voice_id="Tu7yBVBgg8rrFciOxBRm",
-            model_id="eleven_multilingual_v2",
+            model_id="eleven_turbo_v2_5",
             text=text,
+            output_format="pcm_16000",
         )
 
-        with open(output_path, "wb") as f:
+        sample_rate = 16000
+        with sd.OutputStream(samplerate=sample_rate, channels=1, dtype='int16') as stream:
             for chunk in audio_stream:
                 if chunk:
-                    f.write(chunk)
-
-        return output_path  
+                    stream.write(np.frombuffer(chunk, dtype=np.int16))
 
     
     def speech_to_text(self, speechFile, model="whisper-1"):

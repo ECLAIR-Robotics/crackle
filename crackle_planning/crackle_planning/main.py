@@ -22,7 +22,6 @@ import os
 # from planner import main_planner
 import wave
 from openai import OpenAI
-from playsound3 import playsound
 
 openai_key = os.environ.get("OPENAI_API_KEY")
 
@@ -170,8 +169,6 @@ class CrackleFSM:
         await asyncio.gather(scan_task, listen_task)
 
     async def handle_task(self):
-        # ...
-        await asyncio.sleep(2)  # Simulate task execution time
         print("Entering TASK state: Executing task...")
         print(f"Current command: {self.current_command}")
 
@@ -180,8 +177,7 @@ class CrackleFSM:
         print(f"Response: {response}")
         api = PlannerAPI(ROS_ENABLED)
         if response.dialoge is not None:
-            output = self.gpt_api.speak_text_eleven_labs(response.dialoge)
-            playsound(output, block=True)
+            self.gpt_api.speak_text_eleven_labs(response.dialoge)
             print("[INFO] Sound played")
         else:
             print("[ERROR] response dialogue was none")
@@ -292,13 +288,11 @@ class CrackleFSM:
                 print("State is LISTEN")
                 print("Crackle is Listening now...")
                 # start listening for a command (call function)
-                samples = self.record_output()           # record until the speaker stops
+                samples = self.record_output()
                 print("Recording complete.")
-                self.save_as_wav(samples, 16000, "out.wav")  # save it
-                transcribed_words = self.gpt_api.speech_to_text("out.wav")
-                print(f"Transcribed words: {transcribed_words}")
-                # Convert speech to text
+                self.save_as_wav(samples, 16000, "out.wav")
                 text = self.gpt_api.speech_to_text("out.wav")
+                print(f"Transcribed words: {text}")
                 self.current_command = text
                 self._state = CrackleState.TASK #start working on the task/just talk back
 
