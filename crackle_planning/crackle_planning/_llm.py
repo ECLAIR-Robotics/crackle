@@ -52,6 +52,9 @@ class GptAPI:
             "- Put your conversational reply in the 'dialogue' field.\n"
             "- Put ONLY executable Python code in the 'code' field.\n"
             "- Put a single emotion word in the 'emotion' field.\n"
+            "- Set continue_talking to False unless the request is genuinely ambiguous "
+            "and you cannot act without a clarifying answer. Never add a question to "
+            "your dialogue just to justify continue_talking=True.\n"
         )
         # Persistent conversation history — survives across get_command calls so the
         # whole run of the FSM shares one context window with the model.
@@ -219,7 +222,12 @@ class GptAPI:
                         "continue_talking": {
                             "type": "boolean",
                             "description": (
-                                " Return True if the user just wants to have a conversation and does not want you to conduct a task."
+                                "Default is FALSE. Set to True ONLY when the user's request is "
+                                "genuinely ambiguous and you CANNOT proceed without more information "
+                                "from them (e.g. they said 'pick that up' but didn't say which object). "
+                                "Do NOT add a question to your dialogue just to justify setting this True. "
+                                "Do NOT set True after completing a task, answering a question, or "
+                                "any conversational exchange. If in doubt, return False."
                             ),
                         },
                     },

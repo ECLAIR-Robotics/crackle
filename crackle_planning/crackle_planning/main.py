@@ -178,6 +178,26 @@ class CrackleFSM:
         self._running_threads.extend([scan_task, listen_task])
         await asyncio.gather(scan_task, listen_task)
 
+    def _drain_mic_buffer(self):
+        """Non-blocking drain of any mic audio that accumulated in the pipe buffer."""
+        import fcntl
+        fd = self._parec_proc.stdout.fileno()
+        flags = fcntl.fcntl(fd, fcntl.F_GETFL)
+        fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
+        try:
+            drained = 0
+            while True:
+                try:
+                    data = os.read(fd, self._mic_chunk * 2)
+                    if not data:
+                        break
+                    drained += len(data)
+                except BlockingIOError:
+                    break
+        finally:
+            fcntl.fcntl(fd, fcntl.F_SETFL, flags)
+        print(f"[mic] drained {drained // 2 / MODEL_RATE:.2f}s of stale audio")
+
     async def handle_task(self):
         print("Entering TASK state: Executing task...")
         print(f"Current command: {self.current_command}")
@@ -189,6 +209,10 @@ class CrackleFSM:
         if response.dialoge is not None:
             self.gpt_api.speak_text_eleven_labs(response.dialoge)
             print("[INFO] Sound played")
+            # Wait for PulseAudio's output buffer to finish playing before draining
+            # the mic pipe — paplay exits before the last ~0.5s of audio leaves the speakers
+            time.sleep(0.5)
+            self._drain_mic_buffer()
         else:
             print("[ERROR] response dialogue was none")
 
@@ -237,11 +261,6 @@ class CrackleFSM:
         max_frames = int(max_seconds * chunks_per_second)
         silence_frames_needed = int(silence_duration * chunks_per_second)
         start_timeout_frames = int(start_timeout * chunks_per_second)
-
-        # Flush stale buffered audio (e.g. TTS bleed-in) by discarding 0.3s
-        flush_frames = int(0.3 * chunks_per_second)
-        for _ in range(flush_frames):
-            self._parec_proc.stdout.read(self._mic_chunk * 2)
 
         buf = []
         has_spoken = False
