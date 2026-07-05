@@ -171,10 +171,42 @@ class CrackleFSM:
                     break
 
         stop_event_scanning = asyncio.Event()
+        loop = asyncio.get_event_loop()
+        kb_thread = threading.Thread(
+            target=self._keyboard_trigger,
+            args=(stop_event_scanning, loop),
+            daemon=True,
+        )
+        kb_thread.start()
         listen_task = asyncio.create_task(listening_thread("Listener", stop_event_scanning))
         scan_task = asyncio.create_task(scanning_thread("Scanner", stop_event_scanning))
         self._running_threads.extend([scan_task, listen_task])
         await asyncio.gather(scan_task, listen_task)
+
+    def _keyboard_trigger(self, stop_event: asyncio.Event, loop: asyncio.AbstractEventLoop):
+        """Poll stdin for a space bar press as an alternative to the wake word.
+        Runs in a daemon thread alongside the OWW listening task."""
+        import sys
+        import select
+        import tty
+        import termios
+        if not sys.stdin.isatty():
+            return
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setcbreak(fd)  # single-char reads; keeps Ctrl+C working
+            while self._state == CrackleState.IDLE and not stop_event.is_set():
+                readable, _, _ = select.select([sys.stdin], [], [], 0.1)
+                if readable:
+                    ch = sys.stdin.read(1)
+                    if ch == ' ':
+                        print("\n[keyboard] Space bar — activating listen")
+                        self._state = CrackleState.LISTENING
+                        loop.call_soon_threadsafe(stop_event.set)
+                        break
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
     def _drain_mic_buffer(self):
         """Non-blocking drain of any mic audio that accumulated in the pipe buffer.
