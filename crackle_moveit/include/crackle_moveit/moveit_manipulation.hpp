@@ -124,7 +124,8 @@ private:
     bool wait_for_current_state(const std::string &caller, double timeout_sec = 5.0);
 
     // Pickup pipeline helpers
-    struct PickPhases {
+    struct PickPhases
+    {
         moveit::planning_interface::MoveGroupInterface::Plan pregrasp_plan;
         moveit_msgs::msg::RobotTrajectory approach_traj;
         moveit_msgs::msg::RobotTrajectory lift_traj;
@@ -155,8 +156,8 @@ private:
     // planning scene: pick closes+attaches, place opens+detaches. Returns false
     // (and sets `err`) on any execution failure.
     bool execute_manipulation_solution(const moveit::task_constructor::SolutionBase &solution,
-                                        const moveit_msgs::msg::CollisionObject &obj,
-                                        bool is_pick, std::string &err);
+                                       const moveit_msgs::msg::CollisionObject &obj,
+                                       bool is_pick, std::string &err);
     // Lazily-constructed MTC solvers (need node_ / robot model).
     std::shared_ptr<moveit::task_constructor::solvers::PipelinePlanner> mtc_sampling_planner_;
     std::shared_ptr<moveit::task_constructor::solvers::CartesianPath> mtc_cartesian_planner_;

@@ -2,7 +2,13 @@ from typing import List, Optional
 import time
 import rclpy
 import numpy as np
-from crackle_interfaces.srv import FindObjects, PickupObject, LookAt, PlanPose, ExecutePlan
+from crackle_interfaces.srv import (
+    FindObjects,
+    PickupObject,
+    LookAt,
+    PlanPose,
+    ExecutePlan,
+)
 from moveit_msgs.srv import GetPlanningScene
 
 
@@ -14,6 +20,7 @@ from visualization_msgs.msg import Marker
 from std_srvs.srv import Trigger, Empty
 from rclpy.node import Node
 from rclpy.time import Time
+
 
 class AudioDirectionWindow:
     class AudioDirectionEntry:
@@ -50,6 +57,7 @@ class AudioDirectionWindow:
 class RosInterface:
 
     FACE_MATCH_THRESHOLD = 0.7
+
     def __init__(self, node: Node):
         self._node = node
         self._latest_image = None
@@ -86,29 +94,19 @@ class RosInterface:
             Marker, "planner/look_at_marker", 10
         )
 
-        self.__dance_client = node.create_client(
-            Trigger, "/crackle_manipulation/dance"
-        )
+        self.__dance_client = node.create_client(Trigger, "/crackle_manipulation/dance")
 
-        self.__emotion_publisher = node.create_publisher(
-            String, "/face/emotion", 10
-        )
+        self.__emotion_publisher = node.create_publisher(String, "/face/emotion", 10)
 
-        self.__clear_octomap_client = node.create_client(
-            Empty, "/clear_octomap"
-        )
+        self.__clear_octomap_client = node.create_client(Empty, "/clear_octomap")
 
-        self.__scan_client = node.create_client(
-            Trigger, "vision/scan"
-        )
+        self.__scan_client = node.create_client(Trigger, "vision/scan")
 
         self.__get_planning_scene_client = node.create_client(
             GetPlanningScene, "/get_planning_scene"
         )
 
-        self.__claw_command_publisher = node.create_publisher(
-            Bool, "/claw/command", 10
-        )
+        self.__claw_command_publisher = node.create_publisher(Bool, "/claw/command", 10)
 
         self.__find_objects_client = node.create_client(
             FindObjects, "vision/find_objects"
@@ -221,7 +219,6 @@ class RosInterface:
         while not self._pickup_service_client.wait_for_service(timeout_sec=1.0):
             self._node.get_logger().info("Service not available, waiting again...")
         request = PickupObject.Request()
-        request.object_name = object_name
         future = self._pickup_service_client.call_async(request)
         return self._wait_for_future(future, timeout=20.0)
 
@@ -242,12 +239,16 @@ class RosInterface:
     def look_at_person(self, wake_word_time: Optional[float] = None):
         """Point the robot's head toward the audio direction closest to the wake word time."""
         if wake_word_time is not None:
-            closest_direction_entry = self.wait_for_direction_after(wake_word_time, timeout=0.5)
+            closest_direction_entry = self.wait_for_direction_after(
+                wake_word_time, timeout=0.5
+            )
         else:
             closest_direction_entry = self.latest_audio_direction.latest()
         # closest_direction_entry = self.latest_audio_direction.find_closest_direction(wake_word_time)
         if closest_direction_entry is None:
-            self._node.get_logger().info("No audio direction data available to look at.")
+            self._node.get_logger().info(
+                "No audio direction data available to look at."
+            )
             return
 
         direction = closest_direction_entry.direction
@@ -279,7 +280,9 @@ class RosInterface:
         )
 
         while not self.__look_at_client.wait_for_service(timeout_sec=1.0):
-            self._node.get_logger().info('LookAt service not available, waiting again...')
+            self._node.get_logger().info(
+                "LookAt service not available, waiting again..."
+            )
 
         req = LookAt.Request()
         req.look_direction = Vector3Stamped()
@@ -311,7 +314,7 @@ class RosInterface:
 
         future = self.__look_at_client.call_async(req)
         return self._wait_for_future(future, timeout=10.0)
-    
+
     def clear_and_refresh_octomap(self, settle_time: float = 1.5):
         """Clear MoveIt's OctoMap and wait for fresh depth data to repopulate.
 
@@ -336,11 +339,13 @@ class RosInterface:
         self._node.get_logger().info("Executing dance maneuver...")
         # Implement dance maneuver logic here
         while not self.__dance_client.wait_for_service(timeout_sec=1.0):
-            self._node.get_logger().info('Dance service not available, waiting again...')
+            self._node.get_logger().info(
+                "Dance service not available, waiting again..."
+            )
         req = Trigger.Request()
         future = self.__dance_client.call_async(req)
         return self._wait_for_future(future, timeout=20.0)
-    
+
     def set_emotion(self, emotion: str):
         """Publish the given emotion string to the face display topic."""
         self._node.get_logger().info(f"Setting robot emotion to: {emotion}")
@@ -384,21 +389,29 @@ class RosInterface:
         )
         return []
 
-        face_locations = face_recognition.face_locations(self.bridge.imgmsg_to_cv2(self.color_image, desired_encoding="bgr8"), model="cnn")
+        face_locations = face_recognition.face_locations(
+            self.bridge.imgmsg_to_cv2(self.color_image, desired_encoding="bgr8"),
+            model="cnn",
+        )
         print(f"Detected {len(face_locations)} face(s)")
         print(face_locations)
         if not face_locations:
             self.get_logger().info("No faces detected")
             return []
-        face_encodings = face_recognition.face_encodings(self.bridge.imgmsg_to_cv2(self.color_image, desired_encoding="bgr8"), face_locations)
-        recognized_names : List[str] = []
+        face_encodings = face_recognition.face_encodings(
+            self.bridge.imgmsg_to_cv2(self.color_image, desired_encoding="bgr8"),
+            face_locations,
+        )
+        recognized_names: List[str] = []
         for face_encoding in face_encodings:
-            matches = face_recognition.compare_faces(list(self.person_dictionary.values()), face_encoding)
+            matches = face_recognition.compare_faces(
+                list(self.person_dictionary.values()), face_encoding
+            )
             name = None
-            face_distances = face_recognition.face_distance(list(self.person_dictionary.values()), face_encoding)
+            face_distances = face_recognition.face_distance(
+                list(self.person_dictionary.values()), face_encoding
+            )
             lowest_distance = min(face_distances)
             print("Lowest distance:", lowest_distance)
-            
+
         return recognized_names
-    
-    
