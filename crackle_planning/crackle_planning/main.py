@@ -166,9 +166,7 @@ class CrackleFSM:
                     self._state = CrackleState.LISTENING
                     wake_wall_time = time.time()
                     self.planner_api.look_at_sound_direction(wake_wall_time)
-                    for _ in range(15):
-                        _ = self._owwModel.predict(_read_chunk())
-
+                    self._drain_mic_buffer()
                     stop_event.set()
                     break
 
@@ -179,7 +177,9 @@ class CrackleFSM:
         await asyncio.gather(scan_task, listen_task)
 
     def _drain_mic_buffer(self):
-        """Non-blocking drain of any mic audio that accumulated in the pipe buffer."""
+        """Non-blocking drain of any mic audio that accumulated in the pipe buffer.
+        Also feeds silence to the wake word model to flush its sliding-window state,
+        preventing false re-detection on the next IDLE pass."""
         import fcntl
         fd = self._parec_proc.stdout.fileno()
         flags = fcntl.fcntl(fd, fcntl.F_GETFL)
@@ -197,6 +197,10 @@ class CrackleFSM:
         finally:
             fcntl.fcntl(fd, fcntl.F_SETFL, flags)
         print(f"[mic] drained {drained // 2 / MODEL_RATE:.2f}s of stale audio")
+        # OWW uses ~1.5s of context; feed silence to evict the wake word from its window
+        silence = np.zeros(self._mic_chunk, dtype=np.int16)
+        for _ in range(20):
+            self._owwModel.predict(silence)
 
     async def handle_task(self):
         print("Entering TASK state: Executing task...")
