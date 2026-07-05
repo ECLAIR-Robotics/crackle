@@ -25,7 +25,7 @@
 #include <tf2_ros/transform_listener.h>
 #include <std_srvs/srv/trigger.hpp>
 #include <visualization_msgs/msg/marker.hpp>
-#include <visualization_msgs/msg/marker.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 #include <moveit_msgs/msg/display_robot_state.hpp>
 #include <moveit_msgs/msg/display_trajectory.hpp>
 #include <shape_msgs/msg/solid_primitive.hpp>
@@ -95,7 +95,12 @@ public:
         const Eigen::Vector3d &world_up,
         const Eigen::Vector3d &tool_forward_in_tool);
     geometry_msgs::msg::Pose construct_reach_pose(geometry_msgs::msg::Pose object_pose, Vector3 tool_offset);
-    std::vector<geometry_msgs::msg::Pose> get_grasp_poses(moveit_msgs::msg::CollisionObject object, double approach_dist, double tool_width);
+    // `face_ids_out`, if non-null, is filled with a parallel array giving the
+    // face index each returned pose belongs to, so callers can group by face
+    // and short-circuit planning once one candidate per face succeeds.
+    std::vector<geometry_msgs::msg::Pose> get_grasp_poses(
+        moveit_msgs::msg::CollisionObject object, double approach_dist,
+        double tool_width, std::vector<int> *face_ids_out = nullptr);
     bool dance_dance(std_srvs::srv::Trigger::Request::SharedPtr request,
                      std_srvs::srv::Trigger::Response::SharedPtr response);
 
@@ -124,6 +129,15 @@ private:
     find_place_poses_on_table(const std::string &object_name,
                               const std::string &table_name);
 
+    // Grasp-candidate visualization.
+    // status codes: 0 = proposed (cyan), 1 = planning (yellow),
+    //               2 = feasible (green), 3 = infeasible (red),
+    //               4 = selected (magenta, enlarged),
+    //               5 = skipped (gray)
+    void publish_grasp_markers(const std::vector<geometry_msgs::msg::Pose> &grasps,
+                               const std::vector<int> &statuses);
+    void clear_grasp_markers();
+
     rclcpp::Logger logger_;
     rclcpp::Service<crackle_interfaces::srv::PickupObject>::SharedPtr pickup_service_;
     rclcpp::Service<crackle_interfaces::srv::PlaceObject>::SharedPtr place_service_;
@@ -140,6 +154,7 @@ private:
     rclcpp::CallbackGroup::SharedPtr services_cb_group_;
     rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr gripper_command_publisher_;
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_publisher_;
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr grasp_markers_publisher_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
     rclcpp::Time last_joint_state_stamp_;
     bool have_joint_state_;

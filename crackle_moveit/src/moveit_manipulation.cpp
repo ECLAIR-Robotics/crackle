@@ -178,6 +178,8 @@ CrackleManipulation::CrackleManipulation(const std::string &group_name)
           rmw_qos_profile_services_default, services_cb_group_);
     
     marker_publisher_ = node_->create_publisher<visualization_msgs::msg::Marker>("/crackle_manipulation/object_position", 10);
+    grasp_markers_publisher_ = node_->create_publisher<visualization_msgs::msg::MarkerArray>(
+        "/crackle_manipulation/grasp_candidates", 10);
 
   // TODO: Make a special trajectory service that takes high level parameters
   // and then does the same thing more or less as the demo_trajectory_service
@@ -204,7 +206,7 @@ CrackleManipulation::CrackleManipulation(const std::string &group_name)
 bool CrackleManipulation::look_at(
     crackle_interfaces::srv::LookAt::Request::SharedPtr request,
     crackle_interfaces::srv::LookAt::Response::SharedPtr response) {
-  const double OFFSET = 0.05; // meters
+  const double OFFSET = 0.15; // meters
   geometry_msgs::msg::Vector3Stamped look_point = request->look_direction;
   Eigen::Vector3d offsetted_position = Eigen::Vector3d(
       look_point.vector.x, look_point.vector.y, look_point.vector.z);
@@ -502,13 +504,71 @@ bool CrackleManipulation::pick_up_object(
   const moveit_msgs::msg::CollisionObject &obj = scene_objects[object_name];
 
   // ---- Generate grasp candidates -----------------------------------------------
-  constexpr double approach_dist = 0.08; // metres – gripper offset from object
+  constexpr double approach_dist = 0.18; // metres – gripper offset from object
   constexpr double pregrasp_dist = 0.20; // metres – retreat along approach axis
-  constexpr double lift_dist = 0.20;     // metres – straight-up post-grasp lift
-  constexpr double tool_width = 0.10;
+  constexpr double lift_dist = 0.25;     // metres – straight-up post-grasp lift
+  constexpr double tool_width = 0.95;
 
+  clear_grasp_markers();
+  std::vector<int> face_ids;
   std::vector<geometry_msgs::msg::Pose> grasp_candidates =
-      get_grasp_poses(obj, approach_dist, tool_width);
+      get_grasp_poses(obj, approach_dist, tool_width, &face_ids);
+
+  // Prepend a hard-coded top-down grasp (approach along world -Z) so it's
+  // always tried first regardless of object orientation, and is visible in
+  // the rviz markers. Uses face_id=-1 as a sentinel — std::map orders that
+  // key before any face-index key so the pickup loop hits this first.
+  {
+    Eigen::Quaterniond q_obj(
+        obj.pose.orientation.w, obj.pose.orientation.x,
+        obj.pose.orientation.y, obj.pose.orientation.z);
+    if (q_obj.norm() < 1e-6) q_obj = Eigen::Quaterniond::Identity();
+    const Eigen::Matrix3d R_obj = q_obj.normalized().toRotationMatrix();
+
+    Eigen::Vector3d he(0.05, 0.05, 0.05);
+    if (!obj.primitives.empty()) {
+      using P = shape_msgs::msg::SolidPrimitive;
+      const auto &prim = obj.primitives[0];
+      switch (prim.type) {
+      case P::BOX:
+        if (prim.dimensions.size() >= 3)
+          he = {prim.dimensions[P::BOX_X] / 2.0,
+                prim.dimensions[P::BOX_Y] / 2.0,
+                prim.dimensions[P::BOX_Z] / 2.0};
+        break;
+      case P::CYLINDER:
+        if (prim.dimensions.size() >= 2) {
+          const double r = prim.dimensions[P::CYLINDER_RADIUS];
+          he = {r, r, prim.dimensions[P::CYLINDER_HEIGHT] / 2.0};
+        }
+        break;
+      case P::SPHERE:
+        if (!prim.dimensions.empty()) {
+          const double r = prim.dimensions[P::SPHERE_RADIUS];
+          he = {r, r, r};
+        }
+        break;
+      default:
+        break;
+      }
+    }
+    // World-AABB half-height of a rotated box.
+    const double dz = std::abs(R_obj(2, 0)) * he.x() +
+                      std::abs(R_obj(2, 1)) * he.y() +
+                      std::abs(R_obj(2, 2)) * he.z();
+
+    geometry_msgs::msg::Pose top_down;
+    top_down.position.x = obj.pose.position.x;
+    top_down.position.y = obj.pose.position.y;
+    top_down.position.z = obj.pose.position.z + dz + approach_dist;
+    top_down.orientation = lookAtQuat(Eigen::Vector3d(0.0, 0.0, -1.0),
+                                      Eigen::Vector3d::UnitX(),
+                                      kToolForwardInTool);
+
+    grasp_candidates.insert(grasp_candidates.begin(), top_down);
+    face_ids.insert(face_ids.begin(), -1);
+  }
+
   if (grasp_candidates.empty()) {
     RCLCPP_ERROR(node_->get_logger(),
                  "pick_up_object: no grasp candidates generated for '%s'",
@@ -517,104 +577,114 @@ bool CrackleManipulation::pick_up_object(
     return true;
   }
 
+  // Status vector shared with the marker publisher: 0=proposed, 1=planning,
+  // 2=feasible, 3=infeasible, 4=selected, 5=skipped. Republish after each
+  // status change so we get MTC-style stepwise feedback in rviz.
+  std::vector<int> statuses(grasp_candidates.size(), 0);
+  publish_grasp_markers(grasp_candidates, statuses);
+
   // Open gripper before planning so the scene state is correct
   gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(false));
 
-  // ---- Plan all phases for every candidate, keep the feasible ones ------------
-  struct Candidate {
-    geometry_msgs::msg::Pose grasp;
-    PickPhases phases;
-  };
-  std::vector<Candidate> valid;
-  valid.reserve(grasp_candidates.size());
+  // Execute a fully-planned pickup (pregrasp joint move → Cartesian approach →
+  // close gripper + attach → Cartesian lift). Sets response->success and returns
+  // true when the caller should return from pick_up_object (either because
+  // execution completed or an execution phase failed).
+  auto execute_pickup = [&](PickPhases &phases) -> bool {
+    plan_ = phases.pregrasp_plan;
+    is_trajectory_ = false;
+    if (!execute_plan(true)) {
+      RCLCPP_ERROR(node_->get_logger(),
+                   "pick_up_object: pregrasp execution failed");
+      response->success = false;
+      return true;
+    }
 
-  for (size_t i = 0; i < grasp_candidates.size(); ++i) {
-    const geometry_msgs::msg::Pose &grasp = grasp_candidates[i];
-    // Pregrasp: retreat from grasp along negative approach axis
-    geometry_msgs::msg::Pose pregrasp = compute_pregrasp(grasp, pregrasp_dist);
-    // Lift: straight up in world Z from the grasp point
-    geometry_msgs::msg::Pose lift = grasp;
-    lift.position.z += lift_dist;
+    trajectory_ = phases.approach_traj;
+    is_trajectory_ = true;
+    if (!execute_plan(true)) {
+      RCLCPP_ERROR(node_->get_logger(),
+                   "pick_up_object: approach execution failed");
+      response->success = false;
+      return true;
+    }
+
+    gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(true));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+
+    moveit_msgs::msg::AttachedCollisionObject attached;
+    attached.link_name = "gripper_base";
+    attached.object = obj;
+    attached.object.operation = moveit_msgs::msg::CollisionObject::ADD;
+    attached.touch_links = {"gripper_base"};
+    planning_scene_->applyAttachedCollisionObject(attached);
+
+    trajectory_ = phases.lift_traj;
+    is_trajectory_ = true;
+    if (!execute_plan(true)) {
+      RCLCPP_ERROR(node_->get_logger(),
+                   "pick_up_object: lift execution failed");
+      response->success = false;
+      return true;
+    }
 
     RCLCPP_INFO(node_->get_logger(),
-                "pick_up_object: planning candidate %zu/%zu ...", i + 1,
-                grasp_candidates.size());
+                "pick_up_object: successfully picked up '%s'",
+                object_name.c_str());
+    response->success = true;
+    return true;
+  };
 
-    PickPhases phases;
-    if (plan_pickup_phases(pregrasp, grasp, lift, phases)) {
+  // ---- Plan phase by face: try candidates in order and return as soon as one
+  //      plans successfully. The top-down probe sits at face_id=-1 and is hit
+  //      first thanks to std::map ordering.
+  std::map<int, std::vector<size_t>> by_face;
+  for (size_t i = 0; i < grasp_candidates.size(); ++i) {
+    const int fid = (i < face_ids.size()) ? face_ids[i] : -1;
+    by_face[fid].push_back(i);
+  }
+
+  for (auto &kv : by_face) {
+    const int fid = kv.first;
+    const std::vector<size_t> &indices = kv.second;
+    RCLCPP_INFO(node_->get_logger(),
+                "pick_up_object: face %d – %zu candidate(s)", fid,
+                indices.size());
+
+    for (size_t pos = 0; pos < indices.size(); ++pos) {
+      const size_t i = indices[pos];
+
+      const geometry_msgs::msg::Pose &grasp = grasp_candidates[i];
+      geometry_msgs::msg::Pose pregrasp = compute_pregrasp(grasp, pregrasp_dist);
+      geometry_msgs::msg::Pose lift = grasp;
+      lift.position.z += lift_dist;
+
       RCLCPP_INFO(node_->get_logger(),
-                  "pick_up_object: candidate %zu feasible, score=%.4f", i + 1,
-                  phases.score);
-      valid.push_back({grasp, std::move(phases)});
-    } else {
-      RCLCPP_DEBUG(node_->get_logger(),
-                   "pick_up_object: candidate %zu infeasible", i + 1);
+                  "pick_up_object: face %d, candidate %zu/%zu ...", fid,
+                  pos + 1, indices.size());
+      statuses[i] = 1;
+      publish_grasp_markers(grasp_candidates, statuses);
+
+      PickPhases phases;
+      if (plan_pickup_phases(pregrasp, grasp, lift, phases)) {
+        RCLCPP_INFO(node_->get_logger(),
+                    "pick_up_object: face %d satisfied on candidate %zu, "
+                    "score=%.4f — executing",
+                    fid, pos + 1, phases.score);
+        statuses[i] = 4;
+        publish_grasp_markers(grasp_candidates, statuses);
+        execute_pickup(phases);
+        return true;
+      }
+      statuses[i] = 3;
+      publish_grasp_markers(grasp_candidates, statuses);
     }
   }
 
-  if (valid.empty()) {
-    RCLCPP_ERROR(node_->get_logger(),
-                 "pick_up_object: no feasible grasp found for '%s'",
-                 object_name.c_str());
-    response->success = false;
-    return true;
-  }
-
-  // ---- Select the safest candidate (lowest total joint displacement) ----------
-  std::sort(valid.begin(), valid.end(), [](const Candidate &a, const Candidate &b) {
-    return a.phases.score < b.phases.score;
-  });
-  RCLCPP_INFO(node_->get_logger(),
-              "pick_up_object: %zu feasible candidates, executing safest "
-              "(score=%.4f)",
-              valid.size(), valid.front().phases.score);
-
-  const Candidate &best = valid.front();
-
-  // ---- Phase A: move to pregrasp (joint-space) --------------------------------
-  plan_ = best.phases.pregrasp_plan;
-  is_trajectory_ = false;
-  if (!execute_plan(true)) {
-    RCLCPP_ERROR(node_->get_logger(),
-                 "pick_up_object: pregrasp execution failed");
-    response->success = false;
-    return true;
-  }
-
-  // ---- Phase B: Cartesian approach --------------------------------------------
-  trajectory_ = best.phases.approach_traj;
-  is_trajectory_ = true;
-  if (!execute_plan(true)) {
-    RCLCPP_ERROR(node_->get_logger(),
-                 "pick_up_object: approach execution failed");
-    response->success = false;
-    return true;
-  }
-
-  // ---- Close gripper and attach object to the scene ---------------------------
-  gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(true));
-  std::this_thread::sleep_for(std::chrono::milliseconds(1500));
-
-  moveit_msgs::msg::AttachedCollisionObject attached;
-  attached.link_name = "gripper_base";
-  attached.object = obj;
-  attached.object.operation = moveit_msgs::msg::CollisionObject::ADD;
-  attached.touch_links = {"gripper_base"};
-  planning_scene_->applyAttachedCollisionObject(attached);
-
-  // ---- Phase C: Cartesian lift ------------------------------------------------
-  trajectory_ = best.phases.lift_traj;
-  is_trajectory_ = true;
-  if (!execute_plan(true)) {
-    RCLCPP_ERROR(node_->get_logger(), "pick_up_object: lift execution failed");
-    response->success = false;
-    return true;
-  }
-
-  RCLCPP_INFO(node_->get_logger(),
-              "pick_up_object: successfully picked up '%s'",
-              object_name.c_str());
-  response->success = true;
+  RCLCPP_ERROR(node_->get_logger(),
+               "pick_up_object: no feasible grasp found for '%s'",
+               object_name.c_str());
+  response->success = false;
   return true;
 }
 
@@ -653,7 +723,7 @@ bool CrackleManipulation::pick_up_object(
 std::vector<geometry_msgs::msg::Pose>
 CrackleManipulation::find_place_poses_on_table(
     const std::string &object_name, const std::string &table_name) {
-  constexpr double approach_dist_place = 0.12; // EEF offset above object centre
+  constexpr double approach_dist_place = 0.25; // EEF offset above object centre
   constexpr double clearance = 0.04;           // extra safety margin (m)
   constexpr double grid_step = 0.12;           // grid spacing (m)
   constexpr double edge_margin = 0.05;         // keep away from table edge (m)
@@ -800,17 +870,35 @@ CrackleManipulation::find_place_poses_on_table(
 bool CrackleManipulation::place_object(
     crackle_interfaces::srv::PlaceObject::Request::SharedPtr request,
     crackle_interfaces::srv::PlaceObject::Response::SharedPtr response) {
-  const std::string &object_name = request->object_name;
   const std::string &table_name =
       request->table_name.empty() ? "table" : request->table_name;
-
-  RCLCPP_INFO(node_->get_logger(), "place_object: placing '%s' on '%s'",
-              object_name.c_str(), table_name.c_str());
 
   if (!wait_for_current_state("place_object")) {
     response->success = false;
     return true;
   }
+
+  // Ignore request->object_name — place whatever is currently attached to the
+  // EEF. If multiple objects are attached, take the first one.
+  std::string object_name;
+  {
+    auto attached = planning_scene_->getAttachedObjects();
+    if (attached.empty()) {
+      RCLCPP_ERROR(node_->get_logger(),
+                   "place_object: nothing is attached to the gripper");
+      response->success = false;
+      return true;
+    }
+    object_name = attached.begin()->first;
+    if (attached.size() > 1) {
+      RCLCPP_WARN(node_->get_logger(),
+                  "place_object: %zu attached objects, placing '%s'",
+                  attached.size(), object_name.c_str());
+    }
+  }
+
+  RCLCPP_INFO(node_->get_logger(), "place_object: placing '%s' on '%s'",
+              object_name.c_str(), table_name.c_str());
 
   // ---- Discover free spots on the table -------------------------------------
   std::vector<geometry_msgs::msg::Pose> place_candidates =
@@ -825,7 +913,7 @@ bool CrackleManipulation::place_object(
   }
 
   // ---- Plan all three phases for each candidate; collect feasible ones ------
-  constexpr double preplace_dist = 0.20; // retreat from place along approach axis
+  constexpr double preplace_dist = 0.15; // retreat from place along approach axis
   constexpr double retreat_dist = 0.20;  // post-release retreat distance
 
   struct Candidate {
@@ -1380,203 +1468,377 @@ std::vector<std::vector<float>> CrackleManipulation::cuboid_handler(std::vector<
    
 }
 
+// Publish an arrow per grasp candidate, colored by planning status so we can
+// watch the pipeline evolve in rviz (MTC-style observability).
+void CrackleManipulation::publish_grasp_markers(
+    const std::vector<geometry_msgs::msg::Pose> &grasps,
+    const std::vector<int> &statuses) {
+  if (!grasp_markers_publisher_) return;
+
+  visualization_msgs::msg::MarkerArray arr;
+  arr.markers.reserve(grasps.size());
+  const auto now = node_->now();
+
+  for (size_t i = 0; i < grasps.size(); ++i) {
+    const int status = (i < statuses.size()) ? statuses[i] : 0;
+
+    // Color scheme by status
+    std_msgs::msg::ColorRGBA color;
+    color.a = 0.9f;
+    switch (status) {
+      case 1: color.r = 1.0f; color.g = 1.0f; color.b = 0.0f; break; // planning (yellow)
+      case 2: color.r = 0.0f; color.g = 1.0f; color.b = 0.0f; break; // feasible (green)
+      case 3: color.r = 1.0f; color.g = 0.0f; color.b = 0.0f; break; // infeasible (red)
+      case 4: color.r = 1.0f; color.g = 0.0f; color.b = 1.0f; break; // selected (magenta)
+      case 5: color.r = 0.5f; color.g = 0.5f; color.b = 0.5f; color.a = 0.4f; break; // skipped (gray)
+      case 0: default: color.r = 0.0f; color.g = 0.8f; color.b = 1.0f; break; // proposed (cyan)
+    }
+
+    // Arrow showing the approach direction. Tail at the grasp pose, head
+    // pointing along the tool-forward (+Z) axis into the object.
+    visualization_msgs::msg::Marker arrow;
+    arrow.header.frame_id = "world";
+    arrow.header.stamp = now;
+    arrow.ns = "grasp_candidates";
+    arrow.id = static_cast<int>(i);
+    arrow.type = visualization_msgs::msg::Marker::ARROW;
+    arrow.action = visualization_msgs::msg::Marker::ADD;
+    arrow.color = color;
+    // scale.x = shaft diameter, scale.y = head diameter, scale.z = head length
+    const double base_scale = (status == 4) ? 1.6 : 1.0;
+    arrow.scale.x = 0.008 * base_scale;
+    arrow.scale.y = 0.018 * base_scale;
+    arrow.scale.z = 0.020 * base_scale;
+
+    Eigen::Quaterniond q(grasps[i].orientation.w, grasps[i].orientation.x,
+                         grasps[i].orientation.y, grasps[i].orientation.z);
+    Eigen::Vector3d fwd = q * kToolForwardInTool;
+    const double len = 0.07 * base_scale;
+
+    geometry_msgs::msg::Point p0, p1;
+    p0.x = grasps[i].position.x;
+    p0.y = grasps[i].position.y;
+    p0.z = grasps[i].position.z;
+    p1.x = p0.x + fwd.x() * len;
+    p1.y = p0.y + fwd.y() * len;
+    p1.z = p0.z + fwd.z() * len;
+    arrow.points = {p0, p1};
+    arr.markers.push_back(arrow);
+
+    // Small sphere at the grasp position so the sampling grid is legible even
+    // when arrows overlap.
+    visualization_msgs::msg::Marker dot;
+    dot.header.frame_id = "world";
+    dot.header.stamp = now;
+    dot.ns = "grasp_candidates_points";
+    dot.id = static_cast<int>(i);
+    dot.type = visualization_msgs::msg::Marker::SPHERE;
+    dot.action = visualization_msgs::msg::Marker::ADD;
+    dot.color = color;
+    dot.scale.x = dot.scale.y = dot.scale.z = 0.012 * base_scale;
+    dot.pose.position = p0;
+    dot.pose.orientation.w = 1.0;
+    arr.markers.push_back(dot);
+  }
+
+  grasp_markers_publisher_->publish(arr);
+}
+
+void CrackleManipulation::clear_grasp_markers() {
+  if (!grasp_markers_publisher_) return;
+  visualization_msgs::msg::MarkerArray arr;
+  visualization_msgs::msg::Marker del;
+  del.header.frame_id = "world";
+  del.header.stamp = node_->now();
+  del.action = visualization_msgs::msg::Marker::DELETEALL;
+  arr.markers.push_back(del);
+  grasp_markers_publisher_->publish(arr);
+}
+
 std::vector<geometry_msgs::msg::Pose>
 CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object,
-                                     double approach_dist, double tool_width) {
+                                     double approach_dist, double tool_width,
+                                     std::vector<int> *face_ids_out) {
   (void)tool_width;
+  if (face_ids_out) face_ids_out->clear();
   std::vector<geometry_msgs::msg::Pose> grasp_poses;
 
-  // Object centre in the planning frame. object.pose is the object's world
-  // pose; primitive_poses[0] is the primitive offset within the object frame
-  // (identity for most objects).
-  const geometry_msgs::msg::Point &c = object.pose.position;
+  // Object centre in the planning frame.
+  const Eigen::Vector3d center(object.pose.position.x, object.pose.position.y,
+                               object.pose.position.z);
 
-    // Add a marker here for object.pose.position
+  // Drop a red sphere at the object centre so we can confirm alignment in rviz.
+  {
     visualization_msgs::msg::Marker marker;
     marker.header.frame_id = "world";
-    marker.header.stamp = rclcpp::Time();
+    marker.header.stamp = node_->now();
     marker.ns = "object_position";
     marker.id = 0;
     marker.type = visualization_msgs::msg::Marker::SPHERE;
     marker.action = visualization_msgs::msg::Marker::ADD;
     marker.pose.position = object.pose.position;
-    marker.scale.x = 0.1;
-    marker.scale.y = 0.1;
-    marker.scale.z = 0.1;
-    marker.color.r = 1.0;
-    marker.color.g = 0.0;
-    marker.color.b = 0.0;
-    marker.color.a = 1.0;
-
+    marker.pose.orientation.w = 1.0;
+    marker.scale.x = marker.scale.y = marker.scale.z = 0.05;
+    marker.color.r = 1.0f;
+    marker.color.a = 1.0f;
     marker_publisher_->publish(marker);
+  }
 
-  // Determine the object's half-height to target side grasps at mid-height.
-  double half_h = 0.0;
-  double half_l = 0.0;
-  double half_w = 0.0;
-  std::vector<geometry_msgs::msg::Point> basisVecs;
-
-  // for when we add an .stl
+  // Default the primitive to a BOX when the collision object has no type.
+  // This lets scene objects published without SolidPrimitive metadata still
+  // produce grasp candidates instead of bailing out.
   if (object.primitives.empty()) {
-    shape_msgs::msg::SolidPrimitive prim = shape_msgs::msg::SolidPrimitive();
+    shape_msgs::msg::SolidPrimitive prim;
     prim.type = shape_msgs::msg::SolidPrimitive::BOX;
-    object.primitives = {prim}; // Does this work??
-    RCLCPP_INFO(node_->get_logger(), "Added BOX Solid Primitive");
+    prim.dimensions = {0.05, 0.05, 0.05}; // safe default half-extents * 2
+    object.primitives.push_back(prim);
+    RCLCPP_INFO(node_->get_logger(),
+                "get_grasp_poses: no primitive on '%s', defaulting to BOX",
+                object.id.c_str());
+  }
+  if (object.primitives[0].type == 0) {
+    object.primitives[0].type = shape_msgs::msg::SolidPrimitive::BOX;
   }
 
-  if (object.primitives[0].type != shape_msgs::msg::SolidPrimitive::BOX){
-    RCLCPP_INFO(node_->get_logger(), "BOX Primitive not successfully added!");
-  }
-  if (object.meshes.empty()){
-    RCLCPP_INFO(node_->get_logger(), "Collision Object has no meshes!");
+  const auto &prim = object.primitives[0];
+
+  // Resolve (hx, hy, hz) half-extents and the rotation R that takes the
+  // object's local box frame into world coordinates.
+  //
+  // Preference order:
+  //   1. If a mesh is available AND cuboid_handler produces three orthogonal
+  //      edge vectors, use those (they already live in world frame).
+  //   2. Otherwise fall back to the SolidPrimitive dimensions combined with
+  //      object.pose.orientation — this is the common case for BOX objects
+  //      published straight from perception.
+  Eigen::Vector3d half_extents(0.05, 0.05, 0.05);
+  Eigen::Matrix3d R_world = Eigen::Matrix3d::Identity();
+  bool used_mesh_basis = false;
+
+  if (prim.type == shape_msgs::msg::SolidPrimitive::BOX && !object.meshes.empty()) {
+    std::vector<geometry_msgs::msg::Point> verts(
+        std::begin(object.meshes[0].vertices),
+        std::end(object.meshes[0].vertices));
+    if (verts.size() >= 4) {
+      try {
+        std::vector<std::vector<float>> basis = cuboid_handler(verts);
+        if (basis.size() == 3) {
+          Eigen::Vector3d bx(basis[0][0], basis[0][1], basis[0][2]);
+          Eigen::Vector3d by(basis[1][0], basis[1][1], basis[1][2]);
+          Eigen::Vector3d bz(basis[2][0], basis[2][1], basis[2][2]);
+          half_extents = Eigen::Vector3d(bx.norm() / 2.0, by.norm() / 2.0,
+                                          bz.norm() / 2.0);
+          R_world.col(0) = bx.normalized();
+          R_world.col(1) = by.normalized();
+          R_world.col(2) = bz.normalized();
+          // Enforce right-handedness.
+          if (R_world.determinant() < 0)
+            R_world.col(1) *= -1.0;
+          used_mesh_basis = true;
+        }
+      } catch (const std::exception &e) {
+        RCLCPP_WARN(node_->get_logger(),
+                    "cuboid_handler failed (%s); falling back to primitive",
+                    e.what());
+      }
+    }
   }
 
-  if (!object.primitives.empty()) {
-    const auto &p = object.primitives[0];
-    RCLCPP_INFO(node_->get_logger(), "Accessed first Primitive of CollisionObject");
-    switch (p.type) {
-    case shape_msgs::msg::SolidPrimitive::BOX:
-      if(!object.meshes.empty()){
-        std::vector<geometry_msgs::msg::Point> verts ( std::begin(object.meshes[0].vertices), std::end(object.meshes[0].vertices) );
-        RCLCPP_INFO(node_->get_logger(), "Initialized mesh vertices vector");
-        std::vector<std::vector<float>> cuboidReturn = cuboid_handler(verts);
-        for (std::vector<float> basisVecStdVec : cuboidReturn){
-          RCLCPP_INFO(node_->get_logger(), "Accessed returned vector");
-          geometry_msgs::msg::Point basisVec = geometry_msgs::msg::Point();
-          basisVec.x = basisVecStdVec[0];
-          basisVec.y = basisVecStdVec[1];
-          basisVec.z = basisVecStdVec[2];
-          basisVecs.push_back(basisVec);
-        } 
-        RCLCPP_INFO(node_->get_logger(), "Obtained mesh basis vectors");
-        double length = sqrt(pow(basisVecs[0].x, 2) + pow(basisVecs[0].y, 2) + pow(basisVecs[0].z, 2));
-        double width  = sqrt(pow(basisVecs[1].x, 2) + pow(basisVecs[1].y, 2) + pow(basisVecs[1].z, 2));
-        double height = sqrt(pow(basisVecs[2].x, 2) + pow(basisVecs[2].y, 2) + pow(basisVecs[2].z, 2));
-        half_l = length / 2.0;
-        half_w = width / 2.0;
-        half_h = height / 2.0;
-        RCLCPP_INFO(node_->get_logger(), "Box Dimensions: [%f %f %f]", length, width, height);
-      }
-      else{
-        half_h = p.dimensions[shape_msgs::msg::SolidPrimitive::BOX_Z] / 2.0;
+  if (!used_mesh_basis) {
+    using P = shape_msgs::msg::SolidPrimitive;
+    switch (prim.type) {
+    case P::BOX:
+      if (prim.dimensions.size() >= 3) {
+        half_extents = Eigen::Vector3d(prim.dimensions[P::BOX_X] / 2.0,
+                                       prim.dimensions[P::BOX_Y] / 2.0,
+                                       prim.dimensions[P::BOX_Z] / 2.0);
       }
       break;
-    case shape_msgs::msg::SolidPrimitive::CYLINDER:
-      half_h =
-          p.dimensions[shape_msgs::msg::SolidPrimitive::CYLINDER_HEIGHT] / 2.0;
+    case P::CYLINDER:
+      if (prim.dimensions.size() >= 2) {
+        const double r = prim.dimensions[P::CYLINDER_RADIUS];
+        half_extents = Eigen::Vector3d(
+            r, r, prim.dimensions[P::CYLINDER_HEIGHT] / 2.0);
+      }
       break;
-    case shape_msgs::msg::SolidPrimitive::SPHERE:
-      half_h = p.dimensions[shape_msgs::msg::SolidPrimitive::SPHERE_RADIUS];
-      RCLCPP_INFO(node_->get_logger(), "Found sphere radius");
+    case P::SPHERE:
+      if (!prim.dimensions.empty()) {
+        const double r = prim.dimensions[P::SPHERE_RADIUS];
+        half_extents = Eigen::Vector3d(r, r, r);
+      }
       break;
     default:
       break;
     }
+    Eigen::Quaterniond q(object.pose.orientation.w, object.pose.orientation.x,
+                         object.pose.orientation.y, object.pose.orientation.z);
+    if (q.norm() < 1e-6) q = Eigen::Quaterniond::Identity();
+    R_world = q.normalized().toRotationMatrix();
   }
 
-  // Each approach is defined by:
-  //   offset  – gripper position relative to object centre (world frame)
-  //   to_dir  – direction tool +Z points into the object (world frame)
-  //   up      – world-up hint passed to lookAtQuat
-  struct Approach {
-    Eigen::Vector3d offset;
-    Eigen::Vector3d to_dir;
-    Eigen::Vector3d up;
+  RCLCPP_INFO(node_->get_logger(),
+              "get_grasp_poses: '%s' half_extents=[%.3f %.3f %.3f] (%s basis)",
+              object.id.c_str(), half_extents.x(), half_extents.y(),
+              half_extents.z(), used_mesh_basis ? "mesh" : "primitive");
+
+  // A face is described by the body axis it is normal to (±X, ±Y, ±Z) and the
+  // two in-plane axes we tile across. Axis indices: 0=X, 1=Y, 2=Z.
+  struct Face {
+    int normal_axis;
+    int sign; // +1 or -1
+    int u_axis;
+    int v_axis;
+  };
+  const std::vector<Face> faces = {
+      {2, +1, 0, 1}, // +Z top
+      {2, -1, 0, 1}, // -Z bottom (usually skipped)
+      {0, +1, 1, 2}, // +X
+      {0, -1, 1, 2}, // -X
+      {1, +1, 0, 2}, // +Y
+      {1, -1, 0, 2}, // -Y
   };
 
-  const std::vector<Approach> approaches = {
-      // 1. Top-down: tool +Z points toward -Z world (downward)
-      {{0.0, 0.0, half_h + approach_dist}, {0.0, 0.0, -1.0}, {0.0, 1.0, 0.0}},
-      // 2. From +X side: tool +Z points toward -X world
-      {{approach_dist + half_h, 0.0, 0.0}, {-1.0, 0.0, 0.0}, {0.0, 0.0, 1.0}},
-      // 3. From -X side: tool +Z points toward +X world
-      {{-approach_dist - half_h, 0.0, 0.0}, {1.0, 0.0, 0.0}, {0.0, 0.0, 1.0}},
-      // 4. From +Y side: tool +Z points toward -Y world
-      {{0.0, approach_dist + half_h, 0.0}, {0.0, -1.0, 0.0}, {0.0, 0.0, 1.0}},
-      // 5. From -Y side: tool +Z points toward +Y world
-      {{0.0, -approach_dist - half_h, 0.0}, {0.0, 1.0, 0.0}, {0.0, 0.0, 1.0}},
+  // Decide which face is the "bottom" in world frame so we can skip it: the
+  // face whose outward world-normal points most strongly along -Z.
+  int skip_index = -1;
+  double most_down = 1.0; // anything < 0 beats the sentinel
+  for (size_t i = 0; i < faces.size(); ++i) {
+    const Eigen::Vector3d n_world =
+        faces[i].sign * R_world.col(faces[i].normal_axis);
+    if (n_world.z() < most_down) {
+      most_down = n_world.z();
+      skip_index = static_cast<int>(i);
+    }
+  }
+
+  // Also skip the face whose outward normal points most directly away from the
+  // arm's base (i.e. the face on the far side of the object). Grasping that
+  // face would require reaching around the object and almost always fails IK.
+  Eigen::Vector3d arm_base_world = Eigen::Vector3d::Zero();
+  bool have_arm_base = false;
+  try {
+    moveit::core::RobotStatePtr state = move_group_->getCurrentState(1.0);
+    if (state) {
+      const auto *jmg = move_group_->getRobotModel()->getJointModelGroup(
+          move_group_->getName());
+      if (jmg) {
+        const auto &link_names = jmg->getLinkModelNames();
+        if (!link_names.empty()) {
+          const auto &tf = state->getGlobalLinkTransform(link_names.front());
+          arm_base_world = tf.translation();
+          have_arm_base = true;
+          RCLCPP_INFO(node_->get_logger(),
+                      "get_grasp_poses: arm base '%s' at [%.3f %.3f %.3f]",
+                      link_names.front().c_str(), arm_base_world.x(),
+                      arm_base_world.y(), arm_base_world.z());
+        }
+      }
+    }
+  } catch (const std::exception &e) {
+    RCLCPP_WARN(node_->get_logger(),
+                "get_grasp_poses: could not resolve arm base (%s)", e.what());
+  }
+
+  int skip_far_index = -1;
+  if (have_arm_base) {
+    Eigen::Vector3d base_to_obj = center - arm_base_world;
+    if (base_to_obj.norm() > 1e-6) {
+      base_to_obj.normalize();
+      double most_away = 0.0;
+      for (size_t i = 0; i < faces.size(); ++i) {
+        const Eigen::Vector3d n =
+            faces[i].sign * R_world.col(faces[i].normal_axis);
+        // + dot product means the face's outward normal is aligned with the
+        // base->object direction, i.e. the face sits on the far side of the
+        // object relative to the arm.
+        const double d = n.dot(base_to_obj);
+        if (d > most_away) {
+          most_away = d;
+          skip_far_index = static_cast<int>(i);
+        }
+      }
+    }
+  }
+
+  // Grid density per face. 3x3 on the broad top face, 2x2 on sides keeps the
+  // candidate count manageable while still probing each flat surface.
+  auto grid_size = [](const Face &f) -> std::pair<int, int> {
+    if (f.normal_axis == 2) return {3, 3}; // top / bottom
+    return {2, 2};                          // sides
   };
 
-  std::vector<Approach> oriented_approaches = {};
+  // Keep a small inset so grasps don't sit exactly on the edge of the face.
+  constexpr double kEdgeInset = 0.8;
 
-  if (object.primitives[0].type == shape_msgs::msg::SolidPrimitive::BOX){
-    // Normalize the basis / "edge" vectors
-    std::vector<geometry_msgs::msg::Point> normalizedBasisVecs;
-    for (geometry_msgs::msg::Point basisVec : basisVecs){
-      geometry_msgs::msg::Point normalized_vec = geometry_msgs::msg::Point();
-      double mag = sqrt(pow(basisVec.x, 2) + pow(basisVec.y, 2) + pow(basisVec.z, 2));
-      normalized_vec.x = basisVec.x / mag;
-      normalized_vec.y = basisVec.y / mag;
-      normalized_vec.z = basisVec.z / mag;
-      normalizedBasisVecs.push_back(normalized_vec);
+  for (size_t fi = 0; fi < faces.size(); ++fi) {
+    if (static_cast<int>(fi) == skip_index ||
+        static_cast<int>(fi) == skip_far_index)
+      continue;
+    const Face &f = faces[fi];
+
+    const Eigen::Vector3d n_world = f.sign * R_world.col(f.normal_axis);
+    const Eigen::Vector3d u_world = R_world.col(f.u_axis);
+    const Eigen::Vector3d v_world = R_world.col(f.v_axis);
+
+    const double h_face = half_extents[f.normal_axis];
+    const double h_u = half_extents[f.u_axis] * kEdgeInset;
+    const double h_v = half_extents[f.v_axis] * kEdgeInset;
+
+    // "up" hint passed to lookAtQuat: prefer world-Z unless the approach is
+    // already vertical (top-down / bottom-up), in which case fall back to one
+    // of the in-plane axes to keep the gripper roll stable.
+    Eigen::Vector3d up_hint = Eigen::Vector3d::UnitZ();
+    if (std::abs(n_world.dot(up_hint)) > 0.95)
+      up_hint = u_world;
+
+    auto [nu, nv] = grid_size(f);
+
+    // Order grid points by distance to the face centre so that the first
+    // candidate the pickup loop plans on this face is the one most likely to
+    // succeed — this pairs with the per-face early-exit heuristic.
+    std::vector<std::pair<double, double>> grid;
+    grid.reserve(static_cast<size_t>(nu * nv));
+    for (int iu = 0; iu < nu; ++iu) {
+      for (int iv = 0; iv < nv; ++iv) {
+        const double tu = (nu == 1) ? 0.0
+                                    : -1.0 + 2.0 * static_cast<double>(iu) /
+                                                 static_cast<double>(nu - 1);
+        const double tv = (nv == 1) ? 0.0
+                                    : -1.0 + 2.0 * static_cast<double>(iv) /
+                                                 static_cast<double>(nv - 1);
+        grid.emplace_back(tu, tv);
+      }
     }
+    std::sort(grid.begin(), grid.end(),
+              [](const auto &a, const auto &b) {
+                return a.first * a.first + a.second * a.second <
+                       b.first * b.first + b.second * b.second;
+              });
 
-    // 1. Top-down: tool +Z points toward -Height of box ("downward")
-    // The grasp_pose position is approach_dist away from the face of the box normal to the height (by adding half_h, we get from the box center to the face normal to height)
-    Approach top_down = {{normalizedBasisVecs[2].x*(half_h + approach_dist), 
-                        normalizedBasisVecs[2].y*(half_h + approach_dist), 
-                        normalizedBasisVecs[2].z*(half_h + approach_dist)}, // tool pos
-                      {-normalizedBasisVecs[2].x, -normalizedBasisVecs[2].y, -normalizedBasisVecs[2].z}, // tool to_dir
-                      {normalizedBasisVecs[0].x, normalizedBasisVecs[0].y, normalizedBasisVecs[0].z}}; // using the length (longest edge) as the "up" direction. Hopefully this means that the gripper will close in along the shorter edge i.e. transverse rather than longitudinal grip 
-    oriented_approaches.push_back(top_down);
+    for (const auto &[tu, tv] : grid) {
+      const Eigen::Vector3d surface_point =
+          center + n_world * h_face + u_world * (tu * h_u) +
+          v_world * (tv * h_v);
+      const Eigen::Vector3d grasp_pt =
+          surface_point + n_world * approach_dist;
 
-    // 2. From +Length side: tool +Z points toward -Length. Use +Height as "up" for tool.
-    // The grasp_pose position is approach_dist away from the face of the box normal to the length (by adding half_l, we get from the box center to the face normal to length)
-    Approach length_on = {{normalizedBasisVecs[0].x*(half_l + approach_dist), 
-                        normalizedBasisVecs[0].y*(half_l + approach_dist), 
-                        normalizedBasisVecs[0].z*(half_l + approach_dist)}, // tool pos
-                        {-normalizedBasisVecs[0].x, -normalizedBasisVecs[0].y, -normalizedBasisVecs[0].z}, // tool to_dir
-                        {normalizedBasisVecs[2].x, normalizedBasisVecs[2].y, normalizedBasisVecs[2].z}}; // tool up
-    oriented_approaches.push_back(length_on);
-
-    // 3. From -Length side: tool +Z points toward +Length. Use +Height as "up" for tool.
-    Approach length_on_opp = {{-normalizedBasisVecs[0].x*(half_l + approach_dist), 
-                            -normalizedBasisVecs[0].y*(half_l + approach_dist), 
-                            -normalizedBasisVecs[0].z*(half_l + approach_dist)}, // tool pos
-                            {normalizedBasisVecs[0].x, normalizedBasisVecs[0].y, normalizedBasisVecs[0].z}, // tool to_dir
-                            {normalizedBasisVecs[2].x, normalizedBasisVecs[2].y, normalizedBasisVecs[2].z}}; // tool up
-    oriented_approaches.push_back(length_on_opp);
-
-    // 4. From +Width side: tool +Z points toward -Width. Use +Height as "up" for tool.
-    // The grasp_pose position is approach_dist away from the face of the box normal to the width (by adding half_w, we get from the box center to the face normal to width)
-    Approach width_on = {{normalizedBasisVecs[1].x*(half_w + approach_dist), 
-                        normalizedBasisVecs[1].y*(half_w + approach_dist), 
-                        normalizedBasisVecs[1].z*(half_w + approach_dist)}, // tool pos
-                      {-normalizedBasisVecs[1].x, -normalizedBasisVecs[1].y, -normalizedBasisVecs[1].z}, // tool to_dir
-                      {normalizedBasisVecs[2].x, normalizedBasisVecs[2].y, normalizedBasisVecs[2].z}}; // tool up
-    oriented_approaches.push_back(width_on);
-
-    // 5. From -Width side: tool +Z points toward +Width. Use +Height as "up" for tool.
-    Approach width_on_opp = {{-normalizedBasisVecs[1].x*(half_w + approach_dist), 
-                            -normalizedBasisVecs[1].y*(half_w + approach_dist), 
-                            -normalizedBasisVecs[1].z*(half_w + approach_dist)}, // tool pos
-                          {normalizedBasisVecs[1].x, normalizedBasisVecs[1].y, normalizedBasisVecs[1].z}, // tool to_dir
-                          {normalizedBasisVecs[2].x, normalizedBasisVecs[2].y, normalizedBasisVecs[2].z}}; // tool up
-    oriented_approaches.push_back(width_on_opp);
+      geometry_msgs::msg::Pose grasp;
+      grasp.position.x = grasp_pt.x();
+      grasp.position.y = grasp_pt.y();
+      grasp.position.z = grasp_pt.z();
+      grasp.orientation = lookAtQuat(-n_world, up_hint, kToolForwardInTool);
+      grasp_poses.push_back(grasp);
+      if (face_ids_out) face_ids_out->push_back(static_cast<int>(fi));
+    }
   }
 
-  if (object.primitives[0].type == shape_msgs::msg::SolidPrimitive::SPHERE){
-    for (const auto &a : approaches) {
-      geometry_msgs::msg::Pose grasp;
-      // remember: const geometry_msgs::msg::Point &c = object.pose.position;
-      grasp.position.x = c.x + a.offset.x();
-      grasp.position.y = c.y + a.offset.y();
-      grasp.position.z = c.z + a.offset.z();
-      grasp.orientation = lookAtQuat(a.to_dir, a.up, kToolForwardInTool);
-      grasp_poses.push_back(grasp);
-    }
-  } 
-  else if (object.primitives[0].type == shape_msgs::msg::SolidPrimitive::BOX){
-    for (const auto &a : oriented_approaches) {
-      geometry_msgs::msg::Pose grasp;
-      // remember: const geometry_msgs::msg::Point &c = object.pose.position;
-      grasp.position.x = c.x + a.offset.x();
-      grasp.position.y = c.y + a.offset.y();
-      grasp.position.z = c.z + a.offset.z();
-      grasp.orientation = lookAtQuat(a.to_dir, a.up, kToolForwardInTool);
-      grasp_poses.push_back(grasp);
-    }
-  }
+  const size_t kept_faces = faces.size() -
+                            (skip_index >= 0 ? 1u : 0u) -
+                            (skip_far_index >= 0 ? 1u : 0u);
+  RCLCPP_INFO(node_->get_logger(),
+              "get_grasp_poses: generated %zu candidates across %zu faces "
+              "(skipped bottom=%d, far=%d)",
+              grasp_poses.size(), kept_faces, skip_index, skip_far_index);
 
   return grasp_poses;
 }

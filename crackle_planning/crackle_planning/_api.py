@@ -1,10 +1,15 @@
 import os
+import json
 import threading
 import atexit
 from typing import Any, Dict, List, Optional
 
 # MOVE LATER
 import numpy as np
+
+SEARCH_POSES_FILE = os.path.expanduser(
+    "~/crackle_ws/src/crackle/crackle_planning/crackle_planning/search_poses.json"
+)
 
 
 def _create_openai_client():
@@ -145,6 +150,39 @@ class PlannerAPI:
             len(scene_objects),
         )
 
+    def _load_search_poses(self):
+        """Load the hardcoded list of end-effector search poses from JSON.
+
+        Each entry has `position` (x/y/z in metres) and `rpy` (roll/pitch/yaw
+        in degrees, intrinsic XYZ). RPY is converted to a quaternion here.
+        """
+        from geometry_msgs.msg import Pose
+        import math
+        try:
+            with open(SEARCH_POSES_FILE, "r") as f:
+                data = json.load(f)
+        except FileNotFoundError:
+            print(f"Search poses file not found: {SEARCH_POSES_FILE}")
+            return []
+        poses = []
+        for entry in data.get("search_poses", []):
+            pose = Pose()
+            pose.position.x = float(entry["position"]["x"])
+            pose.position.y = float(entry["position"]["y"])
+            pose.position.z = float(entry["position"]["z"])
+            roll = math.radians(float(entry["rpy"]["r"]))
+            pitch = math.radians(float(entry["rpy"]["p"]))
+            yaw = math.radians(float(entry["rpy"]["y"]))
+            cr, sr = math.cos(roll / 2.0), math.sin(roll / 2.0)
+            cp, sp = math.cos(pitch / 2.0), math.sin(pitch / 2.0)
+            cy, sy = math.cos(yaw / 2.0), math.sin(yaw / 2.0)
+            pose.orientation.w = cr * cp * cy + sr * sp * sy
+            pose.orientation.x = sr * cp * cy - cr * sp * sy
+            pose.orientation.y = cr * sp * cy + sr * cp * sy
+            pose.orientation.z = cr * cp * sy - sr * sp * cy
+            poses.append(pose)
+        return poses
+
     def pick_up(self, object_name: str):
         """Pick up the named object using the robot's gripper."""
         if self.gripper_occupied:
@@ -155,12 +193,24 @@ class PlannerAPI:
             scene_objects = self.ros_interface.get_scene_object_names()
             matched_name = self._find_similar_object(object_name, scene_objects)
 
-            # If no close enough match, use vision to detect and add the object
+            # If no close enough match, sweep the hardcoded search poses and
+            # call find_objects from each view until the target shows up.
             if matched_name is None:
-                print(f"Object '{object_name}' not found in scene. Calling find_objects...")
-                found_names = self.ros_interface.call_find_objects([object_name])
-                if found_names:
-                    matched_name = found_names[0]
+                search_poses = self._load_search_poses()
+                if not search_poses:
+                    print("No search poses loaded; cannot scan for object.")
+                else:
+                    print(f"Object '{object_name}' not in scene — sweeping {len(search_poses)} search pose(s)...")
+                for i, pose in enumerate(search_poses):
+                    print(f"Moving to search pose {i + 1}/{len(search_poses)}...")
+                    if not self.ros_interface.move_to_pose(pose):
+                        print(f"Failed to reach search pose {i + 1}; skipping.")
+                        continue
+                    found_names = self.ros_interface.call_find_objects([object_name])
+                    if found_names:
+                        matched_name = found_names[0]
+                        print(f"Found '{matched_name}' at search pose {i + 1}.")
+                        break
 
             if matched_name is None:
                 print(f"Could not find object '{object_name}' in the scene.")

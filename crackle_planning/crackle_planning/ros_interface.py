@@ -2,7 +2,7 @@ from typing import List, Optional
 import time
 import rclpy
 import numpy as np
-from crackle_interfaces.srv import FindObjects, PickupObject, LookAt
+from crackle_interfaces.srv import FindObjects, PickupObject, LookAt, PlanPose, ExecutePlan
 from moveit_msgs.srv import GetPlanningScene
 
 
@@ -114,6 +114,14 @@ class RosInterface:
             FindObjects, "vision/find_objects"
         )
 
+        self.__plan_pose_client = node.create_client(
+            PlanPose, "crackle_manipulation/plan_pose"
+        )
+
+        self.__execute_plan_client = node.create_client(
+            ExecutePlan, "crackle_manipulation/execute_plan"
+        )
+
     def update_color_image(self, msg: Image):
         """Store the latest color image from the camera."""
         self._latest_image = msg
@@ -182,6 +190,31 @@ class RosInterface:
             return []
         self._node.get_logger().info(f"FindObjects returned: {result.names}")
         return list(result.names)
+
+    def move_to_pose(self, pose) -> bool:
+        """Plan to and execute a motion to the given end-effector pose. Blocks until the motion finishes."""
+        if not self.__plan_pose_client.wait_for_service(timeout_sec=2.0):
+            self._node.get_logger().warn("plan_pose service not available")
+            return False
+        plan_req = PlanPose.Request()
+        plan_req.target_pose = pose
+        plan_future = self.__plan_pose_client.call_async(plan_req)
+        plan_result = self._wait_for_future(plan_future, timeout=15.0)
+        if plan_result is None or not plan_result.success:
+            self._node.get_logger().warn("plan_pose failed")
+            return False
+
+        if not self.__execute_plan_client.wait_for_service(timeout_sec=2.0):
+            self._node.get_logger().warn("execute_plan service not available")
+            return False
+        exec_req = ExecutePlan.Request()
+        exec_req.wait = True
+        exec_future = self.__execute_plan_client.call_async(exec_req)
+        exec_result = self._wait_for_future(exec_future, timeout=30.0)
+        if exec_result is None or not exec_result.success:
+            self._node.get_logger().warn("execute_plan failed")
+            return False
+        return True
 
     def call_pickup_service(self, object_name: str):
         """Call the manipulation pickup service for the given object name."""
