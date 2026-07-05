@@ -298,6 +298,18 @@ class CrackleFSM:
         silence_frames_needed = int(silence_duration * chunks_per_second)
         start_timeout_frames = int(start_timeout * chunks_per_second)
 
+        # Calibrate noise floor over ~0.3s so the VAD threshold adapts to the
+        # mic gain / ambient noise level of whatever machine we're running on.
+        calibration_frames = int(0.3 * chunks_per_second)
+        noise_rmses = []
+        for _ in range(calibration_frames):
+            raw = self._parec_proc.stdout.read(self._mic_chunk * 2)
+            s = np.frombuffer(raw, dtype=np.int16)
+            noise_rmses.append(float(np.sqrt(np.mean(s.astype(np.float32) ** 2))))
+        noise_floor = float(np.mean(noise_rmses))
+        adaptive_threshold = max(silence_rms_threshold, noise_floor * 3.0)
+        print(f"[VAD] noise_floor={noise_floor:.0f}  threshold={adaptive_threshold:.0f}")
+
         buf = []
         has_spoken = False
         silent_count = 0
@@ -309,7 +321,7 @@ class CrackleFSM:
 
             rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
 
-            if rms > silence_rms_threshold:
+            if rms > adaptive_threshold:
                 has_spoken = True
                 silent_count = 0
             else:
