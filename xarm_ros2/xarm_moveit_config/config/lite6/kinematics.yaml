@@ -1,6 +1,16 @@
 lite6:
-  kinematics_solver: kdl_kinematics_plugin/KDLKinematicsPlugin
-  # kinematics_solver: trac_ik_kinematics_plugin/TRAC_IKKinematicsPlugin
-  kinematics_solver_search_resolution: 0.005
-  kinematics_solver_timeout: 0.005
+  # pick_ik (ros-humble-pick-ik): modern global+local IK solver, faster/more
+  # robust than KDL. Install with: sudo apt install ros-humble-pick-ik
+  # To fall back to KDL, comment the pick_ik block and restore the KDL line.
+  kinematics_solver: pick_ik/PickIkPlugin
+  kinematics_solver_timeout: 0.05
   kinematics_solver_attempts: 3
+  mode: global               # robust for grasp-candidate screening; "local" is faster when seeded
+  position_threshold: 0.001
+  orientation_threshold: 0.01
+  cost_threshold: 0.001
+  # --- KDL fallback (uncomment if pick_ik is not installed) ---
+  # kinematics_solver: kdl_kinematics_plugin/KDLKinematicsPlugin
+  # kinematics_solver_search_resolution: 0.005
+  # kinematics_solver_timeout: 0.005
+  # kinematics_solver_attempts: 3

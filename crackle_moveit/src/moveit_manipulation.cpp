@@ -31,6 +31,17 @@
 #include <crackle_moveit/moveit_manipulation.hpp>
 #include <vector>
 
+// MTC stages used to build the pickup task.
+#include <moveit/task_constructor/container.h>
+#include <moveit/task_constructor/stages/current_state.h>
+#include <moveit/task_constructor/stages/connect.h>
+#include <moveit/task_constructor/stages/fixed_cartesian_poses.h>
+#include <moveit/task_constructor/stages/compute_ik.h>
+#include <moveit/task_constructor/stages/modify_planning_scene.h>
+#include <moveit/task_constructor/stages/move_relative.h>
+#include <moveit_task_constructor_msgs/msg/solution.hpp>
+#include <geometry_msgs/msg/vector3_stamped.hpp>
+
 const double jump_threshold = 0.0;
 const double eef_step = 0.001;
 const double max_velocity_scaling_factor =
@@ -104,7 +115,13 @@ static double primitive_height(const shape_msgs::msg::SolidPrimitive &p) {
 
 CrackleManipulation::CrackleManipulation(const std::string &group_name)
     : logger_(rclcpp::get_logger("crackle_moveit_manipulation_node")) {
-  node_ = rclcpp::Node::make_shared("crackle_moveit_manipulation_node");
+  // Auto-declare parameters from overrides so the planning-pipeline parameters
+  // (e.g. ompl.planning_plugin, ompl.<group>) forwarded by the launch file are
+  // visible to the MTC PipelinePlanner built on this node.
+  rclcpp::NodeOptions node_options;
+  node_options.automatically_declare_parameters_from_overrides(true);
+  node_ = rclcpp::Node::make_shared("crackle_moveit_manipulation_node",
+                                    node_options);
 
   have_joint_state_ = false;
   last_joint_state_stamp_ = node_->now();
@@ -121,13 +138,13 @@ CrackleManipulation::CrackleManipulation(const std::string &group_name)
   pickup_service_ =
       node_->create_service<crackle_interfaces::srv::PickupObject>(
           "crackle_manipulation/pickup_object",
-          std::bind(&CrackleManipulation::pick_up_object, this,
+          std::bind(&CrackleManipulation::pick_up_object_mtc, this,
                     std::placeholders::_1, std::placeholders::_2),
           rmw_qos_profile_services_default, services_cb_group_);
   place_service_ =
       node_->create_service<crackle_interfaces::srv::PlaceObject>(
           "crackle_manipulation/place_object",
-          std::bind(&CrackleManipulation::place_object, this,
+          std::bind(&CrackleManipulation::place_object_mtc, this,
                     std::placeholders::_1, std::placeholders::_2),
           rmw_qos_profile_services_default, services_cb_group_);
   look_at_service_ = node_->create_service<crackle_interfaces::srv::LookAt>(
@@ -685,6 +702,460 @@ bool CrackleManipulation::pick_up_object(
                "pick_up_object: no feasible grasp found for '%s'",
                object_name.c_str());
   response->success = false;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// MTC-based pickup pipeline
+// ---------------------------------------------------------------------------
+
+namespace mtc = moveit::task_constructor;
+
+// Attach link the object is bound to when grasped (matches legacy pick_up_object).
+static const char *kAttachLink = "gripper_base";
+
+bool CrackleManipulation::build_manipulation_task(
+    const std::string &object_id,
+    const std::vector<geometry_msgs::msg::Pose> &target_poses,
+    double approach_move, double retreat_move, bool attach, mtc::Task &task) {
+  const std::string arm_group = move_group_->getName();
+  const std::string ik_frame = move_group_->getEndEffectorLink();
+  const std::string planning_frame = move_group_->getPlanningFrame();
+
+  task.stages()->setName((attach ? "pick_" : "place_") + object_id);
+  // Reuse the move group's stable robot model instance rather than loading a
+  // fresh one each call. loadRobotModel() would create a new model every time,
+  // which then mismatches the cached PipelinePlanner (initialised with the
+  // first call's model) and aborts planning on the second task.
+  task.setRobotModel(move_group_->getRobotModel());
+
+  // ---- Solvers (lazy, reused across calls) ----------------------------------
+  if (!mtc_sampling_planner_) {
+    mtc_sampling_planner_ =
+        std::make_shared<mtc::solvers::PipelinePlanner>(node_, "ompl");
+  }
+  mtc_sampling_planner_->setPlannerId("RRTConnect");
+  mtc_sampling_planner_->setMaxVelocityScalingFactor(max_velocity_scaling_factor);
+  mtc_sampling_planner_->setMaxAccelerationScalingFactor(
+      max_acceleration_scaling_factor);
+
+  if (!mtc_cartesian_planner_) {
+    mtc_cartesian_planner_ = std::make_shared<mtc::solvers::CartesianPath>();
+  }
+  mtc_cartesian_planner_->setMaxVelocityScalingFactor(max_velocity_scaling_factor);
+  mtc_cartesian_planner_->setMaxAccelerationScalingFactor(
+      max_acceleration_scaling_factor);
+  mtc_cartesian_planner_->setStepSize(0.005); // 5 mm – far coarser than legacy 1 mm
+  mtc_cartesian_planner_->setJumpThreshold(0.0);
+  mtc_cartesian_planner_->setMinFraction(0.9);
+
+  // ---- 1. Current state -----------------------------------------------------
+  mtc::Stage *current_state_ptr = nullptr;
+  {
+    auto current = std::make_unique<mtc::stages::CurrentState>("current");
+    current_state_ptr = current.get();
+    task.add(std::move(current));
+  }
+
+  // ---- 2. Connect current -> pre-grasp (free-space, RRTConnect) -------------
+  {
+    auto connect = std::make_unique<mtc::stages::Connect>(
+        "move to pre-grasp",
+        mtc::stages::Connect::GroupPlannerVector{{arm_group, mtc_sampling_planner_}});
+    connect->setTimeout(5.0);
+    task.add(std::move(connect));
+  }
+
+  // ---- 3. Serial: approach -> target IK -> attach/detach -> retreat ---------
+  {
+    auto seq = std::make_unique<mtc::SerialContainer>(attach ? "pick" : "place");
+
+    // 3a. Cartesian approach along the tool-forward (+Z) axis toward the target.
+    //     For a top-down target this descends onto the object / table.
+    {
+      auto approach =
+          std::make_unique<mtc::stages::MoveRelative>("approach", mtc_cartesian_planner_);
+      approach->setGroup(arm_group);
+      approach->setIKFrame(ik_frame);
+      approach->setMinMaxDistance(approach_move * 0.5, approach_move);
+      geometry_msgs::msg::Vector3Stamped dir;
+      dir.header.frame_id = ik_frame; // tool frame
+      dir.vector.z = 1.0;             // +Z = tool forward, toward the target
+      approach->setDirection(dir);
+      seq->insert(std::move(approach));
+    }
+
+    // 3b. Target-pose generator (all candidates) wrapped in ComputeIK. IK +
+    //     collision checking here prunes unreachable / colliding poses cheaply
+    //     and MTC ranks the survivors by cost.
+    {
+      auto gen = std::make_unique<mtc::stages::FixedCartesianPoses>("target poses");
+      gen->setMonitoredStage(current_state_ptr);
+      for (const auto &p : target_poses) {
+        geometry_msgs::msg::PoseStamped ps;
+        ps.header.frame_id = planning_frame;
+        ps.pose = p;
+        gen->addPose(ps);
+      }
+
+      auto ik = std::make_unique<mtc::stages::ComputeIK>("target IK", std::move(gen));
+      ik->setGroup(arm_group);
+      ik->setIKFrame(ik_frame);
+      ik->setMaxIKSolutions(4);
+      ik->setIgnoreCollisions(false);
+      // The target pose is supplied per-candidate by the generator on the
+      // interface state; ComputeIK must be told to source it from there.
+      ik->properties().configureInitFrom(mtc::Stage::INTERFACE, {"target_pose"});
+      seq->insert(std::move(ik));
+    }
+
+    // 3c. Attach (pick) or detach (place) the object so the retreat is planned
+    //     collision-correctly.
+    {
+      auto modify =
+          std::make_unique<mtc::stages::ModifyPlanningScene>(attach ? "attach object"
+                                                                    : "detach object");
+      if (attach)
+        modify->attachObject(object_id, kAttachLink);
+      else
+        modify->detachObject(object_id, kAttachLink);
+      seq->insert(std::move(modify));
+    }
+
+    // 3d. Cartesian retreat straight up (world +Z).
+    {
+      auto retreat =
+          std::make_unique<mtc::stages::MoveRelative>("retreat", mtc_cartesian_planner_);
+      retreat->setGroup(arm_group);
+      retreat->setIKFrame(ik_frame);
+      retreat->setMinMaxDistance(retreat_move * 0.5, retreat_move);
+      geometry_msgs::msg::Vector3Stamped dir;
+      dir.header.frame_id = planning_frame; // world
+      dir.vector.z = 1.0;
+      retreat->setDirection(dir);
+      seq->insert(std::move(retreat));
+    }
+
+    task.add(std::move(seq));
+  }
+
+  return true;
+}
+
+bool CrackleManipulation::execute_manipulation_solution(
+    const mtc::SolutionBase &solution,
+    const moveit_msgs::msg::CollisionObject &obj, bool is_pick, std::string &err) {
+  moveit_task_constructor_msgs::msg::Solution msg;
+  solution.toMsg(msg, nullptr);
+
+  // Collect the trajectory-bearing segments in execution order. Generator and
+  // scene-modification stages contribute empty trajectories, which we skip.
+  // The ordered result is [connect (current->pre), approach (->target),
+  // retreat (->up)]; the final segment is always the retreat.
+  std::vector<moveit_msgs::msg::RobotTrajectory> segments;
+  for (const auto &st : msg.sub_trajectory) {
+    if (!st.trajectory.joint_trajectory.points.empty())
+      segments.push_back(st.trajectory);
+  }
+  if (segments.empty()) {
+    err = "solution contained no executable trajectory";
+    return false;
+  }
+
+  // For pick, open the gripper before moving so the scene state is correct.
+  // For place, the object is held, so leave the gripper closed until release.
+  if (is_pick)
+    gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(false));
+
+  // Execute everything up to (but not including) the retreat: reach the target.
+  for (size_t i = 0; i + 1 < segments.size(); ++i) {
+    trajectory_ = segments[i];
+    is_trajectory_ = true;
+    if (!execute_plan(true)) {
+      err = "reach segment " + std::to_string(i) + " failed";
+      return false;
+    }
+  }
+
+  if (is_pick) {
+    // Close the gripper and attach the object in the real planning scene.
+    gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(true));
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+
+    moveit_msgs::msg::AttachedCollisionObject attached;
+    attached.link_name = kAttachLink;
+    attached.object = obj;
+    attached.object.operation = moveit_msgs::msg::CollisionObject::ADD;
+    attached.touch_links = {kAttachLink};
+    planning_scene_->applyAttachedCollisionObject(attached);
+  } else {
+    // Open the gripper and detach the object from the real planning scene.
+    gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(false));
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    moveit_msgs::msg::AttachedCollisionObject detach;
+    detach.object.id = obj.id;
+    detach.object.operation = moveit_msgs::msg::CollisionObject::REMOVE;
+    planning_scene_->applyAttachedCollisionObject(detach);
+  }
+
+  // Execute the retreat.
+  trajectory_ = segments.back();
+  is_trajectory_ = true;
+  if (!execute_plan(true)) {
+    err = "retreat segment failed";
+    return false;
+  }
+  return true;
+}
+
+bool CrackleManipulation::pick_up_object_mtc(
+    crackle_interfaces::srv::PickupObject::Request::SharedPtr request,
+    crackle_interfaces::srv::PickupObject::Response::SharedPtr response) {
+  const std::string &object_name = request->object_name;
+  RCLCPP_INFO(node_->get_logger(),
+              "pick_up_object_mtc: requested to pick up '%s'",
+              object_name.c_str());
+
+  if (!wait_for_current_state("pick_up_object_mtc")) {
+    response->success = false;
+    return true;
+  }
+
+  // ---- Locate object in planning scene --------------------------------------
+  auto scene_objects = planning_scene_->getObjects({object_name});
+  if (scene_objects.find(object_name) == scene_objects.end()) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "pick_up_object_mtc: object '%s' not found in planning scene",
+                 object_name.c_str());
+    response->success = false;
+    return true;
+  }
+  const moveit_msgs::msg::CollisionObject &obj = scene_objects[object_name];
+
+  // ---- Generate grasp candidates (reuses the legacy geometry) ---------------
+  constexpr double approach_dist = 0.18; // gripper offset baked into grasp pose
+  constexpr double tool_width = 0.95;
+
+  clear_grasp_markers();
+  std::vector<int> face_ids;
+  std::vector<geometry_msgs::msg::Pose> grasp_candidates =
+      get_grasp_poses(obj, approach_dist, tool_width, &face_ids);
+
+  // Prepend a hard-coded top-down grasp so it's always among the candidates and
+  // visible in rviz (identical to the legacy pipeline).
+  {
+    Eigen::Quaterniond q_obj(obj.pose.orientation.w, obj.pose.orientation.x,
+                             obj.pose.orientation.y, obj.pose.orientation.z);
+    if (q_obj.norm() < 1e-6) q_obj = Eigen::Quaterniond::Identity();
+    const Eigen::Matrix3d R_obj = q_obj.normalized().toRotationMatrix();
+
+    Eigen::Vector3d he(0.05, 0.05, 0.05);
+    if (!obj.primitives.empty()) {
+      using P = shape_msgs::msg::SolidPrimitive;
+      const auto &prim = obj.primitives[0];
+      switch (prim.type) {
+      case P::BOX:
+        if (prim.dimensions.size() >= 3)
+          he = {prim.dimensions[P::BOX_X] / 2.0, prim.dimensions[P::BOX_Y] / 2.0,
+                prim.dimensions[P::BOX_Z] / 2.0};
+        break;
+      case P::CYLINDER:
+        if (prim.dimensions.size() >= 2) {
+          const double r = prim.dimensions[P::CYLINDER_RADIUS];
+          he = {r, r, prim.dimensions[P::CYLINDER_HEIGHT] / 2.0};
+        }
+        break;
+      case P::SPHERE:
+        if (!prim.dimensions.empty()) {
+          const double r = prim.dimensions[P::SPHERE_RADIUS];
+          he = {r, r, r};
+        }
+        break;
+      default:
+        break;
+      }
+    }
+    const double dz = std::abs(R_obj(2, 0)) * he.x() +
+                      std::abs(R_obj(2, 1)) * he.y() +
+                      std::abs(R_obj(2, 2)) * he.z();
+
+    geometry_msgs::msg::Pose top_down;
+    top_down.position.x = obj.pose.position.x;
+    top_down.position.y = obj.pose.position.y;
+    top_down.position.z = obj.pose.position.z + dz + approach_dist;
+    top_down.orientation =
+        lookAtQuat(Eigen::Vector3d(0.0, 0.0, -1.0), Eigen::Vector3d::UnitX(),
+                   kToolForwardInTool);
+
+    grasp_candidates.insert(grasp_candidates.begin(), top_down);
+    face_ids.insert(face_ids.begin(), -1);
+  }
+
+  if (grasp_candidates.empty()) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "pick_up_object_mtc: no grasp candidates generated for '%s'",
+                 object_name.c_str());
+    response->success = false;
+    return true;
+  }
+
+  std::vector<int> statuses(grasp_candidates.size(), 0);
+  publish_grasp_markers(grasp_candidates, statuses);
+
+  // ---- Build + plan the MTC task --------------------------------------------
+  // Distances mirror the legacy pipeline: approach = pregrasp retreat closed by
+  // the Cartesian move (0.20); retreat = straight-up post-grasp lift (0.25).
+  mtc::Task task;
+  if (!build_manipulation_task(object_name, grasp_candidates, /*approach_move=*/0.20,
+                               /*retreat_move=*/0.25, /*attach=*/true, task)) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "pick_up_object_mtc: failed to build task for '%s'",
+                 object_name.c_str());
+    response->success = false;
+    return true;
+  }
+
+  try {
+    const size_t kMaxSolutions = 5;
+    moveit::core::MoveItErrorCode rc = task.plan(kMaxSolutions);
+    if (!rc || task.solutions().empty()) {
+      RCLCPP_ERROR(node_->get_logger(),
+                   "pick_up_object_mtc: no feasible grasp found for '%s'",
+                   object_name.c_str());
+      response->success = false;
+      return true;
+    }
+  } catch (const std::exception &e) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "pick_up_object_mtc: planning failed for '%s': %s",
+                 object_name.c_str(), e.what());
+    response->success = false;
+    return true;
+  }
+
+  RCLCPP_INFO(node_->get_logger(),
+              "pick_up_object_mtc: %zu solution(s) found, executing best "
+              "(cost=%.4f)",
+              task.solutions().size(), task.solutions().front()->cost());
+
+  // ---- Execute the lowest-cost solution -------------------------------------
+  std::string err;
+  if (!execute_manipulation_solution(*task.solutions().front(), obj,
+                                     /*is_pick=*/true, err)) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "pick_up_object_mtc: execution failed for '%s': %s",
+                 object_name.c_str(), err.c_str());
+    response->success = false;
+    return true;
+  }
+
+  // Record that the arm is now holding this object so place_object can act on
+  // it without being told the object name.
+  holding_object_ = true;
+  held_object_ = obj;
+
+  RCLCPP_INFO(node_->get_logger(),
+              "pick_up_object_mtc: successfully picked up '%s'",
+              object_name.c_str());
+  response->success = true;
+  return true;
+}
+
+bool CrackleManipulation::place_object_mtc(
+    crackle_interfaces::srv::PlaceObject::Request::SharedPtr request,
+    crackle_interfaces::srv::PlaceObject::Response::SharedPtr response) {
+  const std::string &table_name =
+      request->table_name.empty() ? "table" : request->table_name;
+
+  if (!wait_for_current_state("place_object_mtc")) {
+    response->success = false;
+    return true;
+  }
+
+  // ---- Act on the held object tracked by node state --------------------------
+  if (!holding_object_) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "place_object_mtc: the arm is not holding anything");
+    response->success = false;
+    return true;
+  }
+  const moveit_msgs::msg::CollisionObject held_obj = held_object_;
+  const std::string object_name = held_obj.id;
+
+  RCLCPP_INFO(node_->get_logger(), "place_object_mtc: placing '%s' on '%s'",
+              object_name.c_str(), table_name.c_str());
+
+  // ---- Discover free spots on the table -------------------------------------
+  std::vector<geometry_msgs::msg::Pose> place_candidates =
+      find_place_poses_on_table(object_name, table_name);
+  if (place_candidates.empty()) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "place_object_mtc: no free spots found on '%s'",
+                 table_name.c_str());
+    response->success = false;
+    return true;
+  }
+
+  clear_grasp_markers();
+  std::vector<int> statuses(place_candidates.size(), 0);
+  publish_grasp_markers(place_candidates, statuses);
+
+  // ---- Build + plan the MTC task --------------------------------------------
+  // Distances mirror the legacy place pipeline: approach = pre-place descent
+  // (0.15); retreat = post-release retreat straight up (0.20).
+  mtc::Task task;
+  if (!build_manipulation_task(object_name, place_candidates, /*approach_move=*/0.15,
+                               /*retreat_move=*/0.20, /*attach=*/false, task)) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "place_object_mtc: failed to build task for '%s'",
+                 object_name.c_str());
+    response->success = false;
+    return true;
+  }
+
+  try {
+    const size_t kMaxSolutions = 5;
+    moveit::core::MoveItErrorCode rc = task.plan(kMaxSolutions);
+    if (!rc || task.solutions().empty()) {
+      RCLCPP_ERROR(node_->get_logger(),
+                   "place_object_mtc: no feasible placement found for '%s'",
+                   object_name.c_str());
+      response->success = false;
+      return true;
+    }
+  } catch (const std::exception &e) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "place_object_mtc: planning failed for '%s': %s",
+                 object_name.c_str(), e.what());
+    response->success = false;
+    return true;
+  }
+
+  RCLCPP_INFO(node_->get_logger(),
+              "place_object_mtc: %zu solution(s) found, executing best "
+              "(cost=%.4f)",
+              task.solutions().size(), task.solutions().front()->cost());
+
+  // ---- Execute the lowest-cost solution -------------------------------------
+  std::string err;
+  if (!execute_manipulation_solution(*task.solutions().front(), held_obj,
+                                     /*is_pick=*/false, err)) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "place_object_mtc: execution failed for '%s': %s",
+                 object_name.c_str(), err.c_str());
+    response->success = false;
+    return true;
+  }
+
+  // The object has been released; the arm is no longer holding anything.
+  holding_object_ = false;
+  held_object_ = moveit_msgs::msg::CollisionObject();
+
+  RCLCPP_INFO(node_->get_logger(),
+              "place_object_mtc: successfully placed '%s' on '%s'",
+              object_name.c_str(), table_name.c_str());
+  response->success = true;
   return true;
 }
 
