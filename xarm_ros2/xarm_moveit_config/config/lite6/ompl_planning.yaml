@@ -1,5 +1,5 @@
 lite6:
-  default_planner_config: RRT
+  default_planner_config: RRTConnect
   planner_configs:
     - SBL
     - EST

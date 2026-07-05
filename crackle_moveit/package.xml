@@ -14,6 +14,7 @@
   <depend>xarm_planner</depend>
   <depend>moveit</depend>
   <depend>moveit_ros_planning_interface</depend>
+  <depend>moveit_task_constructor_core</depend>
   <depend>rclcpp</depend>
   <depend>std_msgs</depend>
   <depend>geometry_msgs</depend>
