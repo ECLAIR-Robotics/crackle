@@ -10,7 +10,6 @@ from enum import Enum
 import threading
 import asyncio
 import random
-import sounddevice as sd
 import numpy as np
 import openwakeword
 from openwakeword.model import Model
@@ -29,8 +28,16 @@ openai_key = os.environ.get("OPENAI_API_KEY")
 
 FORMAT = pyaudio.paInt16
 CHANNELS = 1
-RATE = 16000
-CHUNK = 1280
+MODEL_RATE = 16000   # rate openwakeword and Whisper expect
+CHUNK = 1280         # samples at MODEL_RATE (80 ms)
+
+def _downsample(audio: np.ndarray, from_rate: int, to_rate: int) -> np.ndarray:
+    if from_rate == to_rate:
+        return audio
+    import scipy.signal as sps
+    from math import gcd
+    g = gcd(from_rate, to_rate)
+    return sps.resample_poly(audio, to_rate // g, from_rate // g).astype(np.int16)
 
 ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
 print(f"ROS_ENABLED: {ROS_ENABLED}")
@@ -68,29 +75,31 @@ class CrackleFSM:
         # Use TFLite as the inference framework
         self.INFERENCE_FRAMEWORK = "tflite"
 
-        # Path to your custom TFLite model
+        # Path to your custom TFLite model — prefer ROS workspace, fall back to repo location
         custom_model_path = os.path.join(
             os.environ.get("HOME", ""),
             "crackle_ws", "src", "crackle",
             "crackle_planning", "crackle_planning",
             "leeoh.tflite",
         )
+        if not os.path.exists(custom_model_path):
+            custom_model_path = os.path.join(os.path.dirname(__file__), "leeoh.tflite")
         print("custom_model_path:", custom_model_path)
 
         # Key you'll use in the prediction dict
         self.WAKEWORD_NAME = "leeoh"
         self.WAKEWORD_NAME = "leeoh"
 
-        #from openwakeword.model import Model
-
-        self._audio = pyaudio.PyAudio()
-        self._mic_stream = self._audio.open(
-            format=FORMAT,
-            channels=CHANNELS,
-            rate=RATE,
-            frames_per_buffer=CHUNK,
-            input=True,
+        # Use PulseAudio (parec) for mic input — works reliably regardless of ALSA config
+        import subprocess
+        self._mic_rate = MODEL_RATE  # parec delivers at the rate we request
+        self._mic_chunk = CHUNK      # 1280 samples = 80 ms at 16 kHz
+        self._parec_proc = subprocess.Popen(
+            ["parec", "--raw", "--format=s16le",
+             f"--rate={MODEL_RATE}", "--channels=1"],
+            stdout=subprocess.PIPE,
         )
+        print(f"Mic: PulseAudio parec @ {self._mic_rate} Hz")
 
         # Load ONLY your custom wake word
         self._owwModel = Model(
@@ -133,31 +142,32 @@ class CrackleFSM:
         # Create two threads: one for listening to commands and one for scanning
         # Listening thread interrupts the scanning thread and then processes the command
         print("Entering IDLE state: Scanning and Listening for commands...")
-        self._mic_stream.start_stream()
         async def scanning_thread(name: str, stop_event: asyncio.Event):
             while self._state == CrackleState.IDLE and not stop_event.is_set():
                 print("Scanning for commands...")
-                # run command
                 await asyncio.sleep(5)  # Scanning delay
 
+        def _read_chunk():
+            raw = self._parec_proc.stdout.read(self._mic_chunk * 2)  # *2 for int16 bytes
+            return np.frombuffer(raw, dtype=np.int16)
+
         async def listening_thread(name: str, stop_event: asyncio.Event):
+            frame = 0
             while self._state == CrackleState.IDLE:
-                audio = np.frombuffer(self._mic_stream.read(CHUNK), dtype=np.int16)
+                audio = _read_chunk()
                 prediction = self._owwModel.predict(audio)
                 score = prediction[self.WAKEWORD_NAME]
+                if score > 0.01 or frame % 50 == 0:
+                    print(f"[wake] score={score:.4f}  rms={int(np.sqrt(np.mean(audio.astype(np.float32)**2)))}")
+                frame += 1
 
                 if score > 0.1:
                     print(f"Wake word detected with score {score:.3f}")
                     self._state = CrackleState.LISTENING
-                    wake_wall_time = time.time() # seconds float
-
-                #     # Trigger immediately; ROS will wait up to ~0.5s for a fresh sample at/after this time
+                    wake_wall_time = time.time()
                     self.planner_api.look_at_sound_direction(wake_wall_time)
-
-                #     # # Optionally flush model state
                     for _ in range(15):
-                        audio = np.frombuffer(self._mic_stream.read(CHUNK), dtype=np.int16)
-                        _ = self._owwModel.predict(audio)
+                        _ = self._owwModel.predict(_read_chunk())
 
                     stop_event.set()
                     break
@@ -215,38 +225,31 @@ class CrackleFSM:
         silence_duration: float = 1.2,
         silence_rms_threshold: float = 500.0,
         start_timeout: float = 5.0,
-        samplerate: int = 16000,
-        chunk: int = 1024,
     ):
         """Record audio until the speaker pauses, or max_seconds is reached.
 
         Uses a simple RMS threshold as a voice activity detector: waits for the
         speaker to start, then stops after `silence_duration` seconds of
         continuous quiet. `start_timeout` bounds how long we wait for any
-        speech to begin before giving up.
+        speech to begin before giving up. Returns 16kHz PCM regardless of mic rate.
         """
-        chunks_per_second = samplerate / chunk
+        chunks_per_second = MODEL_RATE / self._mic_chunk
         max_frames = int(max_seconds * chunks_per_second)
         silence_frames_needed = int(silence_duration * chunks_per_second)
         start_timeout_frames = int(start_timeout * chunks_per_second)
 
-        # Drain any stale audio that buffered up while we weren't reading
-        # (e.g. the robot's own TTS picked up by the mic during playback).
-        try:
-            available = self._mic_stream.get_read_available()
-            while available > 0:
-                self._mic_stream.read(available, exception_on_overflow=False)
-                available = self._mic_stream.get_read_available()
-        except Exception as e:
-            print(f"mic flush warning: {e}")
+        # Flush stale buffered audio (e.g. TTS bleed-in) by discarding 0.3s
+        flush_frames = int(0.3 * chunks_per_second)
+        for _ in range(flush_frames):
+            self._parec_proc.stdout.read(self._mic_chunk * 2)
 
         buf = []
         has_spoken = False
         silent_count = 0
 
         for frame_idx in range(max_frames):
-            data = self._mic_stream.read(chunk, exception_on_overflow=False)
-            samples = np.frombuffer(data, dtype=np.int16)
+            raw = self._parec_proc.stdout.read(self._mic_chunk * 2)
+            samples = np.frombuffer(raw, dtype=np.int16)
             buf.append(samples)
 
             rms = float(np.sqrt(np.mean(samples.astype(np.float32) ** 2)))
@@ -260,7 +263,6 @@ class CrackleFSM:
                     if silent_count >= silence_frames_needed:
                         break
                 elif frame_idx >= start_timeout_frames:
-                    # No speech ever started — bail out.
                     break
 
         return np.concatenate(buf)
