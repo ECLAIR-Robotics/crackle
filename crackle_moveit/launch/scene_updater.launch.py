@@ -98,8 +98,22 @@ def launch_setup(context, *args, **kwargs):
         'robot_description_semantic': moveit_config_dict['robot_description_semantic'],
         'robot_description_kinematics': moveit_config_dict['robot_description_kinematics'],
         'planning_pipelines': moveit_config_dict['planning_pipelines'],
-
+        'default_planning_pipeline': moveit_config_dict.get('default_planning_pipeline', 'ompl'),
     }
+
+    # robot_description_planning carries the joint limits used by time-parameterization.
+    if 'robot_description_planning' in moveit_config_dict:
+        move_group_interface_params['robot_description_planning'] = \
+            moveit_config_dict['robot_description_planning']
+
+    # Each planning pipeline (e.g. 'ompl') has its own parameter block at the top
+    # level of moveit_config_dict. These must be forwarded so that the MoveIt Task
+    # Constructor PipelinePlanner (built on the manipulation node) can load OMPL
+    # instead of falling back to CHOMP. moveit_config_dict['planning_pipelines'] is
+    # the list of pipeline names.
+    for _pipeline in (moveit_config_dict.get('planning_pipelines') or []):
+        if _pipeline in moveit_config_dict:
+            move_group_interface_params[_pipeline] = moveit_config_dict[_pipeline]
 
     node_executable = LaunchConfiguration('node_executable', default='moveit_scene_updater')
     node_name = LaunchConfiguration('node_name', default=node_executable)

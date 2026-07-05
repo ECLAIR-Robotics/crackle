@@ -46,6 +46,11 @@
 #include <tf2_eigen/tf2_eigen.hpp>
 #include <Eigen/Geometry>
 
+// MoveIt Task Constructor (MTC) – used by the pickup pipeline.
+#include <moveit/task_constructor/task.h>
+#include <moveit/task_constructor/solvers/pipeline_planner.h>
+#include <moveit/task_constructor/solvers/cartesian_path.h>
+
 struct Vector3
 {
     double x;
@@ -81,6 +86,16 @@ public:
                                  crackle_interfaces::srv::DemoTrajectory::Response::SharedPtr response);
     bool pick_up_object(crackle_interfaces::srv::PickupObject::Request::SharedPtr request,
                         crackle_interfaces::srv::PickupObject::Response::SharedPtr response);
+    // MTC-based pickup: plans all grasp candidates in a single planning tree
+    // (IK + collision prune bad grasps cheaply, RRTConnect connects the best
+    // reachable grasp) and executes the lowest-cost solution. Replaces the
+    // legacy per-candidate loop in pick_up_object.
+    bool pick_up_object_mtc(crackle_interfaces::srv::PickupObject::Request::SharedPtr request,
+                            crackle_interfaces::srv::PickupObject::Response::SharedPtr response);
+    // MTC-based place: mirrors pick_up_object_mtc. Plans all free table spots in
+    // a single planning tree and executes the lowest-cost solution.
+    bool place_object_mtc(crackle_interfaces::srv::PlaceObject::Request::SharedPtr request,
+                          crackle_interfaces::srv::PlaceObject::Response::SharedPtr response);
     bool place_object(crackle_interfaces::srv::PlaceObject::Request::SharedPtr request,
                       crackle_interfaces::srv::PlaceObject::Response::SharedPtr response);
     bool look_at(crackle_interfaces::srv::LookAt::Request::SharedPtr request,
@@ -109,7 +124,8 @@ private:
     bool wait_for_current_state(const std::string &caller, double timeout_sec = 5.0);
 
     // Pickup pipeline helpers
-    struct PickPhases {
+    struct PickPhases
+    {
         moveit::planning_interface::MoveGroupInterface::Plan pregrasp_plan;
         moveit_msgs::msg::RobotTrajectory approach_traj;
         moveit_msgs::msg::RobotTrajectory lift_traj;
@@ -123,6 +139,28 @@ private:
                             const geometry_msgs::msg::Pose &grasp,
                             const geometry_msgs::msg::Pose &lift,
                             PickPhases &out);
+
+    // --- MTC pick/place helpers ---------------------------------------------
+    // Build an MTC pick or place task for `object_id` over the supplied target
+    // end-effector poses (in the planning frame). Structure:
+    //   CurrentState -> Connect(RRTConnect)
+    //                -> [approach (Cartesian) | target-IK | attach/detach | retreat (Cartesian)]
+    // `attach == true` attaches the object (pick); `attach == false` detaches it
+    // (place). `approach_move` / `retreat_move` are the Cartesian leg distances.
+    bool build_manipulation_task(const std::string &object_id,
+                                 const std::vector<geometry_msgs::msg::Pose> &target_poses,
+                                 double approach_move, double retreat_move, bool attach,
+                                 moveit::task_constructor::Task &task);
+    // Execute a planned MTC pick/place solution. Between the approach and the
+    // retreat it actuates the gripper and (de)attaches `obj` in the real
+    // planning scene: pick closes+attaches, place opens+detaches. Returns false
+    // (and sets `err`) on any execution failure.
+    bool execute_manipulation_solution(const moveit::task_constructor::SolutionBase &solution,
+                                       const moveit_msgs::msg::CollisionObject &obj,
+                                       bool is_pick, std::string &err);
+    // Lazily-constructed MTC solvers (need node_ / robot model).
+    std::shared_ptr<moveit::task_constructor::solvers::PipelinePlanner> mtc_sampling_planner_;
+    std::shared_ptr<moveit::task_constructor::solvers::CartesianPath> mtc_cartesian_planner_;
     // Sample free placement spots on a named table collision object.
     // Filters out locations that would overlap any other scene object.
     std::vector<geometry_msgs::msg::Pose>
@@ -163,6 +201,12 @@ private:
     moveit::planning_interface::MoveGroupInterface::Plan plan_;
     moveit_msgs::msg::RobotTrajectory trajectory_;
     bool is_trajectory_;
+
+    // Whether the arm is currently holding an object, and which one. Set on a
+    // successful MTC pick and cleared on a successful MTC place. place_object
+    // uses this instead of requiring the object name in the request.
+    bool holding_object_ = false;
+    moveit_msgs::msg::CollisionObject held_object_;
 };
 
 #endif // __CRACKLE_PLANNER_H__
