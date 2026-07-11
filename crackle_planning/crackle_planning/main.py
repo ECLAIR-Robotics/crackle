@@ -45,9 +45,11 @@ print(f"ROS_ENABLED: {ROS_ENABLED}")
 if ROS_ENABLED:
     from crackle_planning._api import PlannerAPI
     from crackle_planning._llm import GptAPI
+    from crackle_planning.face_ui import ui_client
 else:
     from _api import PlannerAPI
     from _llm import GptAPI
+    from face_ui import ui_client
 
 class CrackleState(Enum):
     IDLE = "idle"
@@ -142,6 +144,8 @@ class CrackleFSM:
         # Create two threads: one for listening to commands and one for scanning
         # Listening thread interrupts the scanning thread and then processes the command
         print("Entering IDLE state: Scanning and Listening for commands...")
+        ui_client.set_state("idle")
+        self._mic_stream.start_stream()
         async def scanning_thread(name: str, stop_event: asyncio.Event):
             while self._state == CrackleState.IDLE and not stop_event.is_set():
                 print("Scanning for commands...")
@@ -164,6 +168,8 @@ class CrackleFSM:
                 if score > 0.1:
                     print(f"Wake word detected with score {score:.3f}")
                     self._state = CrackleState.LISTENING
+                    ui_client.set_wakeword(True)
+                    ui_client.set_state("listening")
                     wake_wall_time = time.time()
                     self.planner_api.look_at_sound_direction(wake_wall_time)
                     self._drain_mic_buffer()
@@ -235,6 +241,9 @@ class CrackleFSM:
             self._owwModel.predict(silence)
 
     async def handle_task(self):
+        # ...
+        ui_client.set_state("thinking")
+        await asyncio.sleep(2)  # Simulate task execution time
         print("Entering TASK state: Executing task...")
         print(f"Current command: {self.current_command}")
 
@@ -242,6 +251,13 @@ class CrackleFSM:
         response = self.gpt_api.get_command(self, self.current_command)
         print(f"Response: {response}")
         api = PlannerAPI(ROS_ENABLED)
+
+        # Surface the emotion + reply on the face UI (and drive the ROS face).
+        ui_client.set_emotion(response.emotion)
+        self.planner_api.set_emotion(response.emotion)
+        if response.dialoge is not None:
+            ui_client.set_response(response.dialoge)
+
         if response.dialoge is not None:
             self.gpt_api.speak_text_eleven_labs(response.dialoge)
             print("[INFO] Sound played")
@@ -255,6 +271,7 @@ class CrackleFSM:
         if response.continue_talking:
             print("Continuing conversation — returning to LISTENING state")
             self._state = CrackleState.LISTENING
+            ui_client.set_state("listening")
             return
 
         if response.code is not None:
@@ -265,6 +282,7 @@ class CrackleFSM:
 
         print("TASK COMPLETED")
         self._state = CrackleState.IDLE
+        ui_client.set_state("idle")
         pass
         
     async def handle_resetting(self):
@@ -363,6 +381,8 @@ class CrackleFSM:
                 text = self.gpt_api.speech_to_text("out.wav")
                 print(f"Transcribed words: {text}")
                 self.current_command = text
+                ui_client.set_transcript(text)
+                ui_client.set_state("thinking")
                 self._state = CrackleState.TASK #start working on the task/just talk back
 
                 # print("Crackle's response: ", responseWords)

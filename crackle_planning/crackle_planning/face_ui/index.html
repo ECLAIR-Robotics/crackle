@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Lleo</title>
+<style>
+  :root {
+    --bg1: #1a1140;
+    --bg2: #2b1a5e;
+    --accent: #ffd45e;
+    --skin: #7cf5e0;
+    --skin-dark: #3fd6bd;
+    --ink: #10203a;
+    --panel: rgba(255,255,255,0.08);
+    --panel-brd: rgba(255,255,255,0.16);
+    --text: #eef2ff;
+    --muted: #b9b2e8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Baloo 2','Comic Sans MS','Segoe UI',system-ui,sans-serif;
+    color: var(--text);
+    background:
+      radial-gradient(1200px 800px at 50% -10%, var(--bg2), transparent 60%),
+      radial-gradient(900px 900px at 12% 110%, #40217a, transparent 55%),
+      radial-gradient(900px 900px at 90% 100%, #17324f, transparent 55%),
+      linear-gradient(160deg, var(--bg1), #120a2e 90%);
+    overflow: hidden;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    user-select: none;
+    -webkit-user-select: none;
+    transition: background 1.2s ease;
+  }
+
+  /* floaty background sparkles */
+  .stars { position: fixed; inset: 0; pointer-events: none; z-index: 0; }
+  .star {
+    position: absolute; border-radius: 50%;
+    background: #fff; opacity: 0.5;
+    animation: twinkle 3.5s ease-in-out infinite;
+  }
+  @keyframes twinkle { 0%,100% { opacity:.12; transform: scale(.7);} 50% { opacity:.7; transform: scale(1);} }
+
+  .stage {
+    position: relative; z-index: 1;
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 0;
+  }
+
+  /* ---------- status chip (top) ---------- */
+  .topbar {
+    position: relative; z-index: 2;
+    display: flex; flex-direction: column; align-items: center; gap: 12px;
+    padding: 22px 16px 4px;
+  }
+  /* mood / emotion label — reflects the emotion just set on the face */
+  .mood {
+    display: inline-flex; align-items: center; gap: 10px;
+    padding: 8px 18px; border-radius: 999px;
+    background: var(--panel); border: 1px solid var(--panel-brd);
+    backdrop-filter: blur(6px);
+    font-size: clamp(13px, 1.7vw, 19px); font-weight: 700;
+    box-shadow: 0 6px 20px rgba(0,0,0,.2);
+    transition: border-color .5s ease, background .5s ease;
+  }
+  .mood .mood-emoji { font-size: 1.35em; line-height: 1; }
+  .mood .mood-label { color: var(--muted); font-weight: 600; letter-spacing: .3px; }
+  .mood .mood-name {
+    color: var(--accent); text-transform: capitalize; letter-spacing: .3px;
+    transition: color .6s ease;
+  }
+  .mood.pop { animation: pop .5s cubic-bezier(.3,1.6,.5,1); }
+  .chip {
+    display: inline-flex; align-items: center; gap: 12px;
+    padding: 12px 22px; border-radius: 999px;
+    background: var(--panel); border: 1px solid var(--panel-brd);
+    backdrop-filter: blur(6px);
+    font-size: clamp(16px, 2.4vw, 26px); font-weight: 700;
+    letter-spacing: .3px;
+    transition: all .35s ease;
+    box-shadow: 0 8px 30px rgba(0,0,0,.25);
+  }
+  .chip .dot {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--muted); box-shadow: 0 0 0 0 rgba(255,255,255,.4);
+  }
+  /* waveform bars for listening */
+  .wave { display: none; align-items: flex-end; gap: 4px; height: 26px; }
+  .wave span {
+    width: 5px; height: 8px; border-radius: 3px; background: var(--accent);
+    animation: bar 0.9s ease-in-out infinite;
+  }
+  .wave span:nth-child(2){ animation-delay:.1s } .wave span:nth-child(3){ animation-delay:.2s }
+  .wave span:nth-child(4){ animation-delay:.3s } .wave span:nth-child(5){ animation-delay:.15s }
+  @keyframes bar { 0%,100%{ height:8px } 50%{ height:26px } }
+  /* thinking dots */
+  .dots { display: none; gap: 6px; }
+  .dots span { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); animation: think 1.2s ease-in-out infinite; }
+  .dots span:nth-child(2){ animation-delay:.18s } .dots span:nth-child(3){ animation-delay:.36s }
+  @keyframes think { 0%,100%{ transform: translateY(0); opacity:.4 } 50%{ transform: translateY(-8px); opacity:1 } }
+
+  body[data-state="listening"] .chip { background: rgba(255,212,94,.16); border-color: rgba(255,212,94,.5); }
+  body[data-state="listening"] .chip .dot { background: var(--accent); animation: ping 1.1s ease-out infinite; }
+  body[data-state="listening"] .wave { display: flex; }
+  body[data-state="thinking"] .chip { background: rgba(124,245,224,.14); border-color: rgba(124,245,224,.45); }
+  body[data-state="thinking"] .dots { display: flex; }
+  @keyframes ping { 0%{ box-shadow:0 0 0 0 rgba(255,212,94,.6) } 100%{ box-shadow:0 0 0 16px rgba(255,212,94,0) } }
+
+  /* ---------- the face ---------- */
+  .face-wrap {
+    position: relative;
+    width: min(52vh, 78vw);
+    aspect-ratio: 1 / 1;
+    animation: float 5s ease-in-out infinite;
+  }
+  @keyframes float { 0%,100%{ transform: translateY(0) } 50%{ transform: translateY(-14px) } }
+
+  /* pulsing listening halo */
+  .halo {
+    position: absolute; inset: -6%;
+    border-radius: 50%;
+    border: 4px solid rgba(255,212,94,.55);
+    opacity: 0; transform: scale(.9);
+  }
+  body[data-state="listening"] .halo { animation: halo 1.6s ease-out infinite; }
+  @keyframes halo { 0%{ opacity:.7; transform: scale(.92) } 100%{ opacity:0; transform: scale(1.18) } }
+
+  svg.face { width: 100%; height: 100%; overflow: visible; display: block; }
+
+  .head {
+    fill: var(--skin);
+    stroke: var(--skin-dark); stroke-width: 6;
+    filter: drop-shadow(0 18px 40px rgba(0,0,0,.45));
+    transition: fill 1s ease, stroke 1s ease;
+  }
+  .cheek { fill: #ff9ec4; opacity: 0; transition: opacity .5s ease; }
+  .eye-white { fill: #ffffff; }
+  .pupil { fill: var(--ink); transition: all .35s cubic-bezier(.3,1.4,.5,1); }
+  .brow { stroke: var(--ink); stroke-width: 10; stroke-linecap: round; fill: none;
+          transition: all .4s cubic-bezier(.3,1.4,.5,1); transform-box: fill-box; transform-origin: center; }
+  .mouth { fill: var(--ink); transition: all .4s cubic-bezier(.3,1.4,.5,1); }
+  .lid { fill: var(--skin); transition: fill 1s ease; }
+  .sparkle { fill: #fff; opacity: 0; }
+
+  /* antenna */
+  .antenna-stalk { stroke: var(--skin-dark); stroke-width: 6; stroke-linecap: round; }
+  .antenna-bulb { fill: var(--accent); animation: bulb 2.4s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+  @keyframes bulb { 0%,100%{ transform: scale(1); filter: drop-shadow(0 0 4px var(--accent)); } 50%{ transform: scale(1.15); filter: drop-shadow(0 0 14px var(--accent)); } }
+
+  /* ---------- blink (idle life, all emotions) ----------
+     A skin-coloured upper eyelid that sweeps DOWN over the eye, the way a
+     real lid closes — origin at the top, growing from a thin line to full
+     cover and back. (The old version scaled the whole eye toward its centre,
+     which made the eyes collapse upward and looked uncanny.) */
+  .lid-blink {
+    fill: var(--skin);
+    transform-box: fill-box;
+    transform-origin: center top;
+    transform: scaleY(0);
+    animation: blink 4.8s ease-in-out infinite;
+    transition: fill 1s ease;
+  }
+  #eyeR .lid-blink { animation-delay: 0.06s; } /* the tiniest human asymmetry */
+  @keyframes blink {
+    0%, 91%, 100% { transform: scaleY(0); }
+    94%, 96%      { transform: scaleY(1); }
+  }
+
+  /* eyes container for drift */
+  .eyes { animation: drift 7s ease-in-out infinite; }
+  @keyframes drift { 0%,100%{ transform: translateX(0) } 30%{ transform: translateX(10px) } 65%{ transform: translateX(-10px) } }
+
+  /* =====================================================================
+     EMOTION PRESETS — each sets accent color, expression, & its own idle
+     ===================================================================== */
+
+  /* default / neutral */
+  #eyeL, #eyeR { transition: transform .4s cubic-bezier(.3,1.4,.5,1); transform-box: fill-box; transform-origin: center; }
+
+  /* HAPPY — bright, bobbing, big grin, cheeks */
+  body[data-emotion="happy"] { --skin:#8ef0a6; --skin-dark:#43cf72; --accent:#ffe27a; }
+  body[data-emotion="happy"] .face-wrap { animation: bob 1.6s ease-in-out infinite; }
+  body[data-emotion="happy"] .cheek { opacity:.85; }
+  body[data-emotion="happy"] .brow { transform: translateY(-6px) rotate(0deg); }
+  @keyframes bob { 0%,100%{ transform: translateY(0) rotate(-1deg) } 50%{ transform: translateY(-16px) rotate(1deg) } }
+
+  /* SAD — droop, blue, slow sink, teary sparkle */
+  body[data-emotion="sad"] { --skin:#8fb8f0; --skin-dark:#4f7fd0; --accent:#9fc0ff; }
+  body[data-emotion="sad"] .face-wrap { animation: sink 4.5s ease-in-out infinite; }
+  body[data-emotion="sad"] .browL { transform: translateY(-2px) rotate(16deg); }
+  body[data-emotion="sad"] .browR { transform: translateY(-2px) rotate(-16deg); }
+  body[data-emotion="sad"] .eyes { animation: none; transform: translateY(6px); }
+  body[data-emotion="sad"] .tear { opacity: 1; animation: tear 3.5s ease-in infinite; }
+  @keyframes sink { 0%,100%{ transform: translateY(0) } 50%{ transform: translateY(10px) } }
+  @keyframes tear { 0%{ transform: translateY(0); opacity:0 } 20%{ opacity:.9 } 100%{ transform: translateY(70px); opacity:0 } }
+
+  /* ANGRY — red, shake, sharp brows */
+  body[data-emotion="angry"] { --skin:#ff8f7a; --skin-dark:#e0503a; --accent:#ff5e4d; }
+  body[data-emotion="angry"] .face-wrap { animation: shake .35s ease-in-out infinite; }
+  body[data-emotion="angry"] .browL { transform: translateY(6px) rotate(-24deg); }
+  body[data-emotion="angry"] .browR { transform: translateY(6px) rotate(24deg); }
+  @keyframes shake { 0%,100%{ transform: translateX(0) rotate(0) } 25%{ transform: translateX(-7px) rotate(-1deg) } 75%{ transform: translateX(7px) rotate(1deg) } }
+
+  /* BORED — half lids, slow tilt sigh, grey-ish */
+  body[data-emotion="bored"] { --skin:#a9c0cf; --skin-dark:#6f8ea0; --accent:#c7d6df; }
+  body[data-emotion="bored"] .face-wrap { animation: sigh 5s ease-in-out infinite; }
+  body[data-emotion="bored"] .lid-top { transform: translateY(30px); }
+  body[data-emotion="bored"] .brow { transform: translateY(-4px); }
+  body[data-emotion="bored"] .eyes { animation: none; }
+  @keyframes sigh { 0%,100%{ transform: rotate(-3deg) translateY(0) } 50%{ transform: rotate(2deg) translateY(6px) } }
+
+  /* NOT_IMPRESSED — flat stare, one raised brow, still */
+  body[data-emotion="not_impressed"] { --skin:#bfc6e6; --skin-dark:#7f88b8; --accent:#d0d6f2; }
+  body[data-emotion="not_impressed"] .face-wrap { animation: float 8s ease-in-out infinite; }
+  body[data-emotion="not_impressed"] .lid-top { transform: translateY(22px); }
+  body[data-emotion="not_impressed"] .browL { transform: translateY(-14px) rotate(-6deg); }
+  body[data-emotion="not_impressed"] .browR { transform: translateY(4px) rotate(4deg); }
+  body[data-emotion="not_impressed"] .eyes { animation: none; }
+
+  /* EVIL_IDEA — purple glow, brow waggle, sly */
+  body[data-emotion="evil_idea"] { --skin:#c48cff; --skin-dark:#8a3fd6; --accent:#ff5ee0; }
+  body[data-emotion="evil_idea"] .brow { animation: waggle 1.1s ease-in-out infinite; }
+  body[data-emotion="evil_idea"] .browL { transform: rotate(-20deg) translateY(4px); }
+  body[data-emotion="evil_idea"] .browR { transform: rotate(20deg) translateY(4px); }
+  body[data-emotion="evil_idea"] .lid-top { transform: translateY(16px); }
+  @keyframes waggle { 0%,100%{ margin-top:0 } 50%{ margin-top:-8px } }
+
+  /* FLIRTY — pink, wink loop, cheeks, gentle sway */
+  body[data-emotion="flirty"] { --skin:#ff9ecb; --skin-dark:#e0559f; --accent:#ff7ac0; }
+  body[data-emotion="flirty"] .face-wrap { animation: sway 2.6s ease-in-out infinite; }
+  body[data-emotion="flirty"] .cheek { opacity:.9; }
+  body[data-emotion="flirty"] #eyeR .lid-top { animation: wink 2.4s ease-in-out infinite; }
+  @keyframes sway { 0%,100%{ transform: rotate(-4deg) } 50%{ transform: rotate(4deg) } }
+  @keyframes wink { 0%,40%,100%{ transform: translateY(-40px) } 45%,60%{ transform: translateY(0) } }
+
+  /* AWW — warm, sparkle eyes, gentle pulse, cheeks */
+  body[data-emotion="aww"] { --skin:#ffc98e; --skin-dark:#e0964a; --accent:#ffb15e; }
+  body[data-emotion="aww"] .face-wrap { animation: pulse 2.2s ease-in-out infinite; }
+  body[data-emotion="aww"] .cheek { opacity:.9; }
+  body[data-emotion="aww"] .sparkle { opacity: 1; animation: twinkle 1.6s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{ transform: scale(1) } 50%{ transform: scale(1.05) } }
+
+  /* WTF — skeptical tilt, one big one small eye, jitter */
+  body[data-emotion="wtf"] { --skin:#7ce0f5; --skin-dark:#3fb0d6; --accent:#5ee0ff; }
+  body[data-emotion="wtf"] .face-wrap { animation: tilt 3s ease-in-out infinite; }
+  body[data-emotion="wtf"] .browL { transform: translateY(-16px) rotate(-10deg); }
+  body[data-emotion="wtf"] .browR { transform: translateY(8px) rotate(18deg); }
+  body[data-emotion="wtf"] #eyeR { transform: scale(0.7); }
+  body[data-emotion="wtf"] .eyes { animation: none; }
+  @keyframes tilt { 0%,100%{ transform: rotate(-6deg) } 50%{ transform: rotate(-6deg) translateX(6px) } }
+
+  /* neutral idle breathing */
+  body[data-emotion="neutral"] .face-wrap { animation: float 5s ease-in-out infinite; }
+
+  /* mouth shapes per emotion via clip of the smile path scale */
+  .mouth { transform-box: fill-box; transform-origin: center; }
+  body[data-emotion="happy"] .mouth,
+  body[data-emotion="aww"] .mouth,
+  body[data-emotion="flirty"] .mouth { transform: scaleY(1.25); }
+  body[data-emotion="sad"] .mouth { transform: scaleY(-0.75) translateY(-18px); }
+  body[data-emotion="angry"] .mouth { transform: scaleY(-0.55) translateY(-14px); }
+  body[data-emotion="bored"] .mouth,
+  body[data-emotion="not_impressed"] .mouth { transform: scaleY(0.14); }
+  body[data-emotion="evil_idea"] .mouth { transform: scaleX(1.15) scaleY(0.9); }
+  body[data-emotion="wtf"] .mouth { transform: scale(0.6) translateX(38px); }
+
+  /* ---------- speech panels (bottom) ---------- */
+  .panels {
+    position: relative; z-index: 2;
+    display: flex; flex-direction: column; gap: 12px;
+    padding: 6px clamp(16px, 5vw, 80px) 30px;
+    max-width: 1100px; width: 100%; margin: 0 auto;
+  }
+  .bubble {
+    display: flex; gap: 14px; align-items: flex-start;
+    padding: 16px 22px; border-radius: 22px;
+    background: var(--panel); border: 1px solid var(--panel-brd);
+    backdrop-filter: blur(6px);
+    opacity: 0; transform: translateY(18px) scale(.98);
+    transition: opacity .4s ease, transform .4s cubic-bezier(.3,1.5,.5,1);
+    max-height: 26vh; overflow: hidden;
+  }
+  .bubble.show { opacity: 1; transform: translateY(0) scale(1); }
+  .bubble.pop { animation: pop .5s cubic-bezier(.3,1.6,.5,1); }
+  @keyframes pop { 0%{ transform: scale(.9) } 60%{ transform: scale(1.03) } 100%{ transform: scale(1) } }
+  .bubble .who {
+    flex: 0 0 auto; font-weight: 800; font-size: clamp(14px,1.8vw,20px);
+    padding: 4px 12px; border-radius: 999px; white-space: nowrap;
+  }
+  .bubble.user .who { background: rgba(124,245,224,.18); color: #7cf5e0; }
+  .bubble.bot .who { background: rgba(255,212,94,.18); color: var(--accent); }
+  .bubble .txt { font-size: clamp(16px, 2.3vw, 28px); line-height: 1.35; }
+
+  /* placeholder caption */
+  .waiting {
+    text-align: center; color: var(--muted);
+    font-size: clamp(15px, 2vw, 22px); font-weight: 600;
+    padding: 4px 0 22px; letter-spacing: .3px;
+    animation: breathe 3s ease-in-out infinite;
+  }
+  @keyframes breathe { 0%,100%{ opacity:.55 } 50%{ opacity:1 } }
+  body[data-live="1"] .waiting { display: none; }
+
+  /* connection dot */
+  .conn {
+    position: fixed; top: 14px; right: 16px; z-index: 5;
+    display: flex; align-items: center; gap: 7px;
+    font-size: 13px; color: var(--muted); opacity: .8;
+  }
+  .conn .led { width: 9px; height: 9px; border-radius: 50%; background:#ff6b6b; transition: background .3s; }
+  body[data-conn="1"] .conn .led { background:#5ee08a; }
+</style>
+</head>
+<body data-state="idle" data-emotion="neutral" data-live="0" data-conn="0">
+
+  <div class="stars" id="stars"></div>
+
+  <div class="conn"><span class="led"></span><span id="connText">connecting…</span></div>
+
+  <div class="topbar">
+    <div class="chip">
+      <span class="dot"></span>
+      <span id="statusText">Idle</span>
+      <span class="wave"><span></span><span></span><span></span><span></span><span></span></span>
+      <span class="dots"><span></span><span></span><span></span></span>
+    </div>
+    <div class="mood" id="mood">
+      <span class="mood-emoji" id="moodEmoji">😐</span>
+      <span class="mood-label">Feeling</span>
+      <span class="mood-name" id="moodName">neutral</span>
+    </div>
+  </div>
+
+  <div class="stage">
+    <div class="face-wrap">
+      <div class="halo"></div>
+      <svg class="face" viewBox="0 0 300 300" aria-hidden="true">
+        <!-- antenna -->
+        <line class="antenna-stalk" x1="150" y1="52" x2="150" y2="18"/>
+        <circle class="antenna-bulb" cx="150" cy="12" r="10"/>
+
+        <!-- head -->
+        <rect class="head" x="40" y="50" width="220" height="210" rx="70" ry="70"/>
+
+        <!-- cheeks -->
+        <ellipse class="cheek" cx="92" cy="188" rx="20" ry="13"/>
+        <ellipse class="cheek" cx="208" cy="188" rx="20" ry="13"/>
+
+        <!-- eyes -->
+        <g class="eyes">
+          <!-- Left eye -->
+          <g id="eyeL">
+            <ellipse class="eye-white" cx="110" cy="150" rx="30" ry="34"/>
+            <circle class="pupil" cx="110" cy="152" r="14"/>
+            <circle class="sparkle" cx="118" cy="144" r="5"/>
+            <!-- emotion half-lid (bored / wink / etc.) -->
+            <rect class="lid lid-top" x="76" y="76" width="70" height="40" style="transform: translateY(-40px);"/>
+            <!-- idle blink lid (sweeps down over the eye) -->
+            <ellipse class="lid-blink" cx="110" cy="150" rx="33" ry="37"/>
+            <path class="brow browL" d="M84 112 q26 -16 52 0"/>
+          </g>
+          <!-- Right eye -->
+          <g id="eyeR">
+            <ellipse class="eye-white" cx="190" cy="150" rx="30" ry="34"/>
+            <circle class="pupil" cx="190" cy="152" r="14"/>
+            <circle class="sparkle" cx="198" cy="144" r="5"/>
+            <rect class="lid lid-top" x="154" y="76" width="70" height="40" style="transform: translateY(-40px);"/>
+            <ellipse class="lid-blink" cx="190" cy="150" rx="33" ry="37"/>
+            <path class="brow browR" d="M164 112 q26 -16 52 0"/>
+          </g>
+        </g>
+
+        <!-- tear (sad only) -->
+        <circle class="tear" cx="110" cy="188" r="7" fill="#8fd0ff" opacity="0"/>
+
+        <!-- mouth: a friendly smile -->
+        <path class="mouth" d="M112 200 q38 40 76 0 q-38 16 -76 0 Z"/>
+      </svg>
+    </div>
+  </div>
+
+  <div class="panels">
+    <div class="waiting" id="waiting">Waiting for Lleo to wake up… say the wake word ✨</div>
+    <div class="bubble user" id="userBubble">
+      <span class="who">You</span>
+      <span class="txt" id="userTxt"></span>
+    </div>
+    <div class="bubble bot" id="botBubble">
+      <span class="who">Lleo</span>
+      <span class="txt" id="botTxt"></span>
+    </div>
+  </div>
+
+<script>
+  // ---- sparkly background ----
+  (function makeStars(){
+    const box = document.getElementById('stars');
+    for (let i=0;i<46;i++){
+      const s = document.createElement('div');
+      s.className = 'star';
+      const sz = Math.random()*2.6 + 1;
+      s.style.width = s.style.height = sz+'px';
+      s.style.left = Math.random()*100+'vw';
+      s.style.top = Math.random()*100+'vh';
+      s.style.animationDelay = (Math.random()*3.5)+'s';
+      box.appendChild(s);
+    }
+  })();
+
+  const body = document.body;
+  const statusText = document.getElementById('statusText');
+  const userBubble = document.getElementById('userBubble');
+  const botBubble  = document.getElementById('botBubble');
+  const userTxt = document.getElementById('userTxt');
+  const botTxt  = document.getElementById('botTxt');
+  const connLed = document.querySelector('.conn .led');
+  const connText = document.getElementById('connText');
+  const mood = document.getElementById('mood');
+  const moodEmoji = document.getElementById('moodEmoji');
+  const moodName = document.getElementById('moodName');
+
+  const EMOTIONS = new Set(['happy','sad','angry','bored','not_impressed','evil_idea','flirty','aww','wtf','neutral']);
+  const STATE_LABEL = { idle: 'Idle', listening: 'Listening…', thinking: 'Thinking…' };
+  const EMOTION_EMOJI = {
+    happy: '😄', sad: '😢', angry: '😠', bored: '😑', not_impressed: '🙄',
+    evil_idea: '😈', flirty: '😉', aww: '🥰', wtf: '🤨', neutral: '😐'
+  };
+  const EMOTION_PRETTY = { not_impressed: 'not impressed', evil_idea: 'scheming' };
+
+  function normEmotion(e){
+    if (!e) return 'neutral';
+    e = String(e).toLowerCase().trim();
+    if (e === 'evil' || e === 'sarcasm' || e === 'sarcastic') return 'evil_idea';
+    if (e === 'notimpressed' || e === 'not impressed') return 'not_impressed';
+    return EMOTIONS.has(e) ? e : 'neutral';
+  }
+
+  let prevUser = '', prevBot = '', prevEmotion = 'neutral';
+
+  function pop(el){ el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop'); }
+
+  function apply(s){
+    // any real update means we're "live" (hide the waiting caption)
+    body.setAttribute('data-live','1');
+
+    if (s.state && STATE_LABEL[s.state]) {
+      body.setAttribute('data-state', s.state);
+      statusText.textContent = STATE_LABEL[s.state];
+    }
+    if (s.emotion !== undefined) {
+      const em = normEmotion(s.emotion);
+      body.setAttribute('data-emotion', em);
+      moodEmoji.textContent = EMOTION_EMOJI[em] || '😐';
+      const pretty = EMOTION_PRETTY[em] || em;
+      if (pretty !== prevEmotion) pop(mood);
+      moodName.textContent = pretty;
+      prevEmotion = em;
+    }
+    if (s.transcript !== undefined) {
+      const t = String(s.transcript || '');
+      if (t.trim()) {
+        userTxt.textContent = t;
+        userBubble.classList.add('show');
+        if (t !== prevUser) pop(userBubble);
+        prevUser = t;
+      } else {
+        userBubble.classList.remove('show');
+      }
+    }
+    if (s.response !== undefined) {
+      const r = String(s.response || '');
+      if (r.trim()) {
+        botTxt.textContent = r;
+        botBubble.classList.add('show');
+        if (r !== prevBot) pop(botBubble);
+        prevBot = r;
+      } else {
+        botBubble.classList.remove('show');
+      }
+    }
+    // wakeword celebratory blip
+    if (s.wakeword) {
+      statusText.textContent = 'Heard you! 👂';
+      setTimeout(() => {
+        if (body.getAttribute('data-state') === 'listening')
+          statusText.textContent = STATE_LABEL['listening'];
+      }, 1200);
+    }
+  }
+
+  // ---- SSE connection ----
+  function connect(){
+    const es = new EventSource('/events');
+    es.onopen = () => { body.setAttribute('data-conn','1'); connText.textContent = 'connected'; };
+    es.onmessage = (ev) => {
+      try { apply(JSON.parse(ev.data)); } catch(e) { /* ignore malformed */ }
+    };
+    es.onerror = () => {
+      body.setAttribute('data-conn','0'); connText.textContent = 'reconnecting…';
+      // EventSource auto-reconnects; nothing else to do.
+    };
+  }
+  connect();
+</script>
+</body>
+</html>
