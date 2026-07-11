@@ -26,19 +26,46 @@ cd "$WS_DIR"
 
 mkdir -p "$LOG_DIR"
 
-# echo "[2/5] Starting face executable: $FACE_EXEC"
-# [[ -x "$FACE_EXEC" ]] || { echo "ERROR: face_exec missing or not executable: $FACE_EXEC"; exit 1; }
-# nohup "$FACE_EXEC" >"$LOG_DIR/face_exec.log" 2>&1 &
-# FACE_PID=$!
-# echo "face_exec started with PID $FACE_PID (logs: $LOG_DIR/face_exec.log)"
+echo "[2/5] Starting whimsical face UI"
+UI_PORT="${CRACKLE_UI_PORT:-8137}"
+UI_URL="http://localhost:${UI_PORT}"
+# The face UI server is a standalone, dependency-free Python process. It shows
+# placeholder / idle animations immediately and comes alive once main.py runs
+# and starts POSTing state to it. Run it straight from source so it does not
+# depend on the workspace being built yet.
+CRACKLE_UI_PORT="$UI_PORT" nohup python3 "$WS_DIR/src/crackle/crackle_planning/crackle_planning/face_ui/server.py" \
+  >"$LOG_DIR/face_ui.log" 2>&1 &
+UI_PID=$!
+echo "face UI started with PID $UI_PID at $UI_URL (logs: $LOG_DIR/face_ui.log)"
 
-# cleanup() {
-#  if kill -0 "$FACE_PID" 2>/dev/null; then
-#    echo "Stopping face_exec (PID $FACE_PID)..."
-#    kill "$FACE_PID" 2>/dev/null || true
-#  fi
-# }
-# trap cleanup EXIT INT TERM
+cleanup() {
+  if [[ -n "${UI_PID:-}" ]] && kill -0 "$UI_PID" 2>/dev/null; then
+    echo "Stopping face UI (PID $UI_PID)..."
+    kill "$UI_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+# Give the server a moment to bind, then open the face fullscreen. Prefer an
+# app/kiosk window; fall back through browsers; finally just print the URL.
+sleep 1
+open_face() {
+  for browser in chromium-browser chromium google-chrome google-chrome-stable brave-browser; do
+    if command -v "$browser" >/dev/null 2>&1; then
+      nohup "$browser" --app="$UI_URL" --start-fullscreen --no-first-run \
+        >"$LOG_DIR/face_ui_browser.log" 2>&1 &
+      echo "Opened face UI in $browser (fullscreen app mode)"
+      return 0
+    fi
+  done
+  if command -v xdg-open >/dev/null 2>&1; then
+    nohup xdg-open "$UI_URL" >"$LOG_DIR/face_ui_browser.log" 2>&1 &
+    echo "Opened face UI via xdg-open"
+    return 0
+  fi
+  echo "No browser found — open the face UI manually at: $UI_URL"
+}
+open_face
 
 echo "[3/5] Loading shell rc (aliases)"
 shopt -s expand_aliases || true
