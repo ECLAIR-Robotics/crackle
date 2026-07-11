@@ -145,7 +145,6 @@ class CrackleFSM:
         # Listening thread interrupts the scanning thread and then processes the command
         print("Entering IDLE state: Scanning and Listening for commands...")
         ui_client.set_state("idle")
-        self._mic_stream.start_stream()
         async def scanning_thread(name: str, stop_event: asyncio.Event):
             while self._state == CrackleState.IDLE and not stop_event.is_set():
                 print("Scanning for commands...")
@@ -237,12 +236,11 @@ class CrackleFSM:
         print(f"[mic] drained {drained // 2 / MODEL_RATE:.2f}s of stale audio")
         # OWW uses ~1.5s of context; feed silence to evict the wake word from its window
         silence = np.zeros(self._mic_chunk, dtype=np.int16)
-        for _ in range(20):
+        for _ in range(10):
             self._owwModel.predict(silence)
 
     async def handle_task(self):
         ui_client.set_state("thinking")
-        await asyncio.sleep(2)  # Simulate task execution time
         print("Entering TASK state: Executing task...")
         print(f"Current command: {self.current_command}")
 
@@ -258,11 +256,11 @@ class CrackleFSM:
             ui_client.set_response(response.dialoge)
 
         if response.dialoge is not None:
-            self.gpt_api.speak_text_eleven_labs(response.dialoge)
-            print("[INFO] Sound played")
-            # Wait for PulseAudio's output buffer to finish playing before draining
-            # the mic pipe — paplay exits before the last ~0.5s of audio leaves the speakers
-            time.sleep(0.5)
+            if not response.tts_handled:
+                self.gpt_api.speak_text_eleven_labs(response.dialoge)
+                print("[INFO] Sound played")
+            # Allow PulseAudio's DAC buffer to drain before reading the mic again.
+            time.sleep(0.2)
             self._drain_mic_buffer()
         else:
             print("[ERROR] response dialogue was none")
@@ -278,21 +276,15 @@ class CrackleFSM:
         ui_client.set_state("idle")
         
     async def handle_resetting(self):
-        # ...
         print("Entering RESETTING state: Resetting system...")
-        await asyncio.sleep(2)  # Simulate resetting time
-        pass
 
     async def handle_failure(self):
-        # ...
         print("Entering FAILURE state: Handling failure...")
-        await asyncio.sleep(2)  # Simulate failure handling time
-        pass
 
     def record_output(
         self,
         max_seconds: float = 15.0,
-        silence_duration: float = 1.2,
+        silence_duration: float = 0.4,
         silence_rms_threshold: float = 500.0,
         start_timeout: float = 5.0,
     ):
@@ -344,11 +336,22 @@ class CrackleFSM:
 
         return np.concatenate(buf)
     
+    def _samples_to_wav_bytes(self, samples: np.ndarray, sample_rate: int = 16000) -> bytes:
+        """Encode PCM samples as a WAV byte string (no disk I/O)."""
+        import io
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            wf.writeframes(samples.tobytes())
+        return buf.getvalue()
+
     def save_as_wav(self, samples: np.ndarray, sample_rate=16000, filename="capture.wav"):
-        """saves an audio sample as a wav file"""
+        """Save audio to disk (kept for debugging)."""
         with wave.open(filename, "wb") as wf:
             wf.setnchannels(1)
-            wf.setsampwidth(2)  # int16
+            wf.setsampwidth(2)
             wf.setframerate(sample_rate)
             wf.writeframes(samples.tobytes())
 
@@ -369,8 +372,8 @@ class CrackleFSM:
                 # start listening for a command (call function)
                 samples = self.record_output()
                 print("Recording complete.")
-                self.save_as_wav(samples, 16000, "out.wav")
-                text = self.gpt_api.speech_to_text("out.wav")
+                wav_bytes = self._samples_to_wav_bytes(samples)
+                text = self.gpt_api.speech_to_text(wav_bytes)
                 print(f"Transcribed words: {text}")
                 self.current_command = text
                 ui_client.set_transcript(text)
