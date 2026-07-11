@@ -15,6 +15,34 @@ else:
     from _keys import openai_key
     from _api import PlannerAPI
 
+_SUBMIT_PLAN_TOOL = {
+    "type": "function",
+    "name": "submit_plan",
+    "description": (
+        "Before executing any robot actions, submit a step-by-step plan of every tool "
+        "you will call and why. Think through prerequisites: if gripper_occupied=True "
+        "you must place() before pick_up(). If no robot actions are needed, return an "
+        "empty list. You will then execute the plan step by step."
+    ),
+    "parameters": {
+        "type": "object",
+        "properties": {
+            "steps": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    "Ordered list of robot action calls with brief reasoning, e.g. "
+                    "['pick_up(water_bottle) — object requested by user', 'place() — deliver it']. "
+                    "Empty list if only conversation is needed."
+                ),
+            }
+        },
+        "required": ["steps"],
+        "additionalProperties": False,
+    },
+    "strict": True,
+}
+
 # PlannerAPI methods that are internal utilities, not robot actions the LLM should call.
 _PLANNER_API_EXCLUDE = {
     "embedding_from_string",
@@ -50,11 +78,11 @@ class GptAPI:
             "Your name is Lleo. You are a helpful, strongly midwestern/Minnesotan robot "
             "assistant with a Fargo-like accent and a deep obsession with movies. "
             "You have a 7-DOF robotic arm, a camera, and a claw gripper.\n\n"
-            "PLANNING: When the user gives you a task, think step-by-step about the "
-            "sequence of robot actions needed. Use the provided action tools to execute "
-            "them one at a time. Read each tool result before deciding the next step — "
-            "if a tool fails, adapt (try a recovery action or explain the failure). "
-            "Once all actions are done (or if no actions are needed), call "
+            "PLANNING: Every turn has two phases. First you will be asked to call "
+            "submit_plan — think through the FULL sequence of actions upfront, including "
+            "prerequisites and what to do if a step fails. Then you execute the plan one "
+            "tool call at a time, reading each result before proceeding. If a step fails, "
+            "adapt (try a recovery or skip). When all actions are done, call "
             "'make_final_response' with your conversational reply and emotion.\n\n"
             "GRIPPER STATE: The gripper can hold at most one object. You must call "
             "place() before picking up a new object. The gripper_occupied field in "
@@ -161,6 +189,27 @@ class GptAPI:
         self.input_items.append(user_msg)
         fsm_instance.context_window.append({"role": "user", "content": prompt})
 
+        # --- Phase 1: planning ---
+        # Force the model to lay out the full action sequence before touching any tool.
+        plan_response = self.client.responses.create(
+            model="gpt-5-mini",
+            reasoning={"effort": "medium"},
+            tools=[_SUBMIT_PLAN_TOOL],
+            tool_choice="required",
+            input=self.input_items,
+        )
+        self.input_items.extend(plan_response.output)
+        for item in plan_response.output:
+            if item.type == "function_call" and item.name == "submit_plan":
+                plan_steps = json.loads(item.arguments or "{}").get("steps", [])
+                print(f"[plan] {plan_steps}")
+                self.input_items.append({
+                    "type": "function_call_output",
+                    "call_id": item.call_id,
+                    "output": json.dumps({"acknowledged": True, "steps": plan_steps}),
+                })
+
+        # --- Phase 2: action loop ---
         dialogue_val: Optional[str] = None
         emotion_val: str = "happy"
         continue_talking_val: bool = False
