@@ -241,20 +241,19 @@ class CrackleFSM:
             self._owwModel.predict(silence)
 
     async def handle_task(self):
-        # ...
         ui_client.set_state("thinking")
         await asyncio.sleep(2)  # Simulate task execution time
         print("Entering TASK state: Executing task...")
         print(f"Current command: {self.current_command}")
 
-        # main_planner(self, self.current_command)        #main_planner()
-        response = self.gpt_api.get_command(self, self.current_command)
+        # Tool calls are executed inside get_command via the agentic loop.
+        response = self.gpt_api.get_command(self, self.current_command, self.planner_api)
         print(f"Response: {response}")
-        api = PlannerAPI(ROS_ENABLED)
 
         # Surface the emotion + reply on the face UI (and drive the ROS face).
-        ui_client.set_emotion(response.emotion)
-        self.planner_api.set_emotion(response.emotion)
+        if response.emotion is not None:
+            ui_client.set_emotion(response.emotion)
+            self.planner_api.set_emotion(response.emotion)
         if response.dialoge is not None:
             ui_client.set_response(response.dialoge)
 
@@ -274,16 +273,9 @@ class CrackleFSM:
             ui_client.set_state("listening")
             return
 
-        if response.code is not None:
-            print(f"Executing code: {response.code}")
-            exec(response.code)
-        else:
-            print("[ERROR] response code was noneP")
-
         print("TASK COMPLETED")
         self._state = CrackleState.IDLE
         ui_client.set_state("idle")
-        pass
         
     async def handle_resetting(self):
         # ...
