@@ -1,5 +1,5 @@
 # from crackle_planning.planner_lib._keys import key
-from numpy import save
+import numpy as np
 import openai
 from openai import OpenAI
 import json
@@ -10,7 +10,6 @@ import inspect
 from typing import Any
 from elevenlabs import ElevenLabs
 from dataclasses import dataclass
-from playsound3 import playsound
 
 ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
 if ROS_ENABLED:
@@ -53,6 +52,9 @@ class GptAPI:
             "- Put your conversational reply in the 'dialogue' field.\n"
             "- Put ONLY executable Python code in the 'code' field.\n"
             "- Put a single emotion word in the 'emotion' field.\n"
+            "- Set continue_talking to False unless the request is genuinely ambiguous "
+            "and you cannot act without a clarifying answer. Never add a question to "
+            "your dialogue just to justify continue_talking=True.\n"
         )
         # Persistent conversation history — survives across get_command calls so the
         # whole run of the FSM shares one context window with the model.
@@ -220,7 +222,12 @@ class GptAPI:
                         "continue_talking": {
                             "type": "boolean",
                             "description": (
-                                " Return True if the user just wants to have a conversation and does not want you to conduct a task."
+                                "Default is FALSE. Set to True ONLY when the user's request is "
+                                "genuinely ambiguous and you CANNOT proceed without more information "
+                                "from them (e.g. they said 'pick that up' but didn't say which object). "
+                                "Do NOT add a question to your dialogue just to justify setting this True. "
+                                "Do NOT set True after completing a task, answering a question, or "
+                                "any conversational exchange. If in doubt, return False."
                             ),
                         },
                     },
@@ -300,19 +307,26 @@ class GptAPI:
             input=text,
         )
 
-    def speak_text_eleven_labs(self, text: str, output_path: str = "speech_output.mp3"):
+    def speak_text_eleven_labs(self, text: str):
+        """Stream TTS audio directly to speakers via paplay — no file I/O, low latency."""
+        import subprocess
+
         audio_stream = self.tts.text_to_speech.convert(
             voice_id="Tu7yBVBgg8rrFciOxBRm",
-            model_id="eleven_multilingual_v2",
+            model_id="eleven_turbo_v2_5",
             text=text,
+            output_format="pcm_16000",
         )
 
-        with open(output_path, "wb") as f:
-            for chunk in audio_stream:
-                if chunk:
-                    f.write(chunk)
-
-        return output_path  
+        proc = subprocess.Popen(
+            ["paplay", "--raw", "--format=s16le", "--rate=16000", "--channels=1"],
+            stdin=subprocess.PIPE,
+        )
+        for chunk in audio_stream:
+            if chunk:
+                proc.stdin.write(chunk)
+        proc.stdin.close()
+        proc.wait()
 
     
     def speech_to_text(self, speechFile, model="whisper-1"):
@@ -325,18 +339,15 @@ class GptAPI:
         return transcript.text
     
 if __name__ == "__main__":
+    class _MockFSM:
+        context_window = []
+
     gpt_api = GptAPI()
-    # return {
-    #         "dialogue": dialogue_val,
-    #         "code": code_val,
-    #         "emotion": emotion_val,
-    #     }
-    output = gpt_api.get_command("Hey Leo you suck. You need to prove to me that you do not suck. Also, you're looking mighty sexy today. Can you please bring me the water bottle?")
-    gpt_api.speak_text_eleven_labs(output["dialogue"])
-    # RosInterface.set_emotion(output["emotion"])
-    api = PlannerAPI(ROS_ENABLED)
-    api.set_emotion(output["emotion"]) 
-    exec(output["code"])
+    output = gpt_api.get_command(_MockFSM(), "Hey Leo, can you please bring me the water bottle?")
+    print(f"Dialogue: {output.dialoge}")
+    print(f"Emotion:  {output.emotion}")
+    print(f"Code:     {output.code}")
+    gpt_api.speak_text_eleven_labs(output.dialoge)
 
 
 
