@@ -218,13 +218,31 @@ class RosInterface:
             return False
         return True
 
-    def call_pickup_service(self, object_name: str):
-        """Call the manipulation pickup service for the given object name."""
+    def call_pickup_service(self, object_name: str) -> bool:
+        """Call the manipulation pickup service for the given object name.
+
+        Returns True only if the manipulation node reports a successful grasp.
+        """
         while not self._pickup_service_client.wait_for_service(timeout_sec=1.0):
             self._node.get_logger().info("Service not available, waiting again...")
         request = PickupObject.Request()
+        # The manipulation node looks this object up in the planning scene; without
+        # it the request carries an empty id and pickup always fails with
+        # "object '' not found in planning scene".
+        request.object_name = object_name
         future = self._pickup_service_client.call_async(request)
-        return self._wait_for_future(future, timeout=20.0)
+        # Pickup covers planning + executing a full arm trajectory, so allow ample time.
+        result = self._wait_for_future(future, timeout=120.0)
+        if result is None:
+            self._node.get_logger().warn(
+                f"Pickup service for '{object_name}' timed out or returned no response."
+            )
+            return False
+        if not result.success:
+            self._node.get_logger().warn(
+                f"Manipulation node failed to pick up '{object_name}'."
+            )
+        return bool(result.success)
 
     def wait_for_direction_after(self, target_time_sec: float, timeout: float = 0.5):
         """Return the first direction whose header stamp >= target_time_sec, or None on timeout."""
@@ -324,7 +342,14 @@ class RosInterface:
 
         Called before every pick or place so the planner sees an up-to-date
         3-D collision map of any objects YOLO didn't detect.
+
+        OctoMap is currently DISABLED (see crackle_moveit/config/sensors_3d.yaml),
+        so this is a no-op — clearing a non-existent octomap would only add a
+        per-pick service-wait/settle delay. Remove this early return to restore the
+        refresh once octomap sensing is re-enabled.
         """
+        return
+
         if not self.__clear_octomap_client.wait_for_service(timeout_sec=2.0):
             self._node.get_logger().warn(
                 "clear_octomap service not available — skipping OctoMap refresh"
