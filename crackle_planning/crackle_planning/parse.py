@@ -54,6 +54,64 @@ def parse_functions_to_json(module):
     json_output = json.dumps(function_definitions, indent=4) # this is a string
     return function_definitions
 
+_PYTHON_TYPE_MAP = {
+    "str": "string",
+    "int": "integer",
+    "float": "number",
+    "bool": "boolean",
+}
+
+def parse_class_to_tools(cls, exclude=None):
+    """Generate OpenAI function tool definitions from a class's public methods.
+
+    Skips private methods (starting with '_') and any names in `exclude`.
+    Returns a list of dicts in the OpenAI function-tool format.
+    """
+    skip = set(exclude or [])
+    tools = []
+
+    for name, method in inspect.getmembers(cls, predicate=inspect.isfunction):
+        if name.startswith("_") or name in skip:
+            continue
+
+        sig = inspect.signature(method)
+        docstring = inspect.getdoc(method) or "No description available."
+
+        properties = {}
+        required = []
+
+        for param_name, param in sig.parameters.items():
+            if param_name == "self":
+                continue
+
+            type_name = "string"
+            if param.annotation != inspect.Parameter.empty:
+                raw = getattr(param.annotation, "__name__", str(param.annotation))
+                type_name = _PYTHON_TYPE_MAP.get(raw, "string")
+
+            properties[param_name] = {
+                "type": type_name,
+                "description": f"The {param_name} parameter.",
+            }
+
+            if param.default == inspect.Parameter.empty:
+                required.append(param_name)
+
+        tools.append({
+            "type": "function",
+            "name": name,
+            "description": docstring,
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+                "additionalProperties": False,
+            },
+            "strict": True,
+        })
+
+    return tools
+
 if __name__ == "__main__":
     import __main__
     parse_functions_to_json(__main__)
