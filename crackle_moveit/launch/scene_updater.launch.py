@@ -20,7 +20,9 @@ def launch_setup(context, *args, **kwargs):
     robot_type = LaunchConfiguration('robot_type', default='lite')
     prefix = LaunchConfiguration('prefix', default='')
     hw_ns = LaunchConfiguration('hw_ns', default='lite6')
-    limited = LaunchConfiguration('limited', default=True)
+    # Full ±2*pi range so it matches move_group (see moveit_bringup.launch.py);
+    # the real arm parks joints 1/4/6 near ±350deg, which the limited model rejects.
+    limited = LaunchConfiguration('limited', default=False)
     effort_control = LaunchConfiguration('effort_control', default=False)
     velocity_control = LaunchConfiguration('velocity_control', default=False)
     model1300 = LaunchConfiguration('model1300', default=False)

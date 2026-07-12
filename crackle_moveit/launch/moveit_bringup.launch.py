@@ -23,19 +23,32 @@ def generate_launch_description():
     log_choice = LogInfo(msg=['Use Simulated Robot: ', use_simulated_robot])
     # print the value of the launch argument
 
+    # Always boot RViz from the crackle config. This propagates down the xarm
+    # launch chain to _robot_moveit_common2.launch.py, which uses it as the
+    # rviz2 -d config when set (see its rviz_config arg).
+    crackle_rviz_config = os.path.join(
+        get_package_share_directory("crackle_planning"), "rviz", "crackle_rviz_config.rviz"
+    )
+
+    # limited=false uses the arm's full ±2*pi range on joints 1/4/6. The real
+    # arm reports those joints near ±350deg (still within ±2*pi), which is out
+    # of bounds under the default limited (±pi*0.99) model and makes OMPL reject
+    # the start state ("invalid bounds"). Keep this consistent with
+    # scene_updater.launch.py so every robot_description agrees.
     sim_moveit_bringup_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(get_package_share_directory("xarm_moveit_config"), "launch", "lite6_moveit_fake.launch.py")
         ),
+        launch_arguments={'limited': 'false', 'rviz_config': crackle_rviz_config}.items(),
         condition = IfCondition(use_simulated_robot)
     )
     real_moveit_bringup_launch = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(get_package_share_directory("xarm_moveit_config"), "launch", "lite6_moveit_realmove.launch.py")
         ),
-        launch_arguments={'robot_ip': '192.168.1.166'}.items(),
+        launch_arguments={'robot_ip': '192.168.1.166', 'limited': 'false', 'rviz_config': crackle_rviz_config}.items(),
         condition=UnlessCondition(use_simulated_robot)
-        
+
     )
 
 

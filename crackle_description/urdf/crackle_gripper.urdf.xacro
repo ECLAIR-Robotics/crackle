@@ -10,14 +10,20 @@
   <xacro:property name="arm_last_link" value="${arm_link}"/>
 
   <!-- Placement of the gripper mesh within the gripper_base link.
-       Tune these in RViz if the body is not oriented as expected. -->
-  <xacro:property name="gripper_mesh_xyz" value="0 0 0"/>
-  <xacro:property name="gripper_mesh_rpy" value="0 0 0"/>
+       In the raw mesh the rack/pinion mechanism sits at one end (mesh Z=-196mm)
+       and the two fingers at the other (mesh Z=+38mm), with the lateral rack
+       running along mesh X. This transform mounts the mechanism end on the
+       flange (link origin) and points the fingers out along +Z (the arm's
+       approach direction), with the rack opening along Y. The 90° yaw turns
+       the rack from mesh X onto Y. -->
+  <xacro:property name="gripper_mesh_xyz" value="-0.002 0.020 0.196"/>
+  <xacro:property name="gripper_mesh_rpy" value="0 0 1.5708"/>
 
   <!-- Lateral rack (jaw) travel, in metres, from fully open (0) to fully closed. -->
-  <xacro:property name="rack_travel" value="0.03"/>
-  <!-- Where the jaws sit relative to the base origin (long axis of the mesh). -->
-  <xacro:property name="jaw_z" value="-0.15"/>
+  <xacro:property name="rack_travel" value="0.04"/>
+  <!-- Where the jaws sit relative to the base origin: near the finger tips
+       (+Z) and offset laterally along Y. -->
+  <xacro:property name="jaw_z" value="0.19"/>
   <xacro:property name="jaw_open_y" value="0.05"/>
 
   <!-- =========================
@@ -62,23 +68,28 @@
       </visual>
     </link>
 
-    <!-- Prismatic rack joints. Both racks are driven symmetrically by the two
-         pinion servos, so a single (positive) joint value closes both jaws.
-         Positive axis direction points inward (toward the centreline). -->
-    <joint name="left_rack_joint" type="prismatic">
+    <!-- Rack (jaw) joints, pinned FIXED at the open position for now.
+         They were prismatic (rack opens along Y, driven symmetrically by the
+         two pinion servos), but a movable joint has no transform until its
+         position is published on /joint_states — which only happens when the
+         claw node is running and the ESP32 is streaming. That broke TF
+         (no transform to left_rack) and MoveIt's current-state monitor
+         (incomplete state -> planning failures) whenever the gripper wasn't
+         actively driven. Fixed joints always resolve and add no DOF to MoveIt.
+         To re-enable articulation: set type="prismatic", restore the <axis>
+         (0 -1 0 / 0 1 0) and <limit lower="0.0" upper="${rack_travel}" ...>,
+         and make claw_degree_publisher publish these joints on /joint_states
+         continuously (see publish_joint_states param). -->
+    <joint name="left_rack_joint" type="fixed">
       <parent link="${link_name}"/>
       <child link="left_rack"/>
       <origin xyz="0 ${jaw_open_y} ${jaw_z}" rpy="0 0 0"/>
-      <axis xyz="0 -1 0"/>
-      <limit lower="0.0" upper="${rack_travel}" effort="10.0" velocity="0.1"/>
     </joint>
 
-    <joint name="right_rack_joint" type="prismatic">
+    <joint name="right_rack_joint" type="fixed">
       <parent link="${link_name}"/>
       <child link="right_rack"/>
       <origin xyz="0 ${-jaw_open_y} ${jaw_z}" rpy="0 0 0"/>
-      <axis xyz="0 1 0"/>
-      <limit lower="0.0" upper="${rack_travel}" effort="10.0" velocity="0.1"/>
     </joint>
 
   </xacro:macro>
@@ -90,11 +101,14 @@
   <!-- 1) Base link -->
   <xacro:gripper_base_macro link_name="gripper_base"/>
 
-  <!-- 2) Fixed joint to arm -->
+  <!-- 2) Fixed joint to arm. The mesh transform above already puts the mount
+       face at the gripper_base origin with the fingers along +Z, so the
+       gripper mounts flush on the flange. Adjust the yaw here to clock the
+       gripper about the tool axis if the jaw-opening direction needs rotating. -->
   <joint name="gripper_base_joint" type="fixed">
     <parent link="${arm_last_link}"/>
     <child link="gripper_base"/>
-    <origin xyz="0 0 0.025" rpy="0.0 0 -0.78"/> <!-- 0.78 -->
+    <origin xyz="0.0 0.0 0.0" rpy="0 0 0"/>
   </joint>
 
   <link name="camera_depth_optical_frame">
@@ -104,7 +118,7 @@
         <mesh filename="${pkg_path}/realsense_d435i.stl" scale="${mesh_scale}"/>
       </geometry>
       <material name="blue">
-        <color rgba="0.0 0.0 0.5 1"/>
+        <color rgba="0.5 0.0 0.0 1"/>
       </material>
     </visual>
     <inertial>
@@ -119,7 +133,7 @@
   <joint name="camera_depth_optical_frame_joint" type="fixed">
     <parent link="gripper_base"/>
     <child link="camera_depth_optical_frame"/>
-    <origin xyz="-0.08 0 0.03" rpy="0 0 -1.57"/>
+    <origin xyz="0.02 0.02 0.05" rpy="0.04 0 -1.57"/>
   </joint>
 
   </xacro:macro> 

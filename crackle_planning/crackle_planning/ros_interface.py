@@ -15,9 +15,9 @@ from moveit_msgs.srv import GetPlanningScene
 from sensor_msgs.msg import Image
 from rclpy.callback_groups import ReentrantCallbackGroup
 from geometry_msgs.msg import Vector3Stamped
-from std_msgs.msg import Bool, String
+from std_msgs.msg import String
 from visualization_msgs.msg import Marker
-from std_srvs.srv import Trigger, Empty
+from std_srvs.srv import Trigger, Empty, SetBool
 from rclpy.node import Node
 from rclpy.time import Time
 
@@ -106,7 +106,11 @@ class RosInterface:
             GetPlanningScene, "/get_planning_scene"
         )
 
-        self.__claw_command_publisher = node.create_publisher(Bool, "/claw/command", 10)
+        # Blocking close/open service that waits until the gripper firmware
+        # reports the command finished.
+        self.__claw_set_client = node.create_client(
+            SetBool, "/claw/set_gripper", callback_group=self.__multi_callback_group
+        )
 
         self.__find_objects_client = node.create_client(
             FindObjects, "vision/find_objects"
@@ -354,19 +358,31 @@ class RosInterface:
         msg.data = emotion
         self.__emotion_publisher.publish(msg)
 
-    def close_gripper(self):
-        """Send a close command to the claw gripper."""
+    def close_gripper(self) -> bool:
+        """Close the claw gripper and block until the firmware reports it is
+        closed. Returns True on confirmed close."""
         self._node.get_logger().info("Closing gripper...")
-        msg = Bool()
-        msg.data = True
-        self.__claw_command_publisher.publish(msg)
+        return self._set_gripper(True)
 
-    def open_gripper(self):
-        """Send an open command to the claw gripper."""
+    def open_gripper(self) -> bool:
+        """Open the claw gripper and block until the firmware reports it is
+        open. Returns True on confirmed open."""
         self._node.get_logger().info("Opening gripper...")
-        msg = Bool()
-        msg.data = False
-        self.__claw_command_publisher.publish(msg)
+        return self._set_gripper(False)
+
+    def _set_gripper(self, close: bool) -> bool:
+        if not self.__claw_set_client.wait_for_service(timeout_sec=2.0):
+            self._node.get_logger().warn("/claw/set_gripper service unavailable")
+            return False
+        req = SetBool.Request()
+        req.data = close
+        future = self.__claw_set_client.call_async(req)
+        result = self._wait_for_future(future, timeout=20.0)
+        if result is None:
+            return False
+        if not result.success:
+            self._node.get_logger().warn(f"Gripper command failed: {result.message}")
+        return result.success
 
     def recognize_person(self) -> List[str]:
         """Attempt to identify people in the latest camera image using face recognition."""

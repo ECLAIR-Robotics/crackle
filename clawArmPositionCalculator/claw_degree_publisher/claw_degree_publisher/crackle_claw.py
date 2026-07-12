@@ -10,13 +10,23 @@ Serial protocol (must stay in sync with the firmware main.cpp):
   * baud rate: 115200
   * commands (host -> ESP32): single char '1' = close, '0' = open
   * telemetry (ESP32 -> host): lines of the form "ANGLE <deg>\\n"
+  * completion  (ESP32 -> host): "DONE 1\\n" / "DONE 0\\n" once a close/open
+    command has fully finished (grip_object() is blocking), so callers can
+    wait until the gripper is actually closed before proceeding.
 
 The firmware drives both pinion servos symmetrically between MIN_ANGLE
 (fully open) and MAX_ANGLE (fully closed); see gripper.cpp.
 """
 
+from collections import namedtuple
+
 import serial
 from serial.tools import list_ports
+
+# Result of draining the serial port once. ``angle`` is the latest servo angle
+# in degrees (or None if no new reading), ``done`` is '1'/'0' if a completion
+# ack was seen this poll (or None).
+PollResult = namedtuple("PollResult", ["angle", "done"])
 
 # --- Constants mirrored from the CRACKLE_CLAW firmware -----------------------
 BAUD_RATE = 115200
@@ -29,6 +39,7 @@ MAX_ANGLE = 180
 CMD_CLOSE = b"1"
 CMD_OPEN = b"0"
 ANGLE_PREFIX = "ANGLE"
+DONE_PREFIX = "DONE"
 
 # USB-serial adapter used by the ESP32 devkit.
 DEVICE_DESCRIPTION = "CP2102 USB to UART Bridge Controller"
@@ -115,32 +126,40 @@ class CrackleClaw:
         return self._write(CMD_OPEN)
 
     # -- telemetry ------------------------------------------------------------
-    def read_angle(self):
-        """Drain pending serial lines and return the latest servo angle in
-        degrees, or None if no new reading was available."""
+    def poll(self):
+        """Drain pending serial lines. Returns a PollResult with the latest
+        servo angle (or None) and the last completion ack seen (or None)."""
         if self._ser is None:
-            return None
+            return PollResult(None, None)
 
-        latest = None
+        latest_angle = None
+        latest_done = None
         try:
             while self._ser.in_waiting > 0:
                 line = self._ser.readline().decode("utf-8", errors="ignore").strip()
-                if not line.startswith(ANGLE_PREFIX):
-                    continue
                 parts = line.split()
                 if len(parts) != 2:
                     continue
-                try:
-                    latest = int(parts[1])
-                except ValueError:
-                    continue
+                if parts[0] == ANGLE_PREFIX:
+                    try:
+                        latest_angle = int(parts[1])
+                    except ValueError:
+                        continue
+                elif parts[0] == DONE_PREFIX and parts[1] in ("0", "1"):
+                    latest_done = parts[1]
         except (OSError, serial.SerialException) as exc:
             self._drop(str(exc))
-            return None
+            return PollResult(None, None)
 
-        if latest is not None:
-            self._last_angle = max(MIN_ANGLE, min(MAX_ANGLE, latest))
-        return self._last_angle if latest is not None else None
+        if latest_angle is not None:
+            self._last_angle = max(MIN_ANGLE, min(MAX_ANGLE, latest_angle))
+        angle = self._last_angle if latest_angle is not None else None
+        return PollResult(angle, latest_done)
+
+    def read_angle(self):
+        """Backwards-compatible helper: drain serial and return the latest
+        servo angle in degrees, or None if no new reading was available."""
+        return self.poll().angle
 
     @property
     def last_angle(self):

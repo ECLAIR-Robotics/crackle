@@ -54,6 +54,16 @@ def generate_launch_description():
         parameters=[]
     )
 
+    # Serves /claw/set_gripper to the CRACKLE_CLAW gripper firmware over serial and
+    # publishes the rack joint positions on /joint_states. Runs harmlessly (warns
+    # and retries) when the ESP32 is not connected, e.g. in simulation.
+    claw_node = Node(
+        package='claw_degree_publisher',
+        executable='claw_degree_publisher',
+        name='claw_degree_publisher',
+        output='screen',
+    )
+
     audio_localization_node = Node(
         package='sound_direction_publisher',
         executable='sound_direction_publisher',
@@ -96,6 +106,7 @@ def generate_launch_description():
         vision_bringup,
         moveit_bringup,
         face_node,
+        claw_node,
         audio_localization_node,
         simulated_camera_node,
         octomap_server_node,
