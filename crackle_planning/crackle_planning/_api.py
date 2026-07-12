@@ -4,12 +4,17 @@ import threading
 import atexit
 from typing import Any, Dict, List, Optional
 
-# MOVE LATER
 import numpy as np
 
 SEARCH_POSES_FILE = os.path.expanduser(
     "~/crackle_ws/src/crackle/crackle_planning/crackle_planning/search_poses.json"
 )
+
+ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
+if ROS_ENABLED:
+    from crackle_planning.sim_ros_interface import SimulatedRosInterface
+else:
+    from sim_ros_interface import SimulatedRosInterface
 
 
 def _create_openai_client():
@@ -28,8 +33,14 @@ def _create_openai_client():
         )
     return OpenAI(api_key=api_key)
 
+
 class PlannerAPI:
-    def __init__(self, use_ros: bool, ros_node: Optional[Any] = None):
+    def __init__(
+        self,
+        use_ros: bool,
+        ros_node: Optional[Any] = None,
+        sim: Optional["SimulatedRosInterface"] = None,
+    ):
         self.use_ros = use_ros
         self.gripper_occupied = False
         self.global_state: Dict[str, Any] = {}
@@ -46,7 +57,6 @@ class PlannerAPI:
                 import rclpy
                 from rclpy.executors import MultiThreadedExecutor
                 from rclpy.node import Node
-                ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
                 if ROS_ENABLED:
                     from crackle_planning.ros_interface import RosInterface
                 else:
@@ -73,15 +83,18 @@ class PlannerAPI:
             if self._owns_node:
                 self._executor = MultiThreadedExecutor()
                 self._executor.add_node(self._crackle_node)
-                self._spin_thread = threading.Thread(target=self._executor.spin, daemon=True)
+                self._spin_thread = threading.Thread(
+                    target=self._executor.spin, daemon=True
+                )
                 self._spin_thread.start()
 
             atexit.register(self._shutdown_ros)
 
         else:
-            print("Warning: PlannerAPI initialized without ROS interface. Some functionalities may be limited.")
-            self.ros_interface = None
+            # Use the provided sim instance, or create a default one.
+            self.ros_interface = sim if sim is not None else SimulatedRosInterface()
             self._crackle_node = ros_node
+            print("PlannerAPI running in simulation mode (ROS disabled).")
 
     def _shutdown_ros(self):
         if not self.use_ros:
@@ -96,19 +109,16 @@ class PlannerAPI:
             if self._owns_rclpy_context:
                 rclpy.try_shutdown()
         except Exception as e:
-            print(f"[PlannerAPI] ROS shutdown warning: {e}") 
+            print(f"[PlannerAPI] ROS shutdown warning: {e}")
 
-    # def find(self, object_name : str, mapped_objects): # This function is to locate the named object by matching it with the most similar mapped object
-
-    # MOVE LATER
-    def embedding_from_string(self, text: str, model: str = "text-embedding-3-small") -> np.ndarray:
+    def embedding_from_string(
+        self, text: str, model: str = "text-embedding-3-small"
+    ) -> np.ndarray:
         """Get an embedding as a NumPy vector."""
         client = _create_openai_client()
         resp = client.embeddings.create(model=model, input=text)
-        # print("str: ", text, " | embedding: ", np.array(resp.data[0].embedding, dtype=np.float32))
         return np.array(resp.data[0].embedding, dtype=np.float32)
 
-    # MOVE LATER
     def recommendations_from_strings(
         self,
         strings: List[str],
@@ -116,46 +126,33 @@ class PlannerAPI:
         model: str = "text-embedding-3-small",
     ) -> Optional[str]:
         """Return nearest neighbors of a given string (including itself first)."""
-
-        # 1) embeddings for all strings
         embeddings = [self.embedding_from_string(s, model=model) for s in strings]
-
-        # 2) source embedding
         query = embeddings[index_of_source_string]
-
-        # 3) cosine *distance* = 1 - cosine similarity
         q_norm = np.linalg.norm(query)
         distances = []
         for e in embeddings:
             denom = q_norm * np.linalg.norm(e)
             sim = float(query @ e / denom) if denom != 0 else 0.0
             distances.append(1.0 - sim)
-
-        # 4) nearest neighbors = smallest distance first
         indices_of_nearest_neighbors = list(np.argsort(distances))
-
         closest_idx = indices_of_nearest_neighbors[1]
         if distances[closest_idx] <= 0.5:
             return strings[closest_idx]
         return None
 
-    def _find_similar_object(self, target: str, scene_objects: List[str]) -> Optional[str]:
+    def _find_similar_object(
+        self, target: str, scene_objects: List[str]
+    ) -> Optional[str]:
         """Use embedding similarity to find the closest matching object in the scene."""
         if not scene_objects:
             return None
-        # Append target to the list so recommendations_from_strings can compare it
-        # against all scene objects. The target is at index len(scene_objects).
         return self.recommendations_from_strings(
             scene_objects + [target],
             len(scene_objects),
         )
 
     def _load_search_poses(self):
-        """Load the hardcoded list of end-effector search poses from JSON.
-
-        Each entry has `position` (x/y/z in metres) and `rpy` (roll/pitch/yaw
-        in degrees, intrinsic XYZ). RPY is converted to a quaternion here.
-        """
+        """Load the hardcoded list of end-effector search poses from JSON."""
         from geometry_msgs.msg import Pose
         import math
         try:
@@ -188,19 +185,19 @@ class PlannerAPI:
         if self.gripper_occupied:
             print("Gripper is already holding an object.")
             return
-        if self.use_ros and self.ros_interface is not None:
-            # First check if a matching object already exists in the planning scene
+        if self.ros_interface is not None:
             scene_objects = self.ros_interface.get_scene_object_names()
             matched_name = self._find_similar_object(object_name, scene_objects)
 
-            # If no close enough match, sweep the hardcoded search poses and
-            # call find_objects from each view until the target shows up.
             if matched_name is None:
                 search_poses = self._load_search_poses()
                 if not search_poses:
                     print("No search poses loaded; cannot scan for object.")
                 else:
-                    print(f"Object '{object_name}' not in scene — sweeping {len(search_poses)} search pose(s)...")
+                    print(
+                        f"Object '{object_name}' not in scene — sweeping "
+                        f"{len(search_poses)} search pose(s)..."
+                    )
                 for i, pose in enumerate(search_poses):
                     print(f"Moving to search pose {i + 1}/{len(search_poses)}...")
                     if not self.ros_interface.move_to_pose(pose):
@@ -220,57 +217,43 @@ class PlannerAPI:
             self.ros_interface.clear_and_refresh_octomap()
             self.ros_interface.call_pickup_service(matched_name)
             self.gripper_occupied = True
-        else:
-            print(f"Simulating pick up of object '{object_name}' without ROS.")
-    
+
     def look_at_sound_direction(self, wake_word_time: float):
         """Turn the robot's head to face the direction of the detected sound."""
-        if self.use_ros and self.ros_interface is not None:
+        if self.ros_interface is not None:
             self.ros_interface.look_at_person(wake_word_time)
-        else:
-            print("Simulating look at sound direction without ROS.")
 
     def place(self):
         """Place the currently held object down and release the gripper."""
-        if self.use_ros and self.ros_interface is not None:
+        if self.ros_interface is not None:
             self.ros_interface.clear_and_refresh_octomap()
+            self.ros_interface.open_gripper()
             self.gripper_occupied = False
-        else:
-            print("Simulating place without ROS.")
 
-    def wave(self): 
-        """The Robot will wave at the user"""
+    def wave(self):
+        """The Robot will wave at the user."""
         print("Waving...")
-        pass
-    
+
     def set_emotion(self, emotion: str):
         """Set the robot's displayed emotion to the given emotion string."""
-        if self.use_ros and self.ros_interface is not None:
+        if self.ros_interface is not None:
             self.ros_interface.set_emotion(emotion)
-        else:
-            print(f"Simulating setting emotion to '{emotion}' without ROS.")
-    
+
     def close_gripper(self):
-        """This function allows us to close the gripper. Can be used to conduct tasks like picking up and putting down objects, and shaking hands."""
-        if self.use_ros and self.ros_interface is not None:
+        """Close the gripper. Useful for picking up objects or shaking hands."""
+        if self.ros_interface is not None:
             self.ros_interface.close_gripper()
-        else:
-            print("Simulating close gripper without ROS.")
 
     def open_gripper(self):
-        """This function opens the gripper, allowing the robot to release the object it is holding on to."""
-        if self.use_ros and self.ros_interface is not None:
+        """Open the gripper, releasing any held object."""
+        if self.ros_interface is not None:
             self.ros_interface.open_gripper()
-        else:
-            print("Simulating open gripper without ROS.")
 
     def dance_dance(self):
         """Make the robot perform a dance routine."""
-        if self.use_ros and self.ros_interface is not None:
+        if self.ros_interface is not None:
             self.ros_interface.dance()
-        else:
-            print("Simulating dance maneuver without ROS.")
-    
+
     def get_global_state_value(self, key: str):
         """Retrieve a value from the planner's global state dictionary by key."""
         return self.global_state.get(key)
