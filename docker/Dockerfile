@@ -82,10 +82,10 @@ ENV GZ_VERSION=garden
 RUN /bin/sh -c 'wget https://packages.osrfoundation.org/gazebo.gpg -O /usr/share/keyrings/pkgs-osrf-archive-keyring.gpg' \
   && /bin/sh -c 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/pkgs-osrf-archive-keyring.gpg] http://packages.osrfoundation.org/gazebo/ubuntu-stable $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/gazebo-stable.list > /dev/null'
 
-# Set up Intel RealSense repository
+# Set up Intel RealSense repository (fetch key by ID to handle key rotations)
 RUN mkdir -p /etc/apt/keyrings \
-  && curl -sSf https://librealsense.intel.com/Debian/librealsense.pgp \
-  | tee /etc/apt/keyrings/librealsense.pgp > /dev/null \
+  && gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys FB0B24895113F120 \
+  && gpg --export FB0B24895113F120 | tee /etc/apt/keyrings/librealsense.pgp > /dev/null \
   && echo "deb [signed-by=/etc/apt/keyrings/librealsense.pgp] https://librealsense.intel.com/Debian/apt-repo $(lsb_release -cs) main" \
   | tee /etc/apt/sources.list.d/librealsense.list > /dev/null
 
@@ -182,11 +182,17 @@ RUN echo "numpy<2.0" > /tmp/constraints.txt \
   #    numpy.get_include() during colcon builds.
   && pip3 install --no-cache-dir "numpy==1.26.3" \
   # 1. Install PyTorch Nightly (CUDA 12.8)
+  # Install torch first, then torchvision/torchaudio with --no-deps to bypass
+  # pip's local-version-specifier mismatch (torch+cu128 vs torch bare version).
   && pip3 install --no-cache-dir \
-  --constraint /tmp/constraints.txt \
   --pre \
   --index-url https://download.pytorch.org/whl/nightly/cu128 \
-  torch torchvision torchaudio \
+  torch \
+  && pip3 install --no-cache-dir \
+  --pre \
+  --index-url https://download.pytorch.org/whl/nightly/cu128 \
+  --no-deps \
+  torchvision torchaudio \
   # 2. Install scientific stack
   && pip3 install --no-cache-dir \
   --constraint /tmp/constraints.txt \
