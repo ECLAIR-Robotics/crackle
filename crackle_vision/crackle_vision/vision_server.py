@@ -23,6 +23,19 @@ import numpy as np
 from ultralytics import YOLOE, YOLO
 from image_geometry import PinholeCameraModel
 import open3d as o3d
+import re
+
+
+def sanitize_moveit_id(name: str) -> str:
+    """Convert an object name into a safe MoveIt collision-object id.
+
+    YOLO class labels can contain spaces (e.g. "cell phone", "wine glass"),
+    which cause problems downstream when used as collision-object ids. Collapse
+    any whitespace to single underscores so every id we add to MoveIt is
+    underscore-delimited.
+    """
+    return re.sub(r"\s+", "_", name.strip())
+
 
 class VisionServerNode(Node):
 
@@ -291,7 +304,8 @@ class VisionServerNode(Node):
 
             collision_object = CollisionObject()
             collision_object.header.frame_id = self.camera_link
-            collision_object.id = job_names[idx]
+            object_id = sanitize_moveit_id(job_names[idx])
+            collision_object.id = object_id
             collision_object.primitives.append(object_solid_primitive)
             collision_object.primitive_poses.append(pose)
 
@@ -304,12 +318,12 @@ class VisionServerNode(Node):
                 meshTri = MeshTriangle()
                 meshTri.vertex_indices = tri.astype(np.uint32)    # assigning np.ndarray to uint32[3] --> will it work?
                 collision_object_mesh.triangles.append(meshTri)
-            
+
             collision_object.meshes.append(collision_object_mesh)
 
             collision_object.operation = CollisionObject.ADD
             self.collision_object_pub.publish(collision_object)
-            detected_names.append(job_names[idx])
+            detected_names.append(object_id)
             primitives.append(object_solid_primitive)
         # return detected_names, primitives
         trigger_response = Trigger.Response()

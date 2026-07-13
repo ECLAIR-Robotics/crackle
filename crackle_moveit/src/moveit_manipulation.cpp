@@ -214,9 +214,42 @@ CrackleManipulation::CrackleManipulation(const std::string &group_name)
       std::bind(&CrackleManipulation::dance_dance, this, std::placeholders::_1,
                 std::placeholders::_2),
       rmw_qos_profile_services_default, services_cb_group_);
-  gripper_command_publisher_ =
-      node_->create_publisher<std_msgs::msg::Bool>("/claw/command", 10);
+  gripper_cb_group_ =
+      node_->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
+  gripper_client_ = node_->create_client<std_srvs::srv::SetBool>(
+      "/claw/set_gripper", rmw_qos_profile_services_default, gripper_cb_group_);
   initialize(group_name);
+}
+
+// Command the gripper and block until the firmware confirms completion.
+bool CrackleManipulation::set_gripper_blocking(bool close, double timeout_s) {
+  const char *action = close ? "close" : "open";
+
+  if (!gripper_client_->wait_for_service(std::chrono::seconds(2))) {
+    RCLCPP_ERROR(node_->get_logger(),
+                 "/claw/set_gripper unavailable; cannot %s gripper", action);
+    return false;
+  }
+
+  auto request = std::make_shared<std_srvs::srv::SetBool::Request>();
+  request->data = close;
+  auto future = gripper_client_->async_send_request(request);
+
+  if (future.wait_for(std::chrono::duration<double>(timeout_s)) !=
+      std::future_status::ready) {
+    RCLCPP_ERROR(node_->get_logger(), "gripper %s timed out", action);
+    return false;
+  }
+
+  auto response = future.get();
+  if (!response->success) {
+    RCLCPP_WARN(node_->get_logger(), "gripper %s reported failure: %s", action,
+                response->message.c_str());
+  } else {
+    RCLCPP_INFO(node_->get_logger(), "gripper %s: %s", action,
+                response->message.c_str());
+  }
+  return response->success;
 }
 
 // Assumption: This will be the exact point the arm needs to look at
@@ -601,7 +634,7 @@ bool CrackleManipulation::pick_up_object(
   publish_grasp_markers(grasp_candidates, statuses);
 
   // Open gripper before planning so the scene state is correct
-  gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(false));
+  set_gripper_blocking(false);
 
   // Execute a fully-planned pickup (pregrasp joint move → Cartesian approach →
   // close gripper + attach → Cartesian lift). Sets response->success and returns
@@ -626,8 +659,9 @@ bool CrackleManipulation::pick_up_object(
       return true;
     }
 
-    gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(true));
-    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    // Close the gripper and wait until the firmware reports it is closed
+    // before attaching/lifting.
+    set_gripper_blocking(true);
 
     moveit_msgs::msg::AttachedCollisionObject attached;
     attached.link_name = "gripper_base";
@@ -865,7 +899,7 @@ bool CrackleManipulation::execute_manipulation_solution(
   // For pick, open the gripper before moving so the scene state is correct.
   // For place, the object is held, so leave the gripper closed until release.
   if (is_pick)
-    gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(false));
+    set_gripper_blocking(false);
 
   // Execute everything up to (but not including) the retreat: reach the target.
   for (size_t i = 0; i + 1 < segments.size(); ++i) {
@@ -878,9 +912,9 @@ bool CrackleManipulation::execute_manipulation_solution(
   }
 
   if (is_pick) {
-    // Close the gripper and attach the object in the real planning scene.
-    gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(true));
-    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+    // Close the gripper and wait until the firmware reports it is closed,
+    // then attach the object in the real planning scene.
+    set_gripper_blocking(true);
 
     moveit_msgs::msg::AttachedCollisionObject attached;
     attached.link_name = kAttachLink;
@@ -890,8 +924,7 @@ bool CrackleManipulation::execute_manipulation_solution(
     planning_scene_->applyAttachedCollisionObject(attached);
   } else {
     // Open the gripper and detach the object from the real planning scene.
-    gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(false));
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    set_gripper_blocking(false);
 
     moveit_msgs::msg::AttachedCollisionObject detach;
     detach.object.id = obj.id;
@@ -1451,8 +1484,7 @@ bool CrackleManipulation::place_object(
   }
 
   // Open gripper and detach the object from the scene
-  gripper_command_publisher_->publish(std_msgs::msg::Bool().set__data(false));
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  set_gripper_blocking(false);
 
   moveit_msgs::msg::AttachedCollisionObject detach;
   detach.object.id = object_name;
@@ -2550,9 +2582,7 @@ bool CrackleManipulation::reach_for_object(const std::string &object_name) {
           RCLCPP_INFO(node_->get_logger(),
                       "reach_for_object: executed to object '%s' successfully",
                       object_name.c_str());
-          std_msgs::msg::Bool msg;
-          msg.data = false;
-          gripper_command_publisher_->publish(msg);
+          set_gripper_blocking(false);
           return true;
         }
       }

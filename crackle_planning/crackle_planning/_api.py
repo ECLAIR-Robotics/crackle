@@ -2,6 +2,7 @@ import os
 import json
 import threading
 import atexit
+import concurrent.futures
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -35,6 +36,13 @@ def _create_openai_client():
 
 
 class PlannerAPI:
+    # Max cosine distance (1 - cosine similarity) at which a requested object name
+    # is considered to match a scene object. Empirically, "red cup" vs "cup" ~= 0.54
+    # and "red cup" vs "mug" ~= 0.52, so a threshold of 0.5 wrongly rejects generic
+    # vision labels. 0.6 tolerates category-only labels while still excluding
+    # unrelated objects ("red cup" vs "object_0" ~= 0.79).
+    SIMILARITY_DISTANCE_THRESHOLD = 0.6
+
     def __init__(
         self,
         use_ros: bool,
@@ -140,16 +148,56 @@ class PlannerAPI:
             return strings[closest_idx]
         return None
 
-    def _find_similar_object(
-        self, target: str, scene_objects: List[str]
-    ) -> Optional[str]:
-        """Use embedding similarity to find the closest matching object in the scene."""
+    @staticmethod
+    def _normalize_name(name: str) -> str:
+        """Normalize an object name for comparison: underscores -> spaces, lowercased.
+
+        Makes matching agnostic to the underscore convention used for MoveIt ids.
+        """
+        return name.replace("_", " ").strip().lower()
+
+    def _match_scene_object(
+        self,
+        target: str,
+        scene_objects: List[str],
+        threshold: Optional[float] = None,
+        model: str = "text-embedding-3-small",
+    ) -> tuple:
+        """Find the scene object whose embedding is closest to ``target``.
+
+        Returns ``(matched_name, distance)`` when the nearest object is within
+        ``threshold`` cosine distance, otherwise ``(None, best_distance)`` so the
+        caller can log how close the best candidate was. ``(None, None)`` when the
+        scene is empty.
+        """
+        if threshold is None:
+            threshold = self.SIMILARITY_DISTANCE_THRESHOLD
         if not scene_objects:
-            return None
-        return self.recommendations_from_strings(
-            scene_objects + [target],
-            len(scene_objects),
-        )
+            return None, None
+
+        # Compare on the semantic content only: treat underscores and spaces as
+        # equivalent so "red_cup" and "red cup" embed identically.
+        target_emb = self.embedding_from_string(self._normalize_name(target), model=model)
+        target_norm = np.linalg.norm(target_emb)
+
+        best_name: Optional[str] = None
+        best_dist = float("inf")
+        distances = []
+        for name in scene_objects:
+            emb = self.embedding_from_string(self._normalize_name(name), model=model)
+            denom = target_norm * np.linalg.norm(emb)
+            sim = float(target_emb @ emb / denom) if denom != 0 else 0.0
+            dist = 1.0 - sim
+            distances.append((name, dist))
+            if dist < best_dist:
+                best_name, best_dist = name, dist
+
+        ranked = ", ".join(f"{n}={d:.3f}" for n, d in sorted(distances, key=lambda x: x[1]))
+        print(f"[pick_up] embedding distances for '{target}': {ranked}")
+
+        if best_dist <= threshold:
+            return best_name, best_dist
+        return None, best_dist
 
     def _load_search_poses(self):
         """Load the hardcoded list of end-effector search poses from JSON."""
@@ -180,43 +228,150 @@ class PlannerAPI:
             poses.append(pose)
         return poses
 
+    def _scan_here(self, object_name: str) -> Optional[str]:
+        """Call the find_objects service at the arm's current position.
+
+        find_objects both detects the object and publishes it to the planning
+        scene. Returns the matched (embedding-ranked) scene-object name, or None.
+        """
+        found_names = self.ros_interface.call_find_objects([object_name])
+        if not found_names:
+            return None
+        matched, _ = self._match_scene_object(object_name, found_names)
+        return matched or found_names[0]
+
+    def _scan_for_object(self, object_name: str) -> Optional[str]:
+        """Locate ``object_name`` by scanning, adding it to the planning scene.
+
+        Strategy:
+          1. Call find_objects at the arm's CURRENT position first. If the object
+             is detected (and thus added to the planning scene), return it
+             without moving the arm at all.
+          2. Otherwise sweep the configured search poses. Motion and detection
+             are pipelined: after arriving at a pose we kick off find_objects in
+             a background thread and immediately start moving to the next pose,
+             only blocking on a pose's find_objects result right before scanning
+             at the next pose.
+
+        Note: find_objects captures the scene when the service call begins (arm
+        stationary at the just-reached pose); the overlapping motion is the move
+        toward the *next* pose, so each detection still runs from a settled view.
+
+        Returns the matched scene-object name, or None if not found.
+        """
+        # 1) Scan the current position before moving anywhere.
+        matched = self._scan_here(object_name)
+        if matched is not None:
+            print(f"Found '{matched}' at the current arm position.")
+            return matched
+
+        # 2) Sweep the search poses with pipelined move + detection.
+        search_poses = self._load_search_poses()
+        if not search_poses:
+            print("No search poses loaded; cannot scan the table for the object.")
+            return None
+
+        print(
+            f"'{object_name}' not visible from the current position — sweeping "
+            f"{len(search_poses)} search pose(s)..."
+        )
+
+        pending_scan: Optional[concurrent.futures.Future] = None
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        try:
+            for i, pose in enumerate(search_poses):
+                print(f"Moving to search pose {i + 1}/{len(search_poses)}...")
+                # Move to this pose while the previous pose's scan resolves.
+                moved = self.ros_interface.move_to_pose(pose)
+
+                # Block on the previous pose's detection before scanning again.
+                if pending_scan is not None:
+                    matched = pending_scan.result()
+                    pending_scan = None
+                    if matched is not None:
+                        print(f"Found '{matched}' while sweeping search poses.")
+                        return matched
+
+                if not moved:
+                    print(f"Failed to reach search pose {i + 1}; skipping its scan.")
+                    continue
+
+                # Kick off detection here; the next iteration's move overlaps it.
+                pending_scan = executor.submit(self._scan_here, object_name)
+
+            # Block on the final pose's detection.
+            if pending_scan is not None:
+                matched = pending_scan.result()
+                if matched is not None:
+                    print(f"Found '{matched}' at the final search pose.")
+                    return matched
+        finally:
+            executor.shutdown(wait=True)
+
+        return None
+
     def pick_up(self, object_name: str):
-        """Pick up the named object using the robot's gripper."""
+        """Pick up the named object using the robot's gripper.
+
+        First checks whether the object is already in the planning scene using
+        embedding similarity (so generic vision labels like "cup" still match a
+        request for "red cup"). If it isn't already there, scans for it — first
+        at the arm's current position, then sweeping the search poses (see
+        ``_scan_for_object``).
+
+        Returns a structured result so the caller/LLM knows the real outcome.
+        """
         if self.gripper_occupied:
-            print("Gripper is already holding an object.")
-            return
-        if self.ros_interface is not None:
-            scene_objects = self.ros_interface.get_scene_object_names()
-            matched_name = self._find_similar_object(object_name, scene_objects)
+            return {
+                "success": False,
+                "message": "Gripper is already holding an object.",
+            }
+        if self.ros_interface is None:
+            return {"success": False, "message": "ROS interface unavailable."}
 
-            if matched_name is None:
-                search_poses = self._load_search_poses()
-                if not search_poses:
-                    print("No search poses loaded; cannot scan for object.")
-                else:
-                    print(
-                        f"Object '{object_name}' not in scene — sweeping "
-                        f"{len(search_poses)} search pose(s)..."
-                    )
-                for i, pose in enumerate(search_poses):
-                    print(f"Moving to search pose {i + 1}/{len(search_poses)}...")
-                    if not self.ros_interface.move_to_pose(pose):
-                        print(f"Failed to reach search pose {i + 1}; skipping.")
-                        continue
-                    found_names = self.ros_interface.call_find_objects([object_name])
-                    if found_names:
-                        matched_name = found_names[0]
-                        print(f"Found '{matched_name}' at search pose {i + 1}.")
-                        break
+        # 1) Check objects already in the scene via embedding similarity.
+        scene_objects = self.ros_interface.get_scene_object_names()
+        matched_name, best_dist = self._match_scene_object(object_name, scene_objects)
 
-            if matched_name is None:
-                print(f"Could not find object '{object_name}' in the scene.")
-                return
+        if matched_name is not None:
+            print(
+                f"Matched '{object_name}' to scene object '{matched_name}' "
+                f"(distance {best_dist:.3f})"
+            )
+        else:
+            # 2) Not confidently in the scene — scan for it.
+            if scene_objects:
+                closest = f" (closest was {best_dist:.3f})" if best_dist is not None else ""
+                print(
+                    f"'{object_name}' not confidently in scene{closest}; "
+                    f"scene objects: {scene_objects}"
+                )
+            matched_name = self._scan_for_object(object_name)
 
-            print(f"Matched '{object_name}' to scene object '{matched_name}'")
-            self.ros_interface.clear_and_refresh_octomap()
-            self.ros_interface.call_pickup_service(matched_name)
-            self.gripper_occupied = True
+        if matched_name is None:
+            msg = f"Could not find object '{object_name}' in the scene."
+            print(msg)
+            return {"success": False, "message": msg}
+
+        self.ros_interface.clear_and_refresh_octomap()
+        picked = self.ros_interface.call_pickup_service(matched_name)
+        if not picked:
+            # The object was located but the grasp/motion failed — report honestly
+            # so the planner tells the user instead of claiming success.
+            return {
+                "success": False,
+                "matched_object": matched_name,
+                "message": (
+                    f"Found '{matched_name}' in the scene but the pick-up motion "
+                    "failed — I couldn't grasp it."
+                ),
+            }
+        self.gripper_occupied = True
+        return {
+            "success": True,
+            "matched_object": matched_name,
+            "message": f"Picked up '{matched_name}' (requested '{object_name}').",
+        }
 
     def look_at_sound_direction(self, wake_word_time: float):
         """Turn the robot's head to face the direction of the detected sound."""

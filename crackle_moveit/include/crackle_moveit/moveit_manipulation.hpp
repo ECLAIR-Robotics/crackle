@@ -24,6 +24,7 @@
 #include <crackle_interfaces/srv/demo_trajectory.hpp>
 #include <tf2_ros/transform_listener.h>
 #include <std_srvs/srv/trigger.hpp>
+#include <std_srvs/srv/set_bool.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <moveit_msgs/msg/display_robot_state.hpp>
@@ -36,7 +37,6 @@
 #include <geometry_msgs/msg/point.hpp>
 #include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
-#include <std_msgs/msg/bool.hpp>
 #include <rmw/qos_profiles.h>
 #include <tf2/LinearMath/Quaternion.h>
 #include <xarm_msgs/srv/plan_pose.hpp>
@@ -119,6 +119,13 @@ public:
     bool dance_dance(std_srvs::srv::Trigger::Request::SharedPtr request,
                      std_srvs::srv::Trigger::Response::SharedPtr response);
 
+    // Command the gripper and block until the firmware reports completion.
+    // close=true closes, false opens. Returns true if the gripper confirmed the
+    // requested state within timeout_s; on service unavailability falls back to
+    // the legacy topic + a fixed wait. Must not be called from the executor
+    // thread that also serves the gripper client's callback group.
+    bool set_gripper_blocking(bool close, double timeout_s = 15.0);
+
 private:
     void initialize(const std::string &group_name);
     bool wait_for_current_state(const std::string &caller, double timeout_sec = 5.0);
@@ -190,7 +197,12 @@ private:
     rclcpp::Service<crackle_interfaces::srv::DemoTrajectory>::SharedPtr demo_trajectory_service_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr dance_service_;
     rclcpp::CallbackGroup::SharedPtr services_cb_group_;
-    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr gripper_command_publisher_;
+    // Blocking gripper interface: waits until the claw firmware reports the
+    // command finished. Uses its own (reentrant) callback group so the response
+    // can be processed on a second executor thread while a service handler
+    // (e.g. pick_up_object) blocks on the result.
+    rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr gripper_client_;
+    rclcpp::CallbackGroup::SharedPtr gripper_cb_group_;
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr marker_publisher_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr grasp_markers_publisher_;
     rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;

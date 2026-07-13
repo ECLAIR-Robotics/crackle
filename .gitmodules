@@ -8,3 +8,6 @@
 [submodule "octomap_server2"]
 	path = octomap_server2
 	url = git@github.com:iKrishneel/octomap_server2.git
+[submodule "clawArmPositionCalculator/CRACKLE_CLAW"]
+	path = clawArmPositionCalculator/CRACKLE_CLAW
+	url = git@github.com:MPKaronde/CRACKLE_CLAW.git

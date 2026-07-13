@@ -1,12 +1,24 @@
-sensors:
-  - point_cloud_sensor
-
-point_cloud_sensor:
-  sensor_plugin: occupancy_map_monitor/PointCloudOctomapUpdater
-  point_cloud_topic: /camera/camera/depth/color/points
-  max_range: 4.0
-  padding_offset: 0.1
-  padding_scale: 1.0
-  max_update_rate: 1.0
-  filtered_cloud_topic: /move_group/filtered_cloud
-  point_subsample: 1
+# OctoMap-based collision sensing is DISABLED for now.
+#
+# The PointCloudOctomapUpdater built an unreliable planning octomap: the depth
+# cloud arrived with stale timestamps (TF cache drops), producing phantom
+# obstacles and convoluted avoidance paths. With no sensors configured here,
+# move_group builds no octomap and plans only against explicitly-added collision
+# objects (e.g. the YOLO-detected object meshes published by the vision server).
+#
+# The launch files load this file and do `move_group.update(sensors_3d or {})`,
+# so a comments-only file (safe_load -> None) leaves move_group without any 3-D
+# sensor, i.e. no octomap. To RE-ENABLE, uncomment the block below.
+#
+# sensors:
+#   - point_cloud_sensor
+#
+# point_cloud_sensor:
+#   sensor_plugin: occupancy_map_monitor/PointCloudOctomapUpdater
+#   point_cloud_topic: /camera/camera/depth/color/points
+#   max_range: 4.0
+#   padding_offset: 0.1
+#   padding_scale: 1.0
+#   max_update_rate: 1.0
+#   filtered_cloud_topic: /move_group/filtered_cloud
+#   point_subsample: 1

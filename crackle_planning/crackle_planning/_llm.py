@@ -4,6 +4,7 @@ import os
 import re
 import queue as _queue
 import threading
+import traceback
 from typing import Optional
 from elevenlabs import ElevenLabs
 from dataclasses import dataclass
@@ -198,21 +199,57 @@ class GptAPI:
         return action_tools + [_SUBMIT_PLAN_TOOL, final_response_tool]
 
     def _execute_tool(self, planner_api: "PlannerAPI", name: str, args: dict) -> dict:
-        """Call a PlannerAPI method by name and return a structured result."""
+        """Call a PlannerAPI method by name and return a structured result.
+
+        The returned dict is fed straight back into the LLM's context as the
+        tool's function_call_output, so failures must be surfaced clearly:
+          * an exception, or
+          * a tool that returns its own {"success": False, ...} dict
+        both produce a ``success: False`` result with a human-readable message
+        instructing the planner to tell the user what went wrong.
+        """
         method = getattr(planner_api, name, None)
         if method is None:
-            return {"success": False, "message": f"Unknown tool: {name}"}
+            return {
+                "success": False,
+                "message": (
+                    f"Unknown tool '{name}'. This action is not available — "
+                    "let the user know you can't do that."
+                ),
+            }
         try:
             args.pop("self", None)
             result = method(**args)
-            msg = f"{name} completed successfully."
-            return {
-                "success": True,
-                "message": msg,
-                "result": str(result) if result is not None else None,
-            }
         except Exception as exc:
-            return {"success": False, "message": f"{name} failed: {exc}"}
+            traceback.print_exc()
+            return {
+                "success": False,
+                "error": str(exc),
+                "message": (
+                    f"The '{name}' action failed with an error: {exc}. "
+                    "Apologize to the user and briefly explain that this "
+                    "action could not be completed."
+                ),
+            }
+
+        # If the tool reported its own outcome, honor its success flag so a
+        # failure (e.g. object not found) isn't masked as success.
+        if isinstance(result, dict) and "success" in result:
+            out = dict(result)
+            out["success"] = bool(result.get("success"))
+            if not out["success"]:
+                tool_msg = result.get("message", "")
+                out["message"] = (
+                    f"The '{name}' action did not succeed: {tool_msg} "
+                    "Let the user know what happened."
+                )
+            return out
+
+        return {
+            "success": True,
+            "message": f"{name} completed successfully.",
+            "result": str(result) if result is not None else None,
+        }
 
     def _tts_sentence_worker(self, sentence_queue: "_queue.Queue") -> None:
         """Read sentences from the queue and stream PCM audio through one paplay process.

@@ -16,6 +16,8 @@ setup(
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/face_ui',
             ['crackle_planning/face_ui/index.html']),
+        ('share/' + package_name + '/rviz',
+            ['crackle_planning/rviz/crackle_rviz_config.rviz']),
     ],
     install_requires=[
         'setuptools', 

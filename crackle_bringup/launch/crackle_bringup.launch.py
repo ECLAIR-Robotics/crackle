@@ -54,6 +54,16 @@ def generate_launch_description():
         parameters=[]
     )
 
+    # Serves /claw/set_gripper to the CRACKLE_CLAW gripper firmware over serial and
+    # publishes the rack joint positions on /joint_states. Runs harmlessly (warns
+    # and retries) when the ESP32 is not connected, e.g. in simulation.
+    claw_node = Node(
+        package='claw_degree_publisher',
+        executable='claw_degree_publisher',
+        name='claw_degree_publisher',
+        output='screen',
+    )
+
     audio_localization_node = Node(
         package='sound_direction_publisher',
         executable='sound_direction_publisher',
@@ -69,24 +79,27 @@ def generate_launch_description():
         output='screen',
         condition=IfCondition(simulate_vision)
     )
-    # OctoMap server: builds a 3-D occupancy grid from the RealSense depth cloud.
-    # move_group's PointCloudOctomapUpdater (sensors_3d.yaml) consumes the same
-    # point cloud directly, so this node is primarily for standalone visualization
-    # in RViz (/octomap_marker_array).  The /cloud_in remapping connects it to
-    # the RealSense topic.
-    octomap_server_node = Node(
-        package='octomap_server2',
-        executable='octomap_server',
-        name='octomap_server',
-        output='screen',
-        remappings=[('/cloud_in', '/camera/camera/depth/color/points')],
-        parameters=[{
-            'resolution': 0.05,
-            'frame_id': 'link_base',
-            'sensor_model.max_range': 4.0,
-        }],
-        condition=UnlessCondition(simulate_vision)
-    )
+    # OctoMap is DISABLED for now (see crackle_moveit/config/sensors_3d.yaml).
+    # This standalone octomap_server fed only RViz visualization (/octomap_marker_array)
+    # and was the source of the repeated "Message Filter dropping message ... timestamp
+    # earlier than all the data in the transform cache" TF warnings. With planning
+    # octomap disabled it serves no purpose, so it is left out of the launch below.
+    # To RE-ENABLE, restore this node and re-add `octomap_server_node` to the
+    # LaunchDescription, and uncomment the sensor block in sensors_3d.yaml.
+    #
+    # octomap_server_node = Node(
+    #     package='octomap_server2',
+    #     executable='octomap_server',
+    #     name='octomap_server',
+    #     output='screen',
+    #     remappings=[('/cloud_in', '/camera/camera/depth/color/points')],
+    #     parameters=[{
+    #         'resolution': 0.05,
+    #         'frame_id': 'link_base',
+    #         'sensor_model.max_range': 4.0,
+    #     }],
+    #     condition=UnlessCondition(simulate_vision)
+    # )
 
     return LaunchDescription([
         user_simulated_robot_launch_arg,
@@ -96,7 +109,8 @@ def generate_launch_description():
         vision_bringup,
         moveit_bringup,
         face_node,
+        claw_node,
         audio_localization_node,
         simulated_camera_node,
-        octomap_server_node,
+        # octomap_server_node,  # disabled — see note above
     ])

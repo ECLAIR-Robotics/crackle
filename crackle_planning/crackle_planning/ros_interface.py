@@ -15,9 +15,9 @@ from moveit_msgs.srv import GetPlanningScene
 from sensor_msgs.msg import Image
 from rclpy.callback_groups import ReentrantCallbackGroup
 from geometry_msgs.msg import Vector3Stamped
-from std_msgs.msg import Bool, String
+from std_msgs.msg import String
 from visualization_msgs.msg import Marker
-from std_srvs.srv import Trigger, Empty
+from std_srvs.srv import Trigger, Empty, SetBool
 from rclpy.node import Node
 from rclpy.time import Time
 
@@ -106,7 +106,11 @@ class RosInterface:
             GetPlanningScene, "/get_planning_scene"
         )
 
-        self.__claw_command_publisher = node.create_publisher(Bool, "/claw/command", 10)
+        # Blocking close/open service that waits until the gripper firmware
+        # reports the command finished.
+        self.__claw_set_client = node.create_client(
+            SetBool, "/claw/set_gripper", callback_group=self.__multi_callback_group
+        )
 
         self.__find_objects_client = node.create_client(
             FindObjects, "vision/find_objects"
@@ -214,13 +218,31 @@ class RosInterface:
             return False
         return True
 
-    def call_pickup_service(self, object_name: str):
-        """Call the manipulation pickup service for the given object name."""
+    def call_pickup_service(self, object_name: str) -> bool:
+        """Call the manipulation pickup service for the given object name.
+
+        Returns True only if the manipulation node reports a successful grasp.
+        """
         while not self._pickup_service_client.wait_for_service(timeout_sec=1.0):
             self._node.get_logger().info("Service not available, waiting again...")
         request = PickupObject.Request()
+        # The manipulation node looks this object up in the planning scene; without
+        # it the request carries an empty id and pickup always fails with
+        # "object '' not found in planning scene".
+        request.object_name = object_name
         future = self._pickup_service_client.call_async(request)
-        return self._wait_for_future(future, timeout=20.0)
+        # Pickup covers planning + executing a full arm trajectory, so allow ample time.
+        result = self._wait_for_future(future, timeout=120.0)
+        if result is None:
+            self._node.get_logger().warn(
+                f"Pickup service for '{object_name}' timed out or returned no response."
+            )
+            return False
+        if not result.success:
+            self._node.get_logger().warn(
+                f"Manipulation node failed to pick up '{object_name}'."
+            )
+        return bool(result.success)
 
     def wait_for_direction_after(self, target_time_sec: float, timeout: float = 0.5):
         """Return the first direction whose header stamp >= target_time_sec, or None on timeout."""
@@ -320,7 +342,14 @@ class RosInterface:
 
         Called before every pick or place so the planner sees an up-to-date
         3-D collision map of any objects YOLO didn't detect.
+
+        OctoMap is currently DISABLED (see crackle_moveit/config/sensors_3d.yaml),
+        so this is a no-op — clearing a non-existent octomap would only add a
+        per-pick service-wait/settle delay. Remove this early return to restore the
+        refresh once octomap sensing is re-enabled.
         """
+        return
+
         if not self.__clear_octomap_client.wait_for_service(timeout_sec=2.0):
             self._node.get_logger().warn(
                 "clear_octomap service not available — skipping OctoMap refresh"
@@ -354,19 +383,31 @@ class RosInterface:
         msg.data = emotion
         self.__emotion_publisher.publish(msg)
 
-    def close_gripper(self):
-        """Send a close command to the claw gripper."""
+    def close_gripper(self) -> bool:
+        """Close the claw gripper and block until the firmware reports it is
+        closed. Returns True on confirmed close."""
         self._node.get_logger().info("Closing gripper...")
-        msg = Bool()
-        msg.data = True
-        self.__claw_command_publisher.publish(msg)
+        return self._set_gripper(True)
 
-    def open_gripper(self):
-        """Send an open command to the claw gripper."""
+    def open_gripper(self) -> bool:
+        """Open the claw gripper and block until the firmware reports it is
+        open. Returns True on confirmed open."""
         self._node.get_logger().info("Opening gripper...")
-        msg = Bool()
-        msg.data = False
-        self.__claw_command_publisher.publish(msg)
+        return self._set_gripper(False)
+
+    def _set_gripper(self, close: bool) -> bool:
+        if not self.__claw_set_client.wait_for_service(timeout_sec=2.0):
+            self._node.get_logger().warn("/claw/set_gripper service unavailable")
+            return False
+        req = SetBool.Request()
+        req.data = close
+        future = self.__claw_set_client.call_async(req)
+        result = self._wait_for_future(future, timeout=20.0)
+        if result is None:
+            return False
+        if not result.success:
+            self._node.get_logger().warn(f"Gripper command failed: {result.message}")
+        return result.success
 
     def recognize_person(self) -> List[str]:
         """Attempt to identify people in the latest camera image using face recognition."""

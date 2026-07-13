@@ -27,6 +27,9 @@ def launch_setup(context, *args, **kwargs):
     attach_rpy = LaunchConfiguration('attach_rpy', default='"0 0 0"')
     no_gui_ctrl = LaunchConfiguration('no_gui_ctrl', default=False)
     show_rviz = LaunchConfiguration('show_rviz', default=True)
+    # Optional override for the RViz config file. When empty (default), fall
+    # back to this package's planner.rviz / moveit.rviz as before.
+    rviz_config = LaunchConfiguration('rviz_config', default='')
     use_sim_time = LaunchConfiguration('use_sim_time', default=False)
     moveit_config_dump = LaunchConfiguration('moveit_config_dump')
     
@@ -46,7 +49,11 @@ def launch_setup(context, *args, **kwargs):
     )
 
     # rviz with moveit configuration
-    rviz_config_file = PathJoinSubstitution([FindPackageShare(moveit_config_package_name), 'rviz', 'planner.rviz' if no_gui_ctrl.perform(context) == 'true' else 'moveit.rviz'])
+    rviz_config_override = rviz_config.perform(context)
+    if rviz_config_override:
+        rviz_config_file = rviz_config_override
+    else:
+        rviz_config_file = PathJoinSubstitution([FindPackageShare(moveit_config_package_name), 'rviz', 'planner.rviz' if no_gui_ctrl.perform(context) == 'true' else 'moveit.rviz'])
     rviz2_node = Node(
         package='rviz2',
         executable='rviz2',
