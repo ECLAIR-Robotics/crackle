@@ -42,14 +42,9 @@ def _downsample(audio: np.ndarray, from_rate: int, to_rate: int) -> np.ndarray:
 ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
 print(f"ROS_ENABLED: {ROS_ENABLED}")
 
-if ROS_ENABLED:
-    from crackle_planning._api import PlannerAPI
-    from crackle_planning._llm import GptAPI
-    from crackle_planning.face_ui import ui_client
-else:
-    from _api import PlannerAPI
-    from _llm import GptAPI
-    from face_ui import ui_client
+from crackle_planning._api import PlannerAPI
+from crackle_planning._llm import GptAPI
+from crackle_planning.face_ui import ui_client
 
 class CrackleState(Enum):
     IDLE = "idle"
@@ -161,7 +156,9 @@ class CrackleFSM:
                 prediction = self._owwModel.predict(audio)
                 score = prediction[self.WAKEWORD_NAME]
                 if score > 0.01 or frame % 50 == 0:
-                    print(f"[wake] score={score:.4f}  rms={int(np.sqrt(np.mean(audio.astype(np.float32)**2)))}")
+                    rms = np.sqrt(np.mean(audio.astype(np.float32)**2))
+                    rms_str = str(int(rms)) if np.isfinite(rms) else "N/A (no audio)"
+                    print(f"[wake] score={score:.4f}  rms={rms_str}")
                 frame += 1
 
                 if score > 0.1:

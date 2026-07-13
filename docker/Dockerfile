@@ -63,6 +63,7 @@ RUN apt-get update && \
   portaudio19-dev \
   libasound2-dev \
   libsndfile1-dev \
+  pulseaudio-utils \
 
   # Python development headers (required by CMake find_package Python3 Development)
   python3-dev \
@@ -223,6 +224,8 @@ RUN echo "numpy<2.0" > /tmp/constraints.txt \
   robotpy-wpiutil \
   && rm /tmp/constraints.txt \
   && rm -rf /root/.cache/pip
+
+RUN python3 -c "import openwakeword; openwakeword.utils.download_models()"
 
 ENTRYPOINT ["/ros_entrypoint.sh"]
 CMD ["bash"]
