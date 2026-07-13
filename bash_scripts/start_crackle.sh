@@ -69,9 +69,6 @@ open_face
 
 echo "[3/5] Loading shell rc (aliases)"
 shopt -s expand_aliases || true
-[[ -f "$HOME/.bashrc" ]] && source "$HOME/.bashrc"
-# If you keep 'scrackle' in zsh, try to import it:
-[[ -z "$(alias scrackle 2>/dev/null || true)" && -f "$HOME/.zshrc" ]] && source "$HOME/.zshrc" || true
 
 # helper to safely source files that don't play nice with 'set -u'
 safe_source() {
@@ -88,6 +85,10 @@ safe_source() {
   fi
   return 1
 }
+
+safe_source "$HOME/.bashrc" || true
+# If you keep 'scrackle' in zsh, try to import it:
+[[ -z "$(alias scrackle 2>/dev/null || true)" ]] && { safe_source "$HOME/.zshrc" || true; }
 
 echo "[4/5] Sourcing environment"
 if alias scrackle >/dev/null 2>&1; then
