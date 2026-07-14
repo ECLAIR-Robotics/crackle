@@ -5,9 +5,22 @@ import re
 import queue as _queue
 import threading
 import traceback
-from typing import Optional
+from typing import List, Optional
 from elevenlabs import ElevenLabs
 from dataclasses import dataclass
+
+# Editable prompt that tells GPT-vision which graspable objects to look for while
+# the arm idly scans its workspace. Populated/tuned by hand — see the file.
+# Prefer the source tree so hand edits take effect and the colcon install space
+# (which doesn't ship this file) still finds it; fall back to the package dir.
+_GRASP_PROMPT_SRC = os.path.expanduser(
+    "~/crackle_ws/src/crackle/crackle_planning/crackle_planning/idle_scan_prompt.txt"
+)
+GRASP_PROMPT_FILE = (
+    _GRASP_PROMPT_SRC
+    if os.path.exists(_GRASP_PROMPT_SRC)
+    else os.path.join(os.path.dirname(__file__), "idle_scan_prompt.txt")
+)
 
 ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
 if ROS_ENABLED:
@@ -472,6 +485,82 @@ class GptAPI:
                 proc.stdin.write(chunk)
         proc.stdin.close()
         proc.wait()
+
+    def _load_grasp_prompt(self) -> str:
+        """Load the (hand-editable) GPT-vision grasp-detection prompt from disk.
+
+        Read fresh on every call so edits to idle_scan_prompt.txt take effect
+        without restarting the node. Falls back to a minimal default if missing.
+        """
+        try:
+            with open(GRASP_PROMPT_FILE, "r") as f:
+                return f.read().strip()
+        except FileNotFoundError:
+            print(f"[grasp-vision] prompt file not found: {GRASP_PROMPT_FILE}")
+            return (
+                "List every distinct graspable object in this image (cups, balls, "
+                "fruit, bottles, etc.) as a JSON array of short lowercase names. "
+                "Return only the JSON array."
+            )
+
+    @staticmethod
+    def _parse_object_list(text: str) -> List[str]:
+        """Parse a JSON array of object names out of an LLM reply, leniently.
+
+        Tolerates code fences or stray prose around the array. Falls back to an
+        empty list rather than raising so a malformed reply can't crash scanning.
+        """
+        if not text:
+            return []
+        start = text.find("[")
+        end = text.rfind("]")
+        if start != -1 and end != -1 and end > start:
+            text = text[start : end + 1]
+        try:
+            data = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            print(f"[grasp-vision] could not parse object list from: {text!r}")
+            return []
+        if not isinstance(data, list):
+            return []
+        names = []
+        for item in data:
+            if isinstance(item, str) and item.strip():
+                names.append(item.strip())
+        return names
+
+    def detect_graspable_objects(self, image_b64: str) -> List[str]:
+        """Ask GPT-vision which graspable objects are visible in a JPEG image.
+
+        ``image_b64`` is base64-encoded JPEG bytes. Uses the same OpenAI client
+        and Responses API as the planner. Returns a list of short object names
+        (possibly empty). Never raises — a failed call yields an empty list.
+        """
+        if not image_b64:
+            return []
+        prompt = self._load_grasp_prompt()
+        data_uri = f"data:image/jpeg;base64,{image_b64}"
+        try:
+            response = self.client.responses.create(
+                model="gpt-4o-mini",
+                input=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "input_text", "text": prompt},
+                            {"type": "input_image", "image_url": data_uri},
+                        ],
+                    }
+                ],
+            )
+            text = (response.output_text or "").strip()
+        except Exception as exc:
+            traceback.print_exc()
+            print(f"[grasp-vision] detect_graspable_objects failed: {exc}")
+            return []
+        objects = self._parse_object_list(text)
+        print(f"[grasp-vision] detected: {objects}")
+        return objects
 
     def speech_to_text(self, audio_input, model="whisper-1"):
         """Transcribe audio via Whisper. Accepts a file path or raw WAV bytes."""

@@ -21,6 +21,11 @@ from std_srvs.srv import Trigger, Empty, SetBool
 from rclpy.node import Node
 from rclpy.time import Time
 
+try:
+    from crackle_planning._config import load_config
+except ImportError:  # running from source without the package installed
+    from _config import load_config
+
 
 class AudioDirectionWindow:
     class AudioDirectionEntry:
@@ -61,6 +66,8 @@ class RosInterface:
     def __init__(self, node: Node):
         self._node = node
         self._latest_image = None
+        # Lazily-created cv_bridge for encoding the latest color frame.
+        self._cv_bridge = None
         self._pickup_service_client = node.create_client(
             PickupObject, "crackle_manipulation/pickup_object"
         )
@@ -124,9 +131,58 @@ class RosInterface:
             ExecutePlan, "crackle_manipulation/execute_plan"
         )
 
+        # MoveIt's execution-event topic. Publishing a "stop" String makes the
+        # move_group node's TrajectoryExecutionManager cancel the active
+        # controller goal, aborting any trajectory currently executing. This is
+        # handled by move_group (not the manipulation node's mutually-exclusive
+        # service group), so it preempts an in-flight blocking execute_plan.
+        self.__stop_execution_pub = node.create_publisher(
+            String, "/trajectory_execution_event", 10
+        )
+
+    def stop_motion(self):
+        """Instantly abort any trajectory MoveIt is currently executing.
+
+        Publishes the MoveIt "stop" execution event. The manipulation node's
+        blocking ``execute_plan`` (move_group.execute()) then returns non-success,
+        so a scan move in flight unblocks promptly. Safe no-op if nothing is
+        executing. Works in simulation and on the real arm.
+        """
+        msg = String()
+        msg.data = "stop"
+        self.__stop_execution_pub.publish(msg)
+        self._node.get_logger().info("Published MoveIt stop execution event.")
+
     def update_color_image(self, msg: Image):
         """Store the latest color image from the camera."""
         self._latest_image = msg
+
+    def get_latest_color_image_jpeg_b64(self) -> Optional[str]:
+        """Return the most recent color frame as a base64-encoded JPEG string.
+
+        Used to feed the idle-scan GPT-vision call. Returns None if no frame has
+        arrived yet or the conversion fails, so callers can simply skip a frame.
+        """
+        msg = self._latest_image
+        if msg is None:
+            self._node.get_logger().info("No camera image available to capture yet.")
+            return None
+        try:
+            import base64
+            import cv2
+            from cv_bridge import CvBridge
+
+            if self._cv_bridge is None:
+                self._cv_bridge = CvBridge()
+            cv_img = self._cv_bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+            ok, buf = cv2.imencode(".jpg", cv_img)
+            if not ok:
+                self._node.get_logger().warn("Failed to JPEG-encode color image.")
+                return None
+            return base64.b64encode(buf.tobytes()).decode("ascii")
+        except Exception as exc:
+            self._node.get_logger().warn(f"Color image capture failed: {exc}")
+            return None
 
     def spin_internal_node(self):
         """Block the calling thread and spin the internal ROS node."""
@@ -193,8 +249,14 @@ class RosInterface:
         self._node.get_logger().info(f"FindObjects returned: {result.names}")
         return list(result.names)
 
-    def move_to_pose(self, pose) -> bool:
-        """Plan to and execute a motion to the given end-effector pose. Blocks until the motion finishes."""
+    def move_to_pose(self, pose, abort_event=None) -> bool:
+        """Plan to and execute a motion to the given end-effector pose. Blocks until the motion finishes.
+
+        If ``abort_event`` (a threading.Event) is set before execution begins,
+        the planned motion is skipped and False is returned. This covers the
+        short planning window where a wake word can't be caught by ``stop_motion``
+        (which only aborts a trajectory that is already executing).
+        """
         if not self.__plan_pose_client.wait_for_service(timeout_sec=2.0):
             self._node.get_logger().warn("plan_pose service not available")
             return False
@@ -204,6 +266,11 @@ class RosInterface:
         plan_result = self._wait_for_future(plan_future, timeout=15.0)
         if plan_result is None or not plan_result.success:
             self._node.get_logger().warn("plan_pose failed")
+            return False
+
+        # Don't start executing if we were interrupted during planning.
+        if abort_event is not None and abort_event.is_set():
+            self._node.get_logger().info("Motion aborted before execution (interrupted).")
             return False
 
         if not self.__execute_plan_client.wait_for_service(timeout_sec=2.0):
@@ -259,47 +326,70 @@ class RosInterface:
         return best
 
     def look_at_person(self, wake_word_time: Optional[float] = None):
-        """Point the robot's head toward the audio direction closest to the wake word time."""
-        if wake_word_time is not None:
-            closest_direction_entry = self.wait_for_direction_after(
-                wake_word_time, timeout=0.5
-            )
-        else:
-            closest_direction_entry = self.latest_audio_direction.latest()
-        # closest_direction_entry = self.latest_audio_direction.find_closest_direction(wake_word_time)
-        if closest_direction_entry is None:
-            self._node.get_logger().info(
-                "No audio direction data available to look at."
-            )
-            return
+        """Point the robot's head toward the user after the wake word.
 
-        direction = closest_direction_entry.direction
+        The target point (in link_base) is chosen per the ``look_at_mode`` flag
+        in crackle_config.json:
+          * "fixed" — always look toward the configured ``fixed_look_direction``.
+          * "audio" — look toward the audio-localization vector nearest the wake
+            word time (the original behavior); does nothing if none is available.
+        """
+        flags = load_config()
+        mode = flags.get("look_at_mode", "audio")
 
-        # Desired magnitude in XY plane and target height
+        # Desired magnitude in XY plane and target height (audio mode).
         target_z = 0.55
         mag_xyplane = 0.3
 
-        # Extract the input direction vector
-        x, y, z = direction.vector.x, direction.vector.y, direction.vector.z
+        if mode == "fixed":
+            fd = flags.get("fixed_look_direction", {}) or {}
+            target_point_x = float(fd.get("x", 0.3))
+            target_point_y = float(fd.get("y", 0.0))
+            target_point_z = float(fd.get("z", 0.55))
+            self._node.get_logger().info(
+                f"look_at_mode=fixed — looking at configured point: "
+                f"x={target_point_x}, y={target_point_y}, z={target_point_z}"
+            )
+        else:
+            if mode != "audio":
+                self._node.get_logger().warn(
+                    f"Unknown look_at_mode '{mode}'; defaulting to 'audio'."
+                )
+            if wake_word_time is not None:
+                closest_direction_entry = self.wait_for_direction_after(
+                    wake_word_time, timeout=0.5
+                )
+            else:
+                closest_direction_entry = self.latest_audio_direction.latest()
+            if closest_direction_entry is None:
+                self._node.get_logger().info(
+                    "No audio direction data available to look at."
+                )
+                return
 
-        # Compute magnitude in the XY plane
-        mag_xy = (x**2 + y**2) ** 0.5
-        if mag_xy < 1e-6:
-            self._node.get_logger().warn("XY magnitude is too small; cannot normalize.")
-            return
+            direction = closest_direction_entry.direction
 
-        # Normalize XY plane and rescale to desired magnitude
-        x = (x / mag_xy) * mag_xyplane
-        y = (y / mag_xy) * mag_xyplane
-        z = target_z  # force target height
+            # Extract the input direction vector
+            x, y, z = direction.vector.x, direction.vector.y, direction.vector.z
 
-        target_point_x = x
-        target_point_y = y
-        target_point_z = z
+            # Compute magnitude in the XY plane
+            mag_xy = (x**2 + y**2) ** 0.5
+            if mag_xy < 1e-6:
+                self._node.get_logger().warn("XY magnitude is too small; cannot normalize.")
+                return
 
-        self._node.get_logger().info(
-            f"Looking at point: x={target_point_x}, y={target_point_y}, z={target_point_z}"
-        )
+            # Normalize XY plane and rescale to desired magnitude
+            x = (x / mag_xy) * mag_xyplane
+            y = (y / mag_xy) * mag_xyplane
+            z = target_z  # force target height
+
+            target_point_x = x
+            target_point_y = y
+            target_point_z = z
+
+            self._node.get_logger().info(
+                f"Looking at point: x={target_point_x}, y={target_point_y}, z={target_point_z}"
+            )
 
         while not self.__look_at_client.wait_for_service(timeout_sec=1.0):
             self._node.get_logger().info(

@@ -40,6 +40,17 @@
           <color rgba="0.0 0.0 0.5 1"/>
         </material>
       </visual>
+      <!-- Collision geometry so MoveIt actually sees the gripper body and stops
+           plans that would drive it through the table (or other obstacles). Uses
+           the same STL + transform as the visual, so the collision model matches
+           exactly what you see, INCLUDING the open gap between the fingers (so a
+           target object can still fit between them). -->
+      <collision>
+        <origin xyz="${gripper_mesh_xyz}" rpy="${gripper_mesh_rpy}"/>
+        <geometry>
+          <mesh filename="${pkg_path}/${base_mesh}" scale="${mm_scale}"/>
+        </geometry>
+      </collision>
     </link>
 
     <!-- ===== Left rack (jaw) ===== -->
@@ -53,6 +64,12 @@
           <color rgba="0.3 0.3 0.3 1"/>
         </material>
       </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.02 0.01 0.04"/>
+        </geometry>
+      </collision>
     </link>
 
     <!-- ===== Right rack (jaw) ===== -->
@@ -66,6 +83,12 @@
           <color rgba="0.3 0.3 0.3 1"/>
         </material>
       </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="0.02 0.01 0.04"/>
+        </geometry>
+      </collision>
     </link>
 
     <!-- Rack (jaw) joints, pinned FIXED at the open position for now.
@@ -108,7 +131,7 @@
   <joint name="gripper_base_joint" type="fixed">
     <parent link="${arm_last_link}"/>
     <child link="gripper_base"/>
-    <origin xyz="0.0 0.0 0.0" rpy="0 0 0"/>
+    <origin xyz="0.015 0.001 0.0" rpy="0 0 0"/>
   </joint>
 
   <link name="camera_depth_optical_frame">
@@ -129,11 +152,11 @@
                izz="0.001"/>
     </inertial>
   </link>
-
+<!--"0.02 0.02 0.05" -->
   <joint name="camera_depth_optical_frame_joint" type="fixed">
     <parent link="gripper_base"/>
     <child link="camera_depth_optical_frame"/>
-    <origin xyz="0.02 0.02 0.05" rpy="0.04 0 -1.57"/>
+    <origin xyz="0.05 -0.005 0.057" rpy="0.04 0 -1.57"/>
   </joint>
 
   </xacro:macro> 

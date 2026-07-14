@@ -100,5 +100,25 @@
     <disable_collisions link1="${prefix}link3" link2="${prefix}link_eef" reason="Never" />
     <disable_collisions link1="${prefix}link5" link2="${prefix}link_eef" reason="Never" />
     <disable_collisions link1="${prefix}link6" link2="${prefix}link_eef" reason="Adjacent" />
+
+    <!-- ===== Crackle custom gripper (crackle_description/crackle_gripper.urdf.xacro) =====
+         The gripper links (gripper_base, left_rack, right_rack) now carry collision
+         geometry so MoveIt catches gripper-vs-table/obstacle collisions. Disable the
+         self-collisions between the gripper and the arm links it is mounted on, and
+         among the gripper's own links, or planning would fail on spurious contacts.
+         The gripper links are unprefixed (single-arm crackle setup). -->
+    <disable_collisions link1="${prefix}link6" link2="gripper_base" reason="Adjacent" />
+    <disable_collisions link1="${prefix}link_eef" link2="gripper_base" reason="Adjacent" />
+    <disable_collisions link1="${prefix}link5" link2="gripper_base" reason="Never" />
+    <disable_collisions link1="${prefix}link4" link2="gripper_base" reason="Never" />
+    <disable_collisions link1="${prefix}link6" link2="left_rack" reason="Never" />
+    <disable_collisions link1="${prefix}link6" link2="right_rack" reason="Never" />
+    <disable_collisions link1="${prefix}link_eef" link2="left_rack" reason="Never" />
+    <disable_collisions link1="${prefix}link_eef" link2="right_rack" reason="Never" />
+    <disable_collisions link1="${prefix}link5" link2="left_rack" reason="Never" />
+    <disable_collisions link1="${prefix}link5" link2="right_rack" reason="Never" />
+    <disable_collisions link1="gripper_base" link2="left_rack" reason="Adjacent" />
+    <disable_collisions link1="gripper_base" link2="right_rack" reason="Adjacent" />
+    <disable_collisions link1="left_rack" link2="right_rack" reason="Never" />
   </xacro:macro>
 </robot>

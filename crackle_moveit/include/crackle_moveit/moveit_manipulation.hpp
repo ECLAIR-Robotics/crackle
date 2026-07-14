@@ -157,7 +157,8 @@ private:
     bool build_manipulation_task(const std::string &object_id,
                                  const std::vector<geometry_msgs::msg::Pose> &target_poses,
                                  double approach_move, double retreat_move, bool attach,
-                                 moveit::task_constructor::Task &task);
+                                 moveit::task_constructor::Task &task,
+                                 const std::string &support_surface = "");
     // Execute a planned MTC pick/place solution. Between the approach and the
     // retreat it actuates the gripper and (de)attaches `obj` in the real
     // planning scene: pick closes+attaches, place opens+detaches. Returns false

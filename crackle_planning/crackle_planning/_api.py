@@ -11,6 +11,19 @@ SEARCH_POSES_FILE = os.path.expanduser(
     "~/crackle_ws/src/crackle/crackle_planning/crackle_planning/search_poses.json"
 )
 
+# Poses the arm sweeps through while IDLE to keep the planning scene populated.
+# Prefer the source tree (so hand edits take effect and the colcon install space,
+# which doesn't ship this data file, still finds it), falling back to the
+# installed package dir.
+_IDLE_SCAN_POSES_SRC = os.path.expanduser(
+    "~/crackle_ws/src/crackle/crackle_planning/crackle_planning/idle_scan_poses.json"
+)
+IDLE_SCAN_POSES_FILE = (
+    _IDLE_SCAN_POSES_SRC
+    if os.path.exists(_IDLE_SCAN_POSES_SRC)
+    else os.path.join(os.path.dirname(__file__), "idle_scan_poses.json")
+)
+
 ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
 if ROS_ENABLED:
     from crackle_planning.sim_ros_interface import SimulatedRosInterface
@@ -199,18 +212,23 @@ class PlannerAPI:
             return best_name, best_dist
         return None, best_dist
 
-    def _load_search_poses(self):
-        """Load the hardcoded list of end-effector search poses from JSON."""
+    @staticmethod
+    def _load_poses_from_file(path: str, key: str):
+        """Load a list of end-effector poses from a JSON file.
+
+        Each entry has a position (metres) and an rpy (DEGREES) under ``key``.
+        Returns a list of geometry_msgs/Pose, or [] if the file is missing.
+        """
         from geometry_msgs.msg import Pose
         import math
         try:
-            with open(SEARCH_POSES_FILE, "r") as f:
+            with open(path, "r") as f:
                 data = json.load(f)
         except FileNotFoundError:
-            print(f"Search poses file not found: {SEARCH_POSES_FILE}")
+            print(f"Poses file not found: {path}")
             return []
         poses = []
-        for entry in data.get("search_poses", []):
+        for entry in data.get(key, []):
             pose = Pose()
             pose.position.x = float(entry["position"]["x"])
             pose.position.y = float(entry["position"]["y"])
@@ -227,6 +245,44 @@ class PlannerAPI:
             pose.orientation.z = cr * cp * sy - sr * sp * cy
             poses.append(pose)
         return poses
+
+    def _load_search_poses(self):
+        """Load the hardcoded list of end-effector search poses from JSON."""
+        return self._load_poses_from_file(SEARCH_POSES_FILE, "search_poses")
+
+    def load_idle_scan_poses(self):
+        """Load the poses the arm sweeps through while idle (see idle_scan_poses.json)."""
+        return self._load_poses_from_file(IDLE_SCAN_POSES_FILE, "idle_scan_poses")
+
+    def move_to_scan_pose(self, pose, abort_event=None) -> bool:
+        """Move the arm to one idle-scan pose. Blocks until the motion finishes.
+
+        If ``abort_event`` (a threading.Event) is set before execution starts,
+        the move is skipped so a wake word during planning doesn't trigger a
+        motion. An already-executing trajectory is aborted separately via
+        ``stop_motion``.
+        """
+        if self.ros_interface is None:
+            return False
+        return self.ros_interface.move_to_pose(pose, abort_event=abort_event)
+
+    def stop_motion(self):
+        """Instantly abort any arm trajectory MoveIt is currently executing."""
+        if self.ros_interface is not None:
+            self.ros_interface.stop_motion()
+
+    def capture_scene_image(self) -> Optional[str]:
+        """Grab the latest color frame as a base64 JPEG (None if unavailable)."""
+        if self.ros_interface is None:
+            return None
+        return self.ros_interface.get_latest_color_image_jpeg_b64()
+
+    def find_and_add_objects(self, names: List[str]) -> List[str]:
+        """Run find_objects for the given names; detections are published to the
+        MoveIt planning scene as collision objects. Returns the detected names."""
+        if self.ros_interface is None or not names:
+            return []
+        return self.ros_interface.call_find_objects(names)
 
     def _scan_here(self, object_name: str) -> Optional[str]:
         """Call the find_objects service at the arm's current position.

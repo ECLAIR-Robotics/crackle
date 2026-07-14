@@ -9,6 +9,10 @@ import time
 from enum import Enum
 import threading
 import asyncio
+import base64
+import concurrent.futures
+import traceback
+import datetime
 import random
 import numpy as np
 import openwakeword
@@ -46,10 +50,12 @@ if ROS_ENABLED:
     from crackle_planning._api import PlannerAPI
     from crackle_planning._llm import GptAPI
     from crackle_planning.face_ui import ui_client
+    from crackle_planning._config import load_config
 else:
     from _api import PlannerAPI
     from _llm import GptAPI
     from face_ui import ui_client
+    from _config import load_config
 
 class CrackleState(Enum):
     IDLE = "idle"
@@ -113,7 +119,19 @@ class CrackleFSM:
         
         self.gpt_api = GptAPI()
 
-        #Stores the current command/prompt 
+        # Idle-scan scene analysis ("func a"): GPT-vision + find_objects. Runs on a
+        # single-worker executor so at most one analysis is ever in flight — we
+        # must not load the vision model into memory twice. The future persists on
+        # self so that if the user wakes us mid-analysis, that analysis keeps
+        # running in the background while we handle the command.
+        self._scan_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        self._pending_scan_future: concurrent.futures.Future | None = None
+        self._idle_scan_image_dir = os.path.join(os.path.dirname(__file__), "idle_scans")
+        # The active idle-sweep thread and its stop flag (started in handle_idle).
+        self._scan_thread: threading.Thread | None = None
+        self._scan_stop_event: threading.Event | None = None
+
+        #Stores the current command/prompt
         self.current_command = ""
 
         #The context window of fsm 
@@ -145,10 +163,42 @@ class CrackleFSM:
         # Listening thread interrupts the scanning thread and then processes the command
         print("Entering IDLE state: Scanning and Listening for commands...")
         ui_client.set_state("idle")
-        async def scanning_thread(name: str, stop_event: asyncio.Event):
-            while self._state == CrackleState.IDLE and not stop_event.is_set():
-                print("Scanning for commands...")
-                await asyncio.sleep(5)  # Scanning delay
+
+        # Run the blocking move/capture/analyze sweep in a REAL daemon thread —
+        # NOT an asyncio task. The wake-word listener below is an async coroutine
+        # that makes blocking mic reads with no awaits, so it never yields the
+        # event loop; anything scheduled as a coroutine (e.g. asyncio.to_thread)
+        # would be starved and never start. Setting scan_stop_event, or leaving
+        # IDLE, stops the sweep at its next checkpoint.
+        #
+        # Make sure a prior sweep has stopped before starting a new one so two
+        # threads never command the arm at once. By the time we re-enter IDLE the
+        # previous sweep has almost always already exited (it bails as soon as the
+        # state left IDLE), so this join returns immediately in practice.
+        if self._scan_thread is not None and self._scan_thread.is_alive():
+            if self._scan_stop_event is not None:
+                self._scan_stop_event.set()
+            self._scan_thread.join(timeout=5.0)
+            if self._scan_thread.is_alive():
+                print("[idle-scan] previous sweep still finishing a move; starting new "
+                      "sweep once it yields.")
+
+        scan_stop_event = threading.Event()
+        self._scan_stop_event = scan_stop_event
+        # Idle scanning is opt-in via crackle_config.json — re-read each time we
+        # enter IDLE so the flag can be flipped without a restart. When disabled
+        # the arm just listens (no sweep thread is started).
+        if load_config().get("idle_scanning_enabled", True):
+            self._scan_thread = threading.Thread(
+                target=self._run_idle_scan_loop,
+                args=(scan_stop_event,),
+                daemon=True,
+            )
+            self._scan_thread.start()
+        else:
+            self._scan_thread = None
+            print("[idle-scan] disabled via config (idle_scanning_enabled=false) — "
+                  "listening only.")
 
         def _read_chunk():
             raw = self._parec_proc.stdout.read(self._mic_chunk * 2)  # *2 for int16 bytes
@@ -170,6 +220,13 @@ class CrackleFSM:
                     ui_client.set_wakeword(True)
                     ui_client.set_state("listening")
                     wake_wall_time = time.time()
+                    # Instantly abort any scan trajectory in flight and flag the
+                    # sweep to stop, BEFORE looking at the sound. stop_motion frees
+                    # the arm (and the manipulation node's service group) so the
+                    # look_at motion below can run immediately instead of queuing
+                    # behind the scan move.
+                    self.planner_api.stop_motion()
+                    scan_stop_event.set()  # stop the idle sweep; func-a keeps running
                     self.planner_api.look_at_sound_direction(wake_wall_time)
                     self._drain_mic_buffer()
                     stop_event.set()
@@ -179,16 +236,25 @@ class CrackleFSM:
         loop = asyncio.get_event_loop()
         kb_thread = threading.Thread(
             target=self._keyboard_trigger,
-            args=(stop_event_scanning, loop),
+            args=(stop_event_scanning, loop, scan_stop_event),
             daemon=True,
         )
         kb_thread.start()
         listen_task = asyncio.create_task(listening_thread("Listener", stop_event_scanning))
-        scan_task = asyncio.create_task(scanning_thread("Scanner", stop_event_scanning))
-        self._running_threads.extend([scan_task, listen_task])
-        await asyncio.gather(scan_task, listen_task)
+        self._running_threads.append(listen_task)
+        # Only await the listener. When it breaks (wake word / keyboard) we return
+        # so main_loop can handle the command; the scan thread notices the state
+        # change / scan_stop_event and exits on its own. We deliberately do NOT
+        # join it here — a move or func-a analysis may still be finishing, and it's
+        # a daemon that stops itself, so blocking here would only add latency.
+        await listen_task
 
-    def _keyboard_trigger(self, stop_event: asyncio.Event, loop: asyncio.AbstractEventLoop):
+    def _keyboard_trigger(
+        self,
+        stop_event: asyncio.Event,
+        loop: asyncio.AbstractEventLoop,
+        scan_stop_event: "threading.Event | None" = None,
+    ):
         """Poll stdin for a space bar press as an alternative to the wake word.
         Runs in a daemon thread alongside the OWW listening task."""
         import sys
@@ -208,10 +274,112 @@ class CrackleFSM:
                     if ch == ' ':
                         print("\n[keyboard] Space bar — activating listen")
                         self._state = CrackleState.LISTENING
+                        if scan_stop_event is not None:
+                            scan_stop_event.set()
                         loop.call_soon_threadsafe(stop_event.set)
                         break
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+    # ----- Idle-state workspace scanning -------------------------------------
+
+    def _idle_scan_interrupted(self, stop_event: "threading.Event") -> bool:
+        """True once we should abandon the sweep (wake word / keyboard / left IDLE)."""
+        return stop_event.is_set() or self._state != CrackleState.IDLE
+
+    def _await_previous_scene_analysis(self):
+        """Block until any in-flight scene analysis ("func a") finishes.
+
+        This is the ONLY place idle scanning blocks: we refuse to launch a second
+        GPT-vision + find_objects pass while one is still running, so the vision
+        model is never loaded into memory twice.
+        """
+        fut = self._pending_scan_future
+        if fut is not None and not fut.done():
+            print("[idle-scan] previous scene analysis still running — waiting for it "
+                  "to finish before scanning again...")
+            try:
+                fut.result()
+            except Exception:
+                traceback.print_exc()
+
+    def _store_scan_image(self, image_b64: str):
+        """Persist a captured frame to disk for later inspection/debugging."""
+        try:
+            os.makedirs(self._idle_scan_image_dir, exist_ok=True)
+            ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            path = os.path.join(self._idle_scan_image_dir, f"scan_{ts}.jpg")
+            with open(path, "wb") as f:
+                f.write(base64.b64decode(image_b64))
+            print(f"[idle-scan] stored capture: {path}")
+        except Exception:
+            traceback.print_exc()
+
+    def _process_scene_capture(self, image_b64: str):
+        """"func a": GPT-vision -> graspable object names -> find_objects.
+
+        Runs on the single-worker scan executor (never concurrently with itself).
+        find_objects publishes any detections to the MoveIt planning scene as
+        collision objects. Never raises — failures are logged and swallowed so a
+        bad frame can't kill the background worker.
+        """
+        try:
+            objects = self.gpt_api.detect_graspable_objects(image_b64)
+            if not objects:
+                print("[idle-scan] no graspable objects in this view.")
+                return
+            found = self.planner_api.find_and_add_objects(objects)
+            print(f"[idle-scan] added to planning scene: {found}")
+        except Exception:
+            traceback.print_exc()
+
+    def _run_idle_scan_loop(self, stop_event: "threading.Event"):
+        """Continuously sweep the configured idle-scan poses while IDLE.
+
+        At each pose: move (blocking), capture + store a picture, then kick off
+        scene analysis ("func a") in the background so it overlaps the move to the
+        next pose. Before launching the next analysis we block only if the previous
+        one is still running. Fully interruptable: we bail at every checkpoint once
+        the wake word/keyboard fires, leaving any in-flight analysis to finish in
+        the background.
+        """
+        poses = self.planner_api.load_idle_scan_poses()
+        if not poses:
+            print("[idle-scan] no idle_scan_poses configured — idling without scanning. "
+                  "Populate idle_scan_poses.json to enable workspace scanning.")
+            return
+
+        print(f"[idle-scan] sweeping {len(poses)} pose(s) while idle...")
+        while not self._idle_scan_interrupted(stop_event):
+            for pose in poses:
+                if self._idle_scan_interrupted(stop_event):
+                    return
+
+                # Pass the stop flag so the move bails between plan and execute if
+                # the wake word fires during the (short) planning window; an
+                # already-executing trajectory is aborted via stop_motion instead.
+                moved = self.planner_api.move_to_scan_pose(pose, abort_event=stop_event)
+                if self._idle_scan_interrupted(stop_event):
+                    return
+                if not moved:
+                    print("[idle-scan] failed to reach a scan pose; skipping it.")
+                    continue
+
+                # Arm is settled — take and store a picture.
+                image_b64 = self.planner_api.capture_scene_image()
+                if image_b64 is None:
+                    continue
+                self._store_scan_image(image_b64)
+
+                # Only block if a prior analysis is still in flight (single model).
+                self._await_previous_scene_analysis()
+                if self._idle_scan_interrupted(stop_event):
+                    return
+
+                # Launch func-a in the background; it overlaps the next move.
+                self._pending_scan_future = self._scan_executor.submit(
+                    self._process_scene_capture, image_b64
+                )
 
     def _drain_mic_buffer(self):
         """Non-blocking drain of any mic audio that accumulated in the pipe buffer.

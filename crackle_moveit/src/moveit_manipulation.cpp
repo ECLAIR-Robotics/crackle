@@ -30,6 +30,8 @@
 #include <thread>
 #include <crackle_moveit/moveit_manipulation.hpp>
 #include <vector>
+#include <Eigen/Geometry>
+#include <Eigen/Eigenvalues>
 
 // MTC stages used to build the pickup task.
 #include <moveit/task_constructor/container.h>
@@ -557,7 +559,7 @@ bool CrackleManipulation::pick_up_object(
   constexpr double approach_dist = 0.18; // metres – gripper offset from object
   constexpr double pregrasp_dist = 0.20; // metres – retreat along approach axis
   constexpr double lift_dist = 0.25;     // metres – straight-up post-grasp lift
-  constexpr double tool_width = 0.95;
+  constexpr double tool_width = 0.10; // gripper finger opening (max graspable width)
 
   clear_grasp_markers();
   std::vector<int> face_ids;
@@ -607,16 +609,28 @@ bool CrackleManipulation::pick_up_object(
                       std::abs(R_obj(2, 1)) * he.y() +
                       std::abs(R_obj(2, 2)) * he.z();
 
-    geometry_msgs::msg::Pose top_down;
-    top_down.position.x = obj.pose.position.x;
-    top_down.position.y = obj.pose.position.y;
-    top_down.position.z = obj.pose.position.z + dz + approach_dist;
-    top_down.orientation = lookAtQuat(Eigen::Vector3d(0.0, 0.0, -1.0),
-                                      Eigen::Vector3d::UnitX(),
-                                      kToolForwardInTool);
-
-    grasp_candidates.insert(grasp_candidates.begin(), top_down);
-    face_ids.insert(face_ids.begin(), -1);
+    // Only offer the top-down grasp if the object's narrower horizontal span
+    // fits the jaws, and roll the gripper to close along that narrower axis.
+    const double hx_w = std::abs(R_obj(0, 0)) * he.x() +
+                        std::abs(R_obj(0, 1)) * he.y() +
+                        std::abs(R_obj(0, 2)) * he.z();
+    const double hy_w = std::abs(R_obj(1, 0)) * he.x() +
+                        std::abs(R_obj(1, 1)) * he.y() +
+                        std::abs(R_obj(1, 2)) * he.z();
+    const bool narrow_x = (hx_w <= hy_w);
+    const double top_grasp_width = 2.0 * (narrow_x ? hx_w : hy_w);
+    if (top_grasp_width <= tool_width) {
+      geometry_msgs::msg::Pose top_down;
+      top_down.position.x = obj.pose.position.x;
+      top_down.position.y = obj.pose.position.y;
+      top_down.position.z = obj.pose.position.z + dz + approach_dist;
+      top_down.orientation = lookAtQuat(
+          Eigen::Vector3d(0.0, 0.0, -1.0),
+          narrow_x ? Eigen::Vector3d::UnitX() : Eigen::Vector3d::UnitY(),
+          kToolForwardInTool);
+      grasp_candidates.insert(grasp_candidates.begin(), top_down);
+      face_ids.insert(face_ids.begin(), -1);
+    }
   }
 
   if (grasp_candidates.empty()) {
@@ -751,7 +765,8 @@ static const char *kAttachLink = "gripper_base";
 bool CrackleManipulation::build_manipulation_task(
     const std::string &object_id,
     const std::vector<geometry_msgs::msg::Pose> &target_poses,
-    double approach_move, double retreat_move, bool attach, mtc::Task &task) {
+    double approach_move, double retreat_move, bool attach, mtc::Task &task,
+    const std::string &support_surface) {
   const std::string arm_group = move_group_->getName();
   const std::string ik_frame = move_group_->getEndEffectorLink();
   const std::string planning_frame = move_group_->getPlanningFrame();
@@ -803,6 +818,35 @@ bool CrackleManipulation::build_manipulation_task(
   // ---- 3. Serial: approach -> target IK -> attach/detach -> retreat ---------
   {
     auto seq = std::make_unique<mtc::SerialContainer>(attach ? "pick" : "place");
+
+    // 3-. Allow the gripper to touch THIS object during the approach and grasp.
+    //     The gripper links now carry collision geometry (so they can't pass
+    //     through the table), which means the grasp pose — fingers wrapped
+    //     around the object — would otherwise be rejected as a collision. This
+    //     whitelists only object<->gripper contact; the table and all other
+    //     obstacles stay collision-checked. The modified ACM propagates forward
+    //     to the IK and retreat stages.
+    {
+      auto allow = std::make_unique<mtc::stages::ModifyPlanningScene>(
+          "allow gripper-object collision");
+      allow->allowCollisions(
+          object_id,
+          std::vector<std::string>{"gripper_base", "left_rack", "right_rack"},
+          true);
+      seq->insert(std::move(allow));
+    }
+
+    // 3-. When placing, also let the held object touch the support surface (the
+    //     table), since setting it down is near-contact and would otherwise be
+    //     rejected. This whitelists ONLY object<->table contact; the gripper is
+    //     still collision-checked against the table, so it can't crash into it.
+    if (!attach && !support_surface.empty()) {
+      auto allow_support = std::make_unique<mtc::stages::ModifyPlanningScene>(
+          "allow object-support collision");
+      allow_support->allowCollisions(
+          object_id, std::vector<std::string>{support_surface}, true);
+      seq->insert(std::move(allow_support));
+    }
 
     // 3a. Cartesian approach along the tool-forward (+Z) axis toward the target.
     //     For a top-down target this descends onto the object / table.
@@ -968,7 +1012,7 @@ bool CrackleManipulation::pick_up_object_mtc(
 
   // ---- Generate grasp candidates (reuses the legacy geometry) ---------------
   constexpr double approach_dist = 0.18; // gripper offset baked into grasp pose
-  constexpr double tool_width = 0.95;
+  constexpr double tool_width = 0.10; // gripper finger opening (max graspable width)
 
   clear_grasp_markers();
   std::vector<int> face_ids;
@@ -1013,16 +1057,28 @@ bool CrackleManipulation::pick_up_object_mtc(
                       std::abs(R_obj(2, 1)) * he.y() +
                       std::abs(R_obj(2, 2)) * he.z();
 
-    geometry_msgs::msg::Pose top_down;
-    top_down.position.x = obj.pose.position.x;
-    top_down.position.y = obj.pose.position.y;
-    top_down.position.z = obj.pose.position.z + dz + approach_dist;
-    top_down.orientation =
-        lookAtQuat(Eigen::Vector3d(0.0, 0.0, -1.0), Eigen::Vector3d::UnitX(),
-                   kToolForwardInTool);
-
-    grasp_candidates.insert(grasp_candidates.begin(), top_down);
-    face_ids.insert(face_ids.begin(), -1);
+    // Only offer the top-down grasp if the object's narrower horizontal span
+    // fits the jaws, and roll the gripper to close along that narrower axis.
+    const double hx_w = std::abs(R_obj(0, 0)) * he.x() +
+                        std::abs(R_obj(0, 1)) * he.y() +
+                        std::abs(R_obj(0, 2)) * he.z();
+    const double hy_w = std::abs(R_obj(1, 0)) * he.x() +
+                        std::abs(R_obj(1, 1)) * he.y() +
+                        std::abs(R_obj(1, 2)) * he.z();
+    const bool narrow_x = (hx_w <= hy_w);
+    const double top_grasp_width = 2.0 * (narrow_x ? hx_w : hy_w);
+    if (top_grasp_width <= tool_width) {
+      geometry_msgs::msg::Pose top_down;
+      top_down.position.x = obj.pose.position.x;
+      top_down.position.y = obj.pose.position.y;
+      top_down.position.z = obj.pose.position.z + dz + approach_dist;
+      top_down.orientation = lookAtQuat(
+          Eigen::Vector3d(0.0, 0.0, -1.0),
+          narrow_x ? Eigen::Vector3d::UnitX() : Eigen::Vector3d::UnitY(),
+          kToolForwardInTool);
+      grasp_candidates.insert(grasp_candidates.begin(), top_down);
+      face_ids.insert(face_ids.begin(), -1);
+    }
   }
 
   if (grasp_candidates.empty()) {
@@ -1139,7 +1195,8 @@ bool CrackleManipulation::place_object_mtc(
   // (0.15); retreat = post-release retreat straight up (0.20).
   mtc::Task task;
   if (!build_manipulation_task(object_name, place_candidates, /*approach_move=*/0.15,
-                               /*retreat_move=*/0.20, /*attach=*/false, task)) {
+                               /*retreat_move=*/0.20, /*attach=*/false, task,
+                               /*support_surface=*/table_name)) {
     RCLCPP_ERROR(node_->get_logger(),
                  "place_object_mtc: failed to build task for '%s'",
                  object_name.c_str());
@@ -2062,7 +2119,8 @@ std::vector<geometry_msgs::msg::Pose>
 CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object,
                                      double approach_dist, double tool_width,
                                      std::vector<int> *face_ids_out) {
-  (void)tool_width;
+  // Max object width the jaws can straddle (the gripper's finger opening).
+  const double max_grasp_width = tool_width;
   if (face_ids_out) face_ids_out->clear();
   std::vector<geometry_msgs::msg::Pose> grasp_poses;
 
@@ -2105,45 +2163,77 @@ CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object,
 
   const auto &prim = object.primitives[0];
 
-  // Resolve (hx, hy, hz) half-extents and the rotation R that takes the
-  // object's local box frame into world coordinates.
+  // Resolve the object's oriented bounding box in the planning frame:
+  // (half_extents, R_world whose columns are the box axes, obj_center).
   //
-  // Preference order:
-  //   1. If a mesh is available AND cuboid_handler produces three orthogonal
-  //      edge vectors, use those (they already live in world frame).
-  //   2. Otherwise fall back to the SolidPrimitive dimensions combined with
-  //      object.pose.orientation — this is the common case for BOX objects
-  //      published straight from perception.
+  //   1. Preferred: derive it straight from the MESH corner points. Perception
+  //      publishes a minimum-volume oriented bounding-box mesh, so a PCA of its
+  //      corners recovers the true box axes exactly. Every grasp we then build
+  //      from R_world's columns approaches along a real mesh-face normal — i.e.
+  //      perpendicular to the surface — instead of being skewed by a primitive
+  //      whose orientation is often left at identity by perception.
+  //   2. Fallback (no usable mesh, e.g. spheres): the SolidPrimitive dimensions
+  //      combined with object.pose.orientation.
   Eigen::Vector3d half_extents(0.05, 0.05, 0.05);
   Eigen::Matrix3d R_world = Eigen::Matrix3d::Identity();
+  Eigen::Vector3d obj_center = center;
   bool used_mesh_basis = false;
 
-  if (prim.type == shape_msgs::msg::SolidPrimitive::BOX && !object.meshes.empty()) {
-    std::vector<geometry_msgs::msg::Point> verts(
-        std::begin(object.meshes[0].vertices),
-        std::end(object.meshes[0].vertices));
-    if (verts.size() >= 4) {
-      try {
-        std::vector<std::vector<float>> basis = cuboid_handler(verts);
-        if (basis.size() == 3) {
-          Eigen::Vector3d bx(basis[0][0], basis[0][1], basis[0][2]);
-          Eigen::Vector3d by(basis[1][0], basis[1][1], basis[1][2]);
-          Eigen::Vector3d bz(basis[2][0], basis[2][1], basis[2][2]);
-          half_extents = Eigen::Vector3d(bx.norm() / 2.0, by.norm() / 2.0,
-                                          bz.norm() / 2.0);
-          R_world.col(0) = bx.normalized();
-          R_world.col(1) = by.normalized();
-          R_world.col(2) = bz.normalized();
-          // Enforce right-handedness.
-          if (R_world.determinant() < 0)
-            R_world.col(1) *= -1.0;
-          used_mesh_basis = true;
-        }
-      } catch (const std::exception &e) {
-        RCLCPP_WARN(node_->get_logger(),
-                    "cuboid_handler failed (%s); falling back to primitive",
-                    e.what());
+  if (prim.type == shape_msgs::msg::SolidPrimitive::BOX &&
+      !object.meshes.empty() && object.meshes[0].vertices.size() >= 4) {
+    // Corner points into the planning frame: world = T_obj * T_mesh * v.
+    Eigen::Quaterniond q_obj(object.pose.orientation.w, object.pose.orientation.x,
+                             object.pose.orientation.y, object.pose.orientation.z);
+    if (q_obj.norm() < 1e-6) q_obj = Eigen::Quaterniond::Identity();
+    Eigen::Isometry3d T_obj = Eigen::Isometry3d::Identity();
+    T_obj.linear() = q_obj.normalized().toRotationMatrix();
+    T_obj.translation() = Eigen::Vector3d(
+        object.pose.position.x, object.pose.position.y, object.pose.position.z);
+
+    Eigen::Isometry3d T_mesh = Eigen::Isometry3d::Identity();
+    if (!object.mesh_poses.empty()) {
+      Eigen::Quaterniond q_m(object.mesh_poses[0].orientation.w,
+                             object.mesh_poses[0].orientation.x,
+                             object.mesh_poses[0].orientation.y,
+                             object.mesh_poses[0].orientation.z);
+      if (q_m.norm() < 1e-6) q_m = Eigen::Quaterniond::Identity();
+      T_mesh.linear() = q_m.normalized().toRotationMatrix();
+      T_mesh.translation() = Eigen::Vector3d(object.mesh_poses[0].position.x,
+                                             object.mesh_poses[0].position.y,
+                                             object.mesh_poses[0].position.z);
+    }
+    const Eigen::Isometry3d T = T_obj * T_mesh;
+
+    std::vector<Eigen::Vector3d> pts;
+    pts.reserve(object.meshes[0].vertices.size());
+    Eigen::Vector3d mean = Eigen::Vector3d::Zero();
+    for (const auto &vtx : object.meshes[0].vertices) {
+      const Eigen::Vector3d wv = T * Eigen::Vector3d(vtx.x, vtx.y, vtx.z);
+      pts.push_back(wv);
+      mean += wv;
+    }
+    mean /= static_cast<double>(pts.size());
+
+    // PCA: eigenvectors of the corner covariance are the (orthonormal) box axes.
+    Eigen::Matrix3d cov = Eigen::Matrix3d::Zero();
+    for (const auto &p : pts) {
+      const Eigen::Vector3d d = p - mean;
+      cov += d * d.transpose();
+    }
+    Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> es(cov);
+    if (es.info() == Eigen::Success) {
+      Eigen::Matrix3d axes = es.eigenvectors();
+      if (axes.determinant() < 0) axes.col(0) *= -1.0; // keep right-handed
+      Eigen::Vector3d he = Eigen::Vector3d::Zero();
+      for (const auto &p : pts) {
+        const Eigen::Vector3d d = p - mean;
+        for (int a = 0; a < 3; ++a)
+          he[a] = std::max(he[a], std::abs(d.dot(axes.col(a))));
       }
+      R_world = axes;
+      half_extents = he;
+      obj_center = mean;
+      used_mesh_basis = true;
     }
   }
 
@@ -2244,7 +2334,7 @@ CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object,
 
   int skip_far_index = -1;
   if (have_arm_base) {
-    Eigen::Vector3d base_to_obj = center - arm_base_world;
+    Eigen::Vector3d base_to_obj = obj_center - arm_base_world;
     if (base_to_obj.norm() > 1e-6) {
       base_to_obj.normalize();
       double most_away = 0.0;
@@ -2287,12 +2377,25 @@ CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object,
     const double h_u = half_extents[f.u_axis] * kEdgeInset;
     const double h_v = half_extents[f.v_axis] * kEdgeInset;
 
-    // "up" hint passed to lookAtQuat: prefer world-Z unless the approach is
-    // already vertical (top-down / bottom-up), in which case fall back to one
-    // of the in-plane axes to keep the gripper roll stable.
-    Eigen::Vector3d up_hint = Eigen::Vector3d::UnitZ();
-    if (std::abs(n_world.dot(up_hint)) > 0.95)
-      up_hint = u_world;
+    // Finger-closing axis (tool Y): the NARROWER of the face's two in-plane
+    // axes, so the fixed ~100 mm jaw opening only has to span the object's
+    // smaller cross-section. lookAtQuat maps tool-Y to the in-plane component of
+    // up_hint, so passing the closing axis as up_hint rolls the gripper to close
+    // along it. Skip the whole face if even that narrower span exceeds the jaw
+    // opening — the gripper physically cannot close around it.
+    const double w_u = 2.0 * half_extents[f.u_axis];
+    const double w_v = 2.0 * half_extents[f.v_axis];
+    const bool close_along_u = (w_u <= w_v);
+    const double grasp_width = close_along_u ? w_u : w_v;
+    if (grasp_width > max_grasp_width) {
+      RCLCPP_INFO(node_->get_logger(),
+                  "get_grasp_poses: skipping face %zu — narrowest graspable span "
+                  "%.0f mm exceeds the %.0f mm jaw opening",
+                  fi, grasp_width * 1000.0, max_grasp_width * 1000.0);
+      continue;
+    }
+    const Eigen::Vector3d up_hint =
+        (close_along_u ? u_world : v_world).normalized();
 
     auto [nu, nv] = grid_size(f);
 
@@ -2320,7 +2423,7 @@ CrackleManipulation::get_grasp_poses(moveit_msgs::msg::CollisionObject object,
 
     for (const auto &[tu, tv] : grid) {
       const Eigen::Vector3d surface_point =
-          center + n_world * h_face + u_world * (tu * h_u) +
+          obj_center + n_world * h_face + u_world * (tu * h_u) +
           v_world * (tv * h_v);
       const Eigen::Vector3d grasp_pt =
           surface_point + n_world * approach_dist;
