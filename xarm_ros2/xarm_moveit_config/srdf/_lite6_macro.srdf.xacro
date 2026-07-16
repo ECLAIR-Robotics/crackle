@@ -45,6 +45,15 @@
       <joint name="${prefix}joint6" value="0" />
     </group_state>
 
+    <!-- crackle lateral rack-and-pinion gripper (always attached in the URDF).
+         The two rack jaws are PRISMATIC joints driven by the claw firmware, not
+         by motion planning, so mark them passive. Their positions are supplied
+         on /joint_states by claw_degree_publisher. Names are unprefixed because
+         the three_claw_gripper macro defines them without a prefix. The
+         gripper-link disable_collisions live in the block further below. -->
+    <passive_joint name="left_rack_joint" />
+    <passive_joint name="right_rack_joint" />
+
     <!-- gripper -->
     <xacro:if value="${add_gripper}">
       <!-- <group name="${prefix}lite_gripper">

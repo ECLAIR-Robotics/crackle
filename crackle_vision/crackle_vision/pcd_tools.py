@@ -13,26 +13,195 @@ from shape_msgs.msg import SolidPrimitive
 def sum_of_pcd_distances(source: o3d.geometry.PointCloud, target: o3d.geometry.PointCloud) -> float:
     return np.sum(source.compute_point_cloud_distance(target))
 
-def get_best_approx(pcd: o3d.geometry.PointCloud) -> Tuple[o3d.geometry.TriangleMesh, int, np.ndarray]:
+def complete_partial_cloud(
+    pcd: o3d.geometry.PointCloud,
+    view_axis: np.ndarray = np.array([0.0, 0.0, 1.0]),
+) -> o3d.geometry.PointCloud:
+    """Approximate the occluded far side of a single-view point cloud.
+
+    A depth camera only sees the near surface of an object; the far side (along
+    the camera view/depth axis) is missing, so a bounding box fit to the raw
+    cloud is too shallow and the object is under-sized for grasping/collision.
+
+    We make ONE reasonable assumption — that the object is a roughly convex,
+    front/back-symmetric solid — and reflect the visible points across the
+    object's FAR silhouette plane (the deepest visible cross-section along the
+    view axis). For a convex object the camera can only see up to that silhouette
+    rim, so its mirror image is a good estimate of the occluded back:
+
+      * A ball/fruit: the silhouette is the equator, so the reflected front
+        hemisphere reconstructs the full sphere.
+      * A cup/bottle/can: reconstructs the full cylinder depth.
+      * A flat face viewed straight on has ~no visible depth, so the reflection
+        lands on itself and adds ~nothing (we honestly can't infer depth we
+        never saw, and we do not fabricate it).
+
+    A high percentile (not the max) defines the silhouette plane so a single
+    noisy far point can't over-inflate the result. The cloud is in the camera
+    optical frame, where +Z is the view/depth axis — hence the default axis.
+
+    Returns a new cloud with the original points plus the reflected front; the
+    original is returned unchanged if it is too small to be meaningful.
+    """
+    pts = np.asarray(pcd.points)
+    if pts.shape[0] < 4:
+        return pcd
+    v = np.asarray(view_axis, dtype=float)
+    n = np.linalg.norm(v)
+    if n < 1e-9:
+        return pcd
+    v = v / n
+
+    d = pts @ v                       # projection of each point along the view axis
+    d_ref = np.percentile(d, 95.0)    # far silhouette plane (robust to outliers)
+    front = pts[d <= d_ref]           # visible front surface up to the silhouette
+    if front.shape[0] < 4:
+        return pcd
+    df = front @ v
+    mirrored = front + 2.0 * np.outer(d_ref - df, v)  # reflect front across silhouette
+    completed = np.vstack([pts, mirrored])
+
+    out = o3d.geometry.PointCloud()
+    out.points = o3d.utility.Vector3dVector(completed)
+    return out
+
+def upright_box_from_cloud(
+    pcd: o3d.geometry.PointCloud,
+    up: np.ndarray,
+    view_dir: np.ndarray = np.array([0.0, 0.0, 1.0]),
+) -> Tuple[o3d.geometry.OrientedBoundingBox, o3d.geometry.TriangleMesh, o3d.geometry.PointCloud]:
+    """Fit an UPRIGHT box to a tabletop object seen from a (possibly angled) view.
+
+    Tabletop objects rest on a horizontal surface, so their box should stand
+    vertically along gravity — not tilt to follow the camera's line of sight.
+    Mirroring a partial cloud along the tilted view axis (see complete_partial_
+    cloud) produces a box that leans over and punches through the table when the
+    camera looks down at an angle. This instead separates the two directions:
+
+      * VERTICAL (along ``up`` = gravity, expressed in the camera frame): the box
+        spans from the lowest visible point (≈ where the object meets the table)
+        up to the highest, so it sits ON the table and stays upright.
+      * HORIZONTAL (the ground plane): fit a rectangle to the VISIBLE footprint
+        (robust percentile extents). We do NOT fabricate the occluded back — a
+        top-down-ish view already shows the full footprint (the rim), and
+        fabricating it repeatedly over-sized the box.
+
+    ``up`` and ``view_dir`` are unit vectors in the camera optical frame (the
+    frame the cloud lives in); ``view_dir`` defaults to the optical +Z axis.
+
+    Returns (oriented_bounding_box, mesh, completed_cloud), where completed_cloud
+    is the point cloud actually used to fit the box (original points plus any
+    ground-plane completion) — publish it to inspect what the fit sees. Falls
+    back to the raw minimal OBB if there are too few points to fit reliably.
+    """
+    pts = np.asarray(pcd.points)
+    up = np.asarray(up, dtype=float)
+    up = up / (np.linalg.norm(up) + 1e-12)
+    if pts.shape[0] < 8:
+        obb = pcd.get_minimal_oriented_bounding_box()
+        mesh = o3d.geometry.TriangleMesh.create_from_oriented_bounding_box(obb)
+        return obb, mesh, pcd
+
+    # Split each point into height (along gravity) and a horizontal component.
+    h = pts @ up
+    horiz = pts - np.outer(h, up)
+
+    # Fit to the VISIBLE cloud only — do NOT fabricate the occluded back. Earlier
+    # mirror-completion reliably over-sized the box (a partial cup rim reflected
+    # into a much larger footprint), so we keep only what the camera actually saw
+    # and let the robust percentile extents below reject stray points. A
+    # top-down-ish view of a tabletop object already shows its full footprint (the
+    # rim), so the box comes out object-sized without guessing.
+    horiz_full = horiz
+    h_full = h
+    completed_pts = pts
+
+    # Orthonormal ground basis (e1, e2) perpendicular to up.
+    seed = np.array([1.0, 0.0, 0.0]) if abs(up[0]) < 0.9 else np.array([0.0, 1.0, 0.0])
+    e1 = np.cross(up, seed); e1 /= np.linalg.norm(e1)
+    e2 = np.cross(up, e1)
+
+    # Fit a rectangle to the (completed) footprint via PCA in the ground plane.
+    u = horiz_full @ e1
+    v = horiz_full @ e2
+    uv = np.c_[u, v]
+    uv_c = uv.mean(axis=0)
+    uvz = uv - uv_c
+    _, evecs = np.linalg.eigh(uvz.T @ uvz)   # columns: ascending eigenvalue
+    r_major = evecs[:, 1]
+    r_minor = evecs[:, 0]
+
+    # Robust extents via 1st/99th percentiles along each axis, so a few stray /
+    # noisy points (e.g. a sliver of table left in the mask) can't balloon the
+    # box. Returns (half_extent, center_offset) to also recenter for asymmetry.
+    def _span(proj):
+        lo, hi = np.percentile(proj, [1.0, 99.0])
+        return (hi - lo) / 2.0, (hi + lo) / 2.0
+
+    ha1, c1 = _span(uvz @ r_major)
+    ha2, c2 = _span(uvz @ r_minor)
+    hz, cz = _span(h_full)
+
+    axis1 = r_major[0] * e1 + r_major[1] * e2
+    axis2 = r_minor[0] * e1 + r_minor[1] * e2
+
+    center_uv = uv_c + c1 * r_major + c2 * r_minor
+    center = (center_uv[0] * e1 + center_uv[1] * e2) + cz * up
+    R = np.column_stack([axis1, axis2, up])
+    if np.linalg.det(R) < 0:
+        R[:, 1] = -R[:, 1]
+    extent = np.maximum(np.array([2.0 * ha1, 2.0 * ha2, 2.0 * hz]), 1e-3)
+
+    obb = o3d.geometry.OrientedBoundingBox(center, R, extent)
+    mesh = o3d.geometry.TriangleMesh.create_from_oriented_bounding_box(obb)
+
+    completed = o3d.geometry.PointCloud()
+    completed.points = o3d.utility.Vector3dVector(completed_pts)
+    return obb, mesh, completed
+
+
+def get_best_approx(
+    pcd: o3d.geometry.PointCloud,
+    up: np.ndarray = None,
+) -> Tuple[o3d.geometry.TriangleMesh, int, np.ndarray, o3d.geometry.PointCloud]:
     """
     Returns the mesh, either a cuboid or sphere, that best approximates the point cloud
-    
-    Arguments: 
+
+    Arguments:
         pcd: Point cloud to be approximated
+        up: Optional gravity 'up' unit vector expressed in the point cloud's
+            (camera) frame. When provided, the object is fit as an UPRIGHT box
+            resting on the table (correct for tabletop objects seen at an angle);
+            when None, falls back to a view-axis-symmetric minimal bounding box.
 
     Returns:
         shape_mesh: The best-approximation mesh as an o3d.geometry.TriangleMesh object
         shape_type: The type of shape as a shape_msgs.msg.SolidPrimitive type (either
                     SolidPrimitive.BOX or SolidPrimitive.SPHERE)
-        quaternion: The orientation of the shape as a (4,) np array representing a quaternion (x, y, z, w)        
+        quaternion: The orientation of the shape as a (4,) np array representing a quaternion (x, y, z, w)
+        completed_cloud: The point cloud actually used to fit the shape (for viz/debug)
 
     """
-    pcd_hull, _ = pcd.compute_convex_hull()
+    # Preferred: gravity is known, so fit an upright, table-resting box. This
+    # avoids the tilted, table-penetrating box that view-axis mirroring produces
+    # for angled views.
+    if up is not None:
+        obb, min_cuboid, completed = upright_box_from_cloud(pcd, up)
+        min_cuboid.compute_vertex_normals()
+        quaternion = R.from_matrix(np.asarray(obb.R).copy()).as_quat()
+        return min_cuboid, SolidPrimitive.BOX, quaternion, completed
+    # A single depth view only captures the near surface, so fit shapes to a
+    # completed cloud that mirrors the visible points to the occluded far side
+    # (one reasonable front/back-symmetry assumption). This makes the box/sphere
+    # reflect the object's true extent instead of a too-shallow partial view.
+    pcd_full = complete_partial_cloud(pcd)
+
+    pcd_hull, _ = pcd_full.compute_convex_hull()
     pcd_hull.compute_vertex_normals()
     # o3d.visualization.draw_geometries([pcd, pcd_hull])
 
-    orientated_bounding_box, min_cuboid = get_min_cuboid(pcd)
-    avg_sphere = get_avg_sphere_2(pcd)[0]
+    orientated_bounding_box, min_cuboid = get_min_cuboid(pcd_full)
+    avg_sphere = get_avg_sphere_2(pcd_full)[0]
     rotation_matrix = orientated_bounding_box.R.copy()
     
     print("Rotation matrix:\n", rotation_matrix)
@@ -46,13 +215,7 @@ def get_best_approx(pcd: o3d.geometry.PointCloud) -> Tuple[o3d.geometry.Triangle
     sphere_accuracy = np.abs(pcd_hull.get_volume() - avg_sphere.get_volume())
 
     min_cuboid.compute_vertex_normals()
-    return min_cuboid, SolidPrimitive.BOX, quaternion
-    if (cuboid_accuracy < sphere_accuracy):
-        min_cuboid.compute_vertex_normals()
-        return min_cuboid, SolidPrimitive.BOX, quaternion
-    else:
-        avg_sphere.compute_vertex_normals()
-        return avg_sphere, SolidPrimitive.SPHERE, np.array([0, 0, 0, 1])  # Identity quaternion
+    return min_cuboid, SolidPrimitive.BOX, quaternion, pcd_full
 
 def crop_point_cloud(pcd: o3d.geometry.PointCloud, min_bounds: np.ndarray, max_bounds: np.ndarray) -> tuple[o3d.geometry.PointCloud, o3d.geometry.AxisAlignedBoundingBox]:
     """ "

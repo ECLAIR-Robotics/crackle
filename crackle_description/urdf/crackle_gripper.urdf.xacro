@@ -53,7 +53,11 @@
       </collision>
     </link>
 
-    <!-- ===== Left rack (jaw) ===== -->
+    <!-- ===== Left rack (jaw) =====
+         Visual only, NO collision: the racks are moving (prismatic) jaws that
+         close around the grasped object, so leaving them collidable just trips
+         false object/table collisions during grasp and lift. The gripper_base
+         mesh already provides the gripper body's collision geometry. -->
     <link name="left_rack">
       <visual>
         <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -64,15 +68,9 @@
           <color rgba="0.3 0.3 0.3 1"/>
         </material>
       </visual>
-      <collision>
-        <origin xyz="0 0 0" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.02 0.01 0.04"/>
-        </geometry>
-      </collision>
     </link>
 
-    <!-- ===== Right rack (jaw) ===== -->
+    <!-- ===== Right rack (jaw) ===== visual only, NO collision (see left_rack). -->
     <link name="right_rack">
       <visual>
         <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -83,36 +81,30 @@
           <color rgba="0.3 0.3 0.3 1"/>
         </material>
       </visual>
-      <collision>
-        <origin xyz="0 0 0" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.02 0.01 0.04"/>
-        </geometry>
-      </collision>
     </link>
 
-    <!-- Rack (jaw) joints, pinned FIXED at the open position for now.
-         They were prismatic (rack opens along Y, driven symmetrically by the
-         two pinion servos), but a movable joint has no transform until its
-         position is published on /joint_states — which only happens when the
-         claw node is running and the ESP32 is streaming. That broke TF
-         (no transform to left_rack) and MoveIt's current-state monitor
-         (incomplete state -> planning failures) whenever the gripper wasn't
-         actively driven. Fixed joints always resolve and add no DOF to MoveIt.
-         To re-enable articulation: set type="prismatic", restore the <axis>
-         (0 -1 0 / 0 1 0) and <limit lower="0.0" upper="${rack_travel}" ...>,
-         and make claw_degree_publisher publish these joints on /joint_states
-         continuously (see publish_joint_states param). -->
-    <joint name="left_rack_joint" type="fixed">
+    <!-- Rack (jaw) joints: PRISMATIC, driven symmetrically by the two pinion
+         servos. Position 0 = fully open, ${rack_travel} = fully closed; both
+         racks share the same (positive) value and close inward along ∓Y.
+         A movable joint has no TF until its position is published on
+         /joint_states, so claw_degree_publisher MUST publish these joints
+         continuously (publish_joint_states=true, defaulting to 0.0/open even
+         before the ESP32 streams). Without that, TF (world->left_rack) and
+         MoveIt's current-state monitor go incomplete and planning fails. -->
+    <joint name="left_rack_joint" type="prismatic">
       <parent link="${link_name}"/>
       <child link="left_rack"/>
       <origin xyz="0 ${jaw_open_y} ${jaw_z}" rpy="0 0 0"/>
+      <axis xyz="0 -1 0"/>
+      <limit lower="0.0" upper="${rack_travel}" effort="10.0" velocity="0.1"/>
     </joint>
 
-    <joint name="right_rack_joint" type="fixed">
+    <joint name="right_rack_joint" type="prismatic">
       <parent link="${link_name}"/>
       <child link="right_rack"/>
       <origin xyz="0 ${-jaw_open_y} ${jaw_z}" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <limit lower="0.0" upper="${rack_travel}" effort="10.0" velocity="0.1"/>
     </joint>
 
   </xacro:macro>

@@ -158,7 +158,7 @@ private:
                                  const std::vector<geometry_msgs::msg::Pose> &target_poses,
                                  double approach_move, double retreat_move, bool attach,
                                  moveit::task_constructor::Task &task,
-                                 const std::string &support_surface = "");
+                                 const std::vector<std::string> &allow_object_collisions = {});
     // Execute a planned MTC pick/place solution. Between the approach and the
     // retreat it actuates the gripper and (de)attaches `obj` in the real
     // planning scene: pick closes+attaches, place opens+detaches. Returns false
@@ -183,6 +183,20 @@ private:
     void publish_grasp_markers(const std::vector<geometry_msgs::msg::Pose> &grasps,
                                const std::vector<int> &statuses);
     void clear_grasp_markers();
+
+    // Distance (metres) from the end-effector link, along the tool-forward (+Z)
+    // axis, to the point between the gripper jaws where an object is actually
+    // captured. The grasp pipeline places the EEF this far back from the object
+    // surface, so it doubles as the grasp approach offset. Tuned to 0.175: 0.18
+    // sat too far out, 0.17 drove the (real fingers are a bit larger than the
+    // rviz model) jaws into the object, so 0.175 splits the difference — 5 mm
+    // further out than 0.17 (the rviz grip-point marker tracks this).
+    static constexpr double kGripPointOffset = 0.175;
+    // Periodically publish a marker at the grip point (in the EEF frame) so the
+    // operator can see where the gripper will actually close in rviz.
+    void publish_grip_point_marker();
+    rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr grip_point_publisher_;
+    rclcpp::TimerBase::SharedPtr grip_point_timer_;
 
     rclcpp::Logger logger_;
     rclcpp::Service<crackle_interfaces::srv::PickupObject>::SharedPtr pickup_service_;
