@@ -130,6 +130,9 @@ class CrackleFSM:
         # The active idle-sweep thread and its stop flag (started in handle_idle).
         self._scan_thread: threading.Thread | None = None
         self._scan_stop_event: threading.Event | None = None
+        # Background thread that turns the arm to face the user after the wake
+        # word, so listening/processing can start without waiting on the motion.
+        self._look_thread: threading.Thread | None = None
 
         #Stores the current command/prompt
         self.current_command = ""
@@ -227,7 +230,19 @@ class CrackleFSM:
                     # behind the scan move.
                     self.planner_api.stop_motion()
                     scan_stop_event.set()  # stop the idle sweep; func-a keeps running
-                    self.planner_api.look_at_sound_direction(wake_wall_time)
+                    # Turn to face the user in the BACKGROUND so we can start
+                    # listening for their command immediately. The look-at motion
+                    # takes a second or two; blocking on it here meant a command
+                    # spoken while the arm was still turning got missed. Recording
+                    # (parec mic) and LLM processing don't need the arm, so they
+                    # proceed in parallel; if the command needs the arm, that motion
+                    # naturally serializes after the look on the manipulation node.
+                    self._look_thread = threading.Thread(
+                        target=self.planner_api.look_at_sound_direction,
+                        args=(wake_wall_time,),
+                        daemon=True,
+                    )
+                    self._look_thread.start()
                     self._drain_mic_buffer()
                     stop_event.set()
                     break

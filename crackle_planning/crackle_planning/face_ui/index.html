@@ -324,6 +324,31 @@
 
   <div class="conn"><span class="led"></span><span id="connText">connecting…</span></div>
 
+  <!-- Pose-capture tool: jog the arm in MoveIt, click to capture its current
+       pose as a scan_poses.json entry to copy into search/idle scan pose files. -->
+  <div id="poseCap" style="position:fixed;left:14px;bottom:14px;z-index:50;
+       font-family:ui-monospace,SFMono-Regular,Menlo,monospace;max-width:min(92vw,560px);">
+    <button id="poseCapBtn" style="cursor:pointer;border:0;border-radius:10px;
+        padding:10px 14px;font-size:14px;font-weight:700;color:#0b0e1a;
+        background:linear-gradient(135deg,#7ef,#9f9);box-shadow:0 3px 12px rgba(0,0,0,.35);">
+      📍 Capture Pose
+    </button>
+    <div id="poseCapOut" style="display:none;position:relative;margin-top:8px;
+        padding:10px 12px;padding-right:30px;
+        border-radius:10px;background:rgba(10,14,26,.92);color:#dfe;font-size:12.5px;
+        line-height:1.45;white-space:pre-wrap;word-break:break-all;
+        border:1px solid rgba(120,255,238,.25);box-shadow:0 3px 12px rgba(0,0,0,.35);">
+      <button id="poseCapClose" title="Dismiss" style="position:absolute;top:5px;
+          right:6px;cursor:pointer;border:0;border-radius:6px;width:20px;height:20px;
+          padding:0;font-size:14px;font-weight:700;line-height:1;
+          color:#dfe;background:rgba(255,255,255,.12);">×</button>
+      <span id="poseCapMsg"></span>
+      <button id="poseCapCopy" style="display:none;margin-top:8px;cursor:pointer;
+          border:0;border-radius:8px;padding:5px 10px;font-size:12px;font-weight:700;
+          color:#0b0e1a;background:#7ef;">Copy</button>
+    </div>
+  </div>
+
   <div class="topbar">
     <div class="chip">
       <span class="dot"></span>
@@ -508,6 +533,51 @@
     };
   }
   connect();
+
+  // ---- pose capture ----
+  (function(){
+    const btn = document.getElementById('poseCapBtn');
+    const out = document.getElementById('poseCapOut');
+    const msg = document.getElementById('poseCapMsg');
+    const copy = document.getElementById('poseCapCopy');
+    const close = document.getElementById('poseCapClose');
+    let lastPose = '';
+
+    close.addEventListener('click', () => { out.style.display = 'none'; });
+
+    btn.addEventListener('click', async () => {
+      btn.disabled = true;
+      const label = btn.textContent;
+      btn.textContent = '⏳ Capturing…';
+      out.style.display = 'block';
+      copy.style.display = 'none';
+      msg.textContent = 'Requesting current arm pose…';
+      try {
+        const res = await fetch('/capture_pose', { method: 'POST' });
+        const data = await res.json();
+        msg.textContent = data.message || '(no message)';
+        if (data.ok && data.message) {
+          lastPose = data.message;
+          copy.style.display = 'inline-block';
+        }
+      } catch (e) {
+        msg.textContent = 'Request failed: ' + e;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = label;
+      }
+    });
+
+    copy.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(lastPose);
+        copy.textContent = 'Copied!';
+        setTimeout(() => { copy.textContent = 'Copy'; }, 1200);
+      } catch (e) {
+        copy.textContent = 'Copy failed';
+      }
+    });
+  })();
 </script>
 </body>
 </html>

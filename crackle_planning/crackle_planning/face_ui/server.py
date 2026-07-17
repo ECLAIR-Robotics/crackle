@@ -100,6 +100,9 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404, "Not found")
 
     def do_POST(self):
+        if self.path == "/capture_pose":
+            self._handle_capture_pose()
+            return
         if self.path != "/update":
             self.send_error(404, "Not found")
             return
@@ -114,6 +117,24 @@ class Handler(BaseHTTPRequestHandler):
             return
         FACE.update(fields)
         self._serve_json({"ok": True})
+
+    def _handle_capture_pose(self):
+        """Capture the arm's current pose via the ROS bridge (best-effort).
+
+        Lazily imports the ROS bridge so the face UI still runs with no ROS
+        environment — if the bridge is unavailable the button just reports it.
+        """
+        try:
+            # Works both as an installed module and when server.py is run as a
+            # bare script (pose_capture.py sits next to it on sys.path).
+            try:
+                from crackle_planning.face_ui import pose_capture
+            except ImportError:
+                import pose_capture
+            ok, message = pose_capture.capture_pose()
+        except Exception as exc:  # noqa: BLE001 — never let the UI crash
+            ok, message = False, f"pose capture bridge unavailable: {exc}"
+        self._serve_json({"ok": ok, "message": message})
 
     # --- helpers -------------------------------------------------------------
 

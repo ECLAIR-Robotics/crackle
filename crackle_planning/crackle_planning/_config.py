@@ -24,6 +24,29 @@ DEFAULTS = {
     "idle_scanning_enabled": True,
     "look_at_mode": "audio",  # "audio" | "fixed"
     "fixed_look_direction": {"x": 0.3, "y": 0.0, "z": 0.55},
+    # Geometry of the hand_object_to_person handover reach (link_base frame).
+    # radius: EEF distance from the base for the initial "present" pose.
+    # extend: extra distance pushed outward for the final "offer" pose.
+    # height: EEF height. rpy (degrees): gripper orientation; yaw is auto-aimed
+    # toward the user and this yaw is added as an offset — tune r/p for your gripper.
+    "handover": {
+        "radius": 0.35,
+        "extend": 0.12,
+        "height": 0.45,
+        "rpy": {"r": 180.0, "p": 0.0, "y": 0.0},
+    },
+    # Geometry of the fist_bump / high_five greeting reaches (link_base frame).
+    # radius: EEF distance from base for the reach. jab: forward nudge for the
+    # fist bump. bump_height / five_height: EEF heights. rpy (degrees): gripper
+    # orientation; yaw is auto-aimed toward the user and this yaw is added as an
+    # offset — tune r/p for your gripper.
+    "greeting": {
+        "radius": 0.34,
+        "jab": 0.07,
+        "bump_height": 0.35,
+        "five_height": 0.5,
+        "rpy": {"r": 180.0, "p": 0.0, "y": 0.0},
+    },
 }
 
 

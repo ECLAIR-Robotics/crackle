@@ -30,6 +30,8 @@
 #include <limits>
 #include <thread>
 #include <crackle_moveit/moveit_manipulation.hpp>
+#include <tf2/LinearMath/Matrix3x3.h>
+#include <cstdio>
 #include <vector>
 #include <Eigen/Geometry>
 #include <Eigen/Eigenvalues>
@@ -224,6 +226,11 @@ CrackleManipulation::CrackleManipulation(const std::string &group_name)
       "crackle_manipulation/dance",
       std::bind(&CrackleManipulation::dance_dance, this, std::placeholders::_1,
                 std::placeholders::_2),
+      rmw_qos_profile_services_default, services_cb_group_);
+  get_scan_pose_service_ = node_->create_service<std_srvs::srv::Trigger>(
+      "crackle_manipulation/get_scan_pose",
+      std::bind(&CrackleManipulation::get_scan_pose_service, this,
+                std::placeholders::_1, std::placeholders::_2),
       rmw_qos_profile_services_default, services_cb_group_);
   gripper_cb_group_ =
       node_->create_callback_group(rclcpp::CallbackGroupType::Reentrant);
@@ -443,6 +450,43 @@ bool CrackleManipulation::get_end_effector_pose_service(
   return true;
 }
 
+bool CrackleManipulation::get_scan_pose_service(
+    std_srvs::srv::Trigger::Request::SharedPtr request,
+    std_srvs::srv::Trigger::Response::SharedPtr response) {
+  (void)request;
+  if (!wait_for_current_state("get_scan_pose")) {
+    response->success = false;
+    response->message = "no current state";
+    return true;
+  }
+  const geometry_msgs::msg::PoseStamped ps = move_group_->getCurrentPose();
+  const auto &p = ps.pose.position;
+
+  // Quaternion -> roll/pitch/yaw. tf2's getRPY is the exact inverse of the
+  // rpy->quaternion conversion the pose loader uses (_api.py _load_poses_from_
+  // file), so a captured pose round-trips back to the same orientation.
+  tf2::Quaternion q(ps.pose.orientation.x, ps.pose.orientation.y,
+                    ps.pose.orientation.z, ps.pose.orientation.w);
+  double roll = 0.0, pitch = 0.0, yaw = 0.0;
+  tf2::Matrix3x3(q).getRPY(roll, pitch, yaw);
+  const double kRadToDeg = 180.0 / M_PI;
+
+  // Format as one scan_poses.json entry, ready to paste into search_poses.json /
+  // idle_scan_poses.json (position in metres, rpy in DEGREES).
+  char buf[256];
+  std::snprintf(
+      buf, sizeof(buf),
+      "{\"position\": {\"x\": %.4f, \"y\": %.4f, \"z\": %.4f}, "
+      "\"rpy\": {\"r\": %.1f, \"p\": %.1f, \"y\": %.1f}}",
+      p.x, p.y, p.z, roll * kRadToDeg, pitch * kRadToDeg, yaw * kRadToDeg);
+
+  RCLCPP_INFO(node_->get_logger(), "get_scan_pose (frame=%s): %s",
+              ps.header.frame_id.c_str(), buf);
+  response->success = true;
+  response->message = buf;
+  return true;
+}
+
 bool CrackleManipulation::demo_trajectory_service(
     crackle_interfaces::srv::DemoTrajectory::Request::SharedPtr request,
     crackle_interfaces::srv::DemoTrajectory::Response::SharedPtr response) {
@@ -515,10 +559,38 @@ bool CrackleManipulation::demo_trajectory_service(
           height * (static_cast<double>(i) / static_cast<double>(points));
       waypoints.push_back(p);
     }
+  } else if (type == "heart_xy") {
+    // Classic parametric heart curve, normalized so its half-width is `size`.
+    for (int i = 0; i <= points; ++i) {
+      const double t =
+          2.0 * kPi * static_cast<double>(i) / static_cast<double>(points);
+      const double hx = 16.0 * std::pow(std::sin(t), 3);
+      const double hy = 13.0 * std::cos(t) - 5.0 * std::cos(2.0 * t) -
+                        2.0 * std::cos(3.0 * t) - std::cos(4.0 * t);
+      geometry_msgs::msg::Pose p = base_pose;
+      p.position.x += size * (hx / 16.0);
+      p.position.y += size * (hy / 16.0);
+      waypoints.push_back(p);
+    }
+  } else if (type == "star_xy") {
+    // 5-pointed star: 10 vertices alternating outer radius `size` and inner
+    // radius 0.4*size, connected by straight edges. Starts pointing up (+Y).
+    constexpr int kTips = 5;
+    const double inner = size * 0.4;
+    for (int i = 0; i <= 2 * kTips; ++i) {
+      const double r = (i % 2 == 0) ? size : inner;
+      const double a = kPi / 2.0 + kPi * static_cast<double>(i) /
+                                       static_cast<double>(kTips);
+      geometry_msgs::msg::Pose p = base_pose;
+      p.position.x += r * std::cos(a);
+      p.position.y += r * std::sin(a);
+      waypoints.push_back(p);
+    }
   } else {
     response->success = false;
     response->message =
-        "Unknown type. Use circle_xy, square_xy, figure8_xy, helix_z";
+        "Unknown type. Use circle_xy, square_xy, figure8_xy, helix_z, "
+        "heart_xy, star_xy";
     return true;
   }
 
@@ -814,6 +886,23 @@ bool CrackleManipulation::build_manipulation_task(
   // solver's fraction gate low enough that those short-but-valid moves survive.
   mtc_cartesian_planner_->setMinFraction(0.1);
 
+  // Dedicated approach planner: same settings, but demands a near-complete
+  // straight line so the pre-grasp insertion actually happens as a controlled
+  // move from a standoff (fingers don't clip the object on the way in).
+  if (!mtc_approach_planner_) {
+    mtc_approach_planner_ = std::make_shared<mtc::solvers::CartesianPath>();
+  }
+  mtc_approach_planner_->setMaxVelocityScalingFactor(max_velocity_scaling_factor);
+  mtc_approach_planner_->setMaxAccelerationScalingFactor(
+      max_acceleration_scaling_factor);
+  mtc_approach_planner_->setStepSize(0.005);
+  mtc_approach_planner_->setJumpThreshold(0.0);
+  // Demand most of the approach as a straight line (a real controlled insertion),
+  // but not so much that this small arm can't reach the standoff — the earlier
+  // Cartesian-reach struggles were on the retreat, and the approach descends onto
+  // the object which is the easier direction.
+  mtc_approach_planner_->setMinFraction(0.7);
+
   // ---- 1. Current state -----------------------------------------------------
   mtc::Stage *current_state_ptr = nullptr;
   {
@@ -869,13 +958,19 @@ bool CrackleManipulation::build_manipulation_task(
     }
 
     // 3a. Cartesian approach along the tool-forward (+Z) axis toward the target.
-    //     For a top-down target this descends onto the object / table.
+    //     The IK target sits at the grasp; this stage is solved backward from it,
+    //     so the free-space Connect delivers the gripper to a standoff
+    //     `approach_move` behind the grasp and this stage drives a straight line
+    //     the rest of the way in. Uses the strict approach planner and requires
+    //     most of `approach_move`, so it's a genuine controlled insertion from a
+    //     standoff (fingers approach straight and don't knock the object) rather
+    //     than a token nudge. For a top-down target this descends onto the object.
     {
       auto approach =
-          std::make_unique<mtc::stages::MoveRelative>("approach", mtc_cartesian_planner_);
+          std::make_unique<mtc::stages::MoveRelative>("approach", mtc_approach_planner_);
       approach->setGroup(arm_group);
       approach->setIKFrame(ik_frame);
-      approach->setMinMaxDistance(approach_move * 0.5, approach_move);
+      approach->setMinMaxDistance(approach_move * 0.6, approach_move);
       geometry_msgs::msg::Vector3Stamped dir;
       dir.header.frame_id = ik_frame; // tool frame
       dir.vector.z = 1.0;             // +Z = tool forward, toward the target
@@ -1008,7 +1103,7 @@ bool CrackleManipulation::execute_manipulation_solution(
       return false;
     }
 
-    moveit_msgs::msg::AttachedCollisionObject attached;
+        moveit_msgs::msg::AttachedCollisionObject attached;
     attached.link_name = kAttachLink;
     attached.object = obj;
     attached.object.operation = moveit_msgs::msg::CollisionObject::ADD;
@@ -1016,6 +1111,14 @@ bool CrackleManipulation::execute_manipulation_solution(
     // be touch links or the retreat lift trips an object<->jaw collision.
     attached.touch_links = {kAttachLink, "left_rack", "right_rack"};
     planning_scene_->applyAttachedCollisionObject(attached);
+
+    // Give the jaws time to fully seat on the object after the close ack, before
+    // attaching and lifting — the firmware "DONE" can arrive ahead of the fingers
+    // mechanically finishing their travel, so wait a full few seconds.
+    constexpr auto kPostCloseSettle = std::chrono::seconds(5);
+    std::this_thread::sleep_for(kPostCloseSettle);
+
+
   } else {
     // Open the gripper and detach the object from the real planning scene.
     set_gripper_blocking(false);
@@ -1153,11 +1256,12 @@ bool CrackleManipulation::pick_up_object_mtc(
     if (name != object_name)
       allow_object_touch.push_back(name);
 
-  // Short approach/retreat: a small arm can't do a long straight Cartesian move
-  // to a grasp near the table (the far pre-grasp is near its workspace edge), so
-  // keep the pre-grasp close to the grasp.
+  // Approach standoff = 0.12 m: far enough back that the gripper opens clear of
+  // the object and comes straight in (see the strict approach planner), so the
+  // fingers don't knock it, but still short enough for this small arm to reach
+  // the pre-grasp near the table.
   mtc::Task task;
-  if (!build_manipulation_task(object_name, grasp_candidates, /*approach_move=*/0.08,
+  if (!build_manipulation_task(object_name, grasp_candidates, /*approach_move=*/0.12,
                                /*retreat_move=*/0.12, /*attach=*/true, task,
                                allow_object_touch)) {
     RCLCPP_ERROR(node_->get_logger(),
@@ -1389,9 +1493,17 @@ CrackleManipulation::find_place_poses_on_table(
     const std::string &object_name, const std::string &table_name) {
   constexpr double approach_dist_place = 0.25; // EEF offset above object centre
   constexpr double clearance = 0.04;           // extra safety margin (m)
-  constexpr double grid_step = 0.12;           // grid spacing (m)
+  constexpr double grid_step_fine = 0.05;      // dense spacing near the pickup (m)
+  constexpr double grid_step_coarse = 0.15;    // sparse spacing across workarea (m)
+  constexpr double near_radius = 0.20;         // dense-sampling radius around pickup (m)
+  constexpr double workarea_half = 0.5;        // half of the 1 m x 1 m workarea (m)
   constexpr double edge_margin = 0.05;         // keep away from table edge (m)
-  constexpr size_t MAX_PLACE_CANDIDATES = 8;
+  // Lift the placed object a few mm above the table so its (often slightly
+  // oversized perception) mesh doesn't intersect the table top at the place
+  // pose — that penetration is what makes the IK stage reject every candidate
+  // with "eef in collision: <obj> - table", independent of the XY spot.
+  constexpr double place_clearance = 0.008;
+  constexpr size_t MAX_PLACE_CANDIDATES = 40;
 
   std::vector<geometry_msgs::msg::Pose> result;
 
@@ -1461,102 +1573,200 @@ CrackleManipulation::find_place_poses_on_table(
                         kv.second.pose.position.y, ohx, ohy});
   }
 
-  // ---- EEF height when placing: table top + object half-height + EEF offset --
+  // ---- Place height: put the object's ACTUAL lowest point just above the table.
   // table top in world frame is table_pos + table_q * (0,0, table_hz)
   const double table_top_z =
       (table_pos + table_q * Eigen::Vector3d(0, 0, table_hz)).z();
 
-  // How far the end-effector sits above the held object's centre. MEASURE it
-  // from the current held transform instead of assuming a fixed value — the real
-  // offset depends on where the gripper grabbed the object, and a fixed guess
-  // leaves the object hovering. Falls back to approach_dist_place if unavailable.
-  double eef_obj_offset = approach_dist_place;
+  // The held object descends onto the table at the place pose. Sizing the descent
+  // from a nominal half-height leaves the object's REAL geometry — especially the
+  // slightly-oversized perception MESH, or a tilted grasp — intersecting the
+  // table, which makes MTC's IK reject every candidate ("eef in collision:
+  // <obj> - table"). So measure, at the current held state, the true vertical gap
+  // from the end-effector down to the object's LOWEST point (over all of its
+  // meshes AND primitives), and place so that lowest point sits `place_clearance`
+  // above the table. Falls back to the nominal half-height if unavailable.
+  double eef_to_lowest = approach_dist_place + obj_height / 2.0;
   {
     moveit::core::RobotStatePtr state = move_group_->getCurrentState(1.0);
     if (state && attached.find(object_name) != attached.end()) {
-      const std::string &attach_link = attached[object_name].link_name;
-      const auto &op = attached[object_name].object.pose; // relative to attach_link
-      Eigen::Quaterniond q(op.orientation.w, op.orientation.x, op.orientation.y,
-                           op.orientation.z);
-      if (q.norm() < 1e-6) q = Eigen::Quaterniond::Identity();
-      Eigen::Isometry3d rel = Eigen::Isometry3d::Identity();
-      rel.linear() = q.normalized().toRotationMatrix();
-      rel.translation() = Eigen::Vector3d(op.position.x, op.position.y, op.position.z);
-      const double obj_center_z =
-          (state->getGlobalLinkTransform(attach_link) * rel).translation().z();
-      const double eef_z =
-          state->getGlobalLinkTransform(move_group_->getEndEffectorLink())
-              .translation()
-              .z();
-      eef_obj_offset = eef_z - obj_center_z;
-      RCLCPP_INFO(node_->get_logger(),
-                  "place: measured EEF-above-object offset = %.3f m "
-                  "(fixed guess was %.3f)",
-                  eef_obj_offset, approach_dist_place);
+      auto to_iso = [](const geometry_msgs::msg::Pose &p) {
+        Eigen::Quaterniond q(p.orientation.w, p.orientation.x, p.orientation.y,
+                             p.orientation.z);
+        if (q.norm() < 1e-6) q = Eigen::Quaterniond::Identity();
+        Eigen::Isometry3d T = Eigen::Isometry3d::Identity();
+        T.linear() = q.normalized().toRotationMatrix();
+        T.translation() =
+            Eigen::Vector3d(p.position.x, p.position.y, p.position.z);
+        return T;
+      };
+
+      const auto &aco = attached[object_name];
+      const std::string &attach_link = aco.link_name;
+      // world <- object frame (object.pose is relative to attach_link).
+      const Eigen::Isometry3d T_obj =
+          state->getGlobalLinkTransform(attach_link) * to_iso(aco.object.pose);
+
+      double lowest_z = std::numeric_limits<double>::max();
+
+      // Mesh vertices — the true perception geometry, including any bleed.
+      for (size_t i = 0; i < aco.object.meshes.size(); ++i) {
+        const Eigen::Isometry3d T_m =
+            T_obj * (i < aco.object.mesh_poses.size()
+                         ? to_iso(aco.object.mesh_poses[i])
+                         : Eigen::Isometry3d::Identity());
+        for (const auto &v : aco.object.meshes[i].vertices)
+          lowest_z =
+              std::min(lowest_z, (T_m * Eigen::Vector3d(v.x, v.y, v.z)).z());
+      }
+
+      // Primitive corners (box/cylinder/sphere via footprint + height).
+      for (size_t i = 0; i < aco.object.primitives.size(); ++i) {
+        const Eigen::Isometry3d T_p =
+            T_obj * (i < aco.object.primitive_poses.size()
+                         ? to_iso(aco.object.primitive_poses[i])
+                         : Eigen::Isometry3d::Identity());
+        auto fp = primitive_footprint_xy(aco.object.primitives[i]);
+        const double hx = fp.first, hy = fp.second;
+        const double hz = primitive_height(aco.object.primitives[i]) / 2.0;
+        for (double sx : {-1.0, 1.0})
+          for (double sy : {-1.0, 1.0})
+            for (double sz : {-1.0, 1.0})
+              lowest_z = std::min(
+                  lowest_z,
+                  (T_p * Eigen::Vector3d(sx * hx, sy * hy, sz * hz)).z());
+      }
+
+      if (lowest_z < std::numeric_limits<double>::max()) {
+        const double eef_z =
+            state->getGlobalLinkTransform(move_group_->getEndEffectorLink())
+                .translation()
+                .z();
+        eef_to_lowest = eef_z - lowest_z;
+        RCLCPP_INFO(node_->get_logger(),
+                    "place: measured EEF-above-lowest-point = %.3f m",
+                    eef_to_lowest);
+      }
     }
   }
-  const double place_z = table_top_z + obj_height / 2.0 + eef_obj_offset;
+  // EEF z so the object's lowest point clears the table by place_clearance.
+  const double place_z = table_top_z + place_clearance + eef_to_lowest;
 
   // Top-down orientation for all place poses
   const geometry_msgs::msg::Quaternion top_down_q =
       lookAtQuat(-Eigen::Vector3d::UnitZ(), Eigen::Vector3d::UnitY(),
                  kToolForwardInTool);
 
-  // ---- Sample grid in table-local XY, filter, convert to world poses --------
-  const double x0 = -table_hx + edge_margin + obj_hx;
-  const double x1 =  table_hx - edge_margin - obj_hx;
-  const double y0 = -table_hy + edge_margin + obj_hy;
-  const double y1 =  table_hy - edge_margin - obj_hy;
+  // ---- Sample placement spots: dense near the pickup, sparse across the arm's
+  //      1 m x 1 m workarea ------------------------------------------------------
+  // Sampling is done in WORLD XY. A point is kept only if it lands on the usable
+  // table top, inside the workarea box centred on the arm base, and clear of
+  // other objects. We lay a fine grid around where the object was picked up (most
+  // placements should return near the source) plus a coarse grid across the whole
+  // workarea (a few spread-out fallbacks).
 
-  std::vector<geometry_msgs::msg::Pose> candidates;
-  for (double lx = x0; lx <= x1; lx += grid_step) {
-    for (double ly = y0; ly <= y1; ly += grid_step) {
-      // World XY of this grid cell (Z from table_top + surface)
-      Eigen::Vector3d wpt =
-          table_pos + table_q * Eigen::Vector3d(lx, ly, table_hz);
-
-      // 2-D AABB collision check against every occupied region
-      bool blocked = false;
-      for (const auto &reg : occupied) {
-        if (std::abs(wpt.x() - reg.cx) < obj_hx + reg.hx + clearance &&
-            std::abs(wpt.y() - reg.cy) < obj_hy + reg.hy + clearance) {
-          blocked = true;
-          break;
-        }
-      }
-      if (blocked) continue;
-
-      geometry_msgs::msg::Pose pose;
-      pose.position.x = wpt.x();
-      pose.position.y = wpt.y();
-      pose.position.z = place_z;
-      pose.orientation = top_down_q;
-      candidates.push_back(pose);
+  // Arm base = workarea centre; fall back to the world origin.
+  Eigen::Vector3d arm_base_world = Eigen::Vector3d::Zero();
+  try {
+    moveit::core::RobotStatePtr st = move_group_->getCurrentState(1.0);
+    if (st) {
+      const auto *jmg =
+          move_group_->getRobotModel()->getJointModelGroup(move_group_->getName());
+      if (jmg && !jmg->getLinkModelNames().empty())
+        arm_base_world =
+            st->getGlobalLinkTransform(jmg->getLinkModelNames().front()).translation();
     }
+  } catch (const std::exception &e) {
+    RCLCPP_WARN(node_->get_logger(),
+                "find_place_poses_on_table: arm base lookup failed (%s), using origin",
+                e.what());
   }
 
+  // Dense-sampling centre = where the object was picked up (fall back to the
+  // current EEF, then the arm base).
+  double pickup_x = arm_base_world.x(), pickup_y = arm_base_world.y();
+  if (holding_object_) {
+    pickup_x = held_object_.pose.position.x;
+    pickup_y = held_object_.pose.position.y;
+  } else {
+    geometry_msgs::msg::PoseStamped ee = move_group_->getCurrentPose();
+    pickup_x = ee.pose.position.x;
+    pickup_y = ee.pose.position.y;
+  }
+
+  const double lx_max = table_hx - edge_margin - obj_hx;
+  const double ly_max = table_hy - edge_margin - obj_hy;
+
+  std::vector<geometry_msgs::msg::Pose> candidates;
+  const double dedup_dist = grid_step_fine * 0.5;
+
+  auto keep = [&](double wx, double wy) {
+    // Inside the 1 m x 1 m workarea around the arm base?
+    if (std::abs(wx - arm_base_world.x()) > workarea_half ||
+        std::abs(wy - arm_base_world.y()) > workarea_half)
+      return;
+    // Over the usable table top? (world -> table-local)
+    const Eigen::Vector3d local =
+        table_q.conjugate() * (Eigen::Vector3d(wx, wy, table_top_z) - table_pos);
+    if (std::abs(local.x()) > lx_max || std::abs(local.y()) > ly_max) return;
+    // Clear of other objects?
+    for (const auto &reg : occupied) {
+      if (std::abs(wx - reg.cx) < obj_hx + reg.hx + clearance &&
+          std::abs(wy - reg.cy) < obj_hy + reg.hy + clearance)
+        return;
+    }
+    // Not a near-duplicate of an already-kept spot?
+    for (const auto &c : candidates)
+      if (std::hypot(c.position.x - wx, c.position.y - wy) < dedup_dist) return;
+
+    geometry_msgs::msg::Pose pose;
+    pose.position.x = wx;
+    pose.position.y = wy;
+    pose.position.z = place_z;
+    pose.orientation = top_down_q;
+    candidates.push_back(pose);
+  };
+
+  // Fine grid near the pickup location.
+  for (double wx = pickup_x - near_radius; wx <= pickup_x + near_radius; wx += grid_step_fine)
+    for (double wy = pickup_y - near_radius; wy <= pickup_y + near_radius; wy += grid_step_fine)
+      keep(wx, wy);
+
+  // Coarse grid across the whole workarea.
+  for (double wx = arm_base_world.x() - workarea_half; wx <= arm_base_world.x() + workarea_half; wx += grid_step_coarse)
+    for (double wy = arm_base_world.y() - workarea_half; wy <= arm_base_world.y() + workarea_half; wy += grid_step_coarse)
+      keep(wx, wy);
+
   RCLCPP_INFO(node_->get_logger(),
-              "find_place_poses_on_table: %zu free spots found on '%s'",
-              candidates.size(), table_name.c_str());
+              "find_place_poses_on_table: %zu candidate spots (dense near "
+              "[%.2f, %.2f], sparse over %.1fx%.1f m) on '%s'",
+              candidates.size(), pickup_x, pickup_y, workarea_half * 2.0,
+              workarea_half * 2.0, table_name.c_str());
 
   if (candidates.empty())
     return result;
 
-  // ---- Sort by distance from current EEF (prefer nearby spots) --------------
-  geometry_msgs::msg::PoseStamped eef = move_group_->getCurrentPose();
+  // ---- Order: nearest-to-pickup first, but keep some far spread -------------
   std::sort(candidates.begin(), candidates.end(),
-            [&eef](const geometry_msgs::msg::Pose &a,
-                   const geometry_msgs::msg::Pose &b) {
-              double da = std::hypot(a.position.x - eef.pose.position.x,
-                                     a.position.y - eef.pose.position.y);
-              double db = std::hypot(b.position.x - eef.pose.position.x,
-                                     b.position.y - eef.pose.position.y);
+            [&](const geometry_msgs::msg::Pose &a,
+                const geometry_msgs::msg::Pose &b) {
+              const double da = std::hypot(a.position.x - pickup_x, a.position.y - pickup_y);
+              const double db = std::hypot(b.position.x - pickup_x, b.position.y - pickup_y);
               return da < db;
             });
 
-  // Cap to a reasonable number to bound planning time
-  if (candidates.size() > MAX_PLACE_CANDIDATES)
-    candidates.resize(MAX_PLACE_CANDIDATES);
+  if (candidates.size() > MAX_PLACE_CANDIDATES) {
+    // Keep the nearest ~75%, then an even spread of the farther ~25%, so we
+    // retain spread-out fallbacks instead of only clustering at the pickup spot.
+    const size_t n_far = MAX_PLACE_CANDIDATES / 4;
+    const size_t n_near = MAX_PLACE_CANDIDATES - n_far;
+    std::vector<geometry_msgs::msg::Pose> trimmed(candidates.begin(),
+                                                  candidates.begin() + n_near);
+    const size_t rem = candidates.size() - n_near;
+    for (size_t i = 0; i < n_far; ++i)
+      trimmed.push_back(candidates[n_near + (i * rem) / n_far]);
+    candidates.swap(trimmed);
+  }
 
   return candidates;
 }
@@ -1762,10 +1972,39 @@ bool CrackleManipulation::plan_to_pose(
   if (!wait_for_current_state("plan_to_pose"))
     return false;
   move_group_->setStartStateToCurrentState();
-  bool success = move_group_->setPoseTarget(target_pose);
-  if (!success)
-    RCLCPP_WARN(node_->get_logger(), "setPoseTarget: out of bounds");
-  success =
+
+  // Prefer the joint configuration CLOSEST to where the arm is now. Handing OMPL
+  // a bare pose goal (setPoseTarget) lets it satisfy the goal with ANY inverse-
+  // kinematics solution, so it often picks a far branch (elbow/wrist flip) and
+  // the joint-space path is long and roundabout — which is what made the moves to
+  // the scan poses swing around. Instead, solve IK seeded from the current state
+  // (the solver returns the solution nearest the seed) and plan to that single
+  // joint goal, so the motion is the least-joint-travel way there. With the
+  // configured num_planning_attempts, OMPL then keeps the shortest attempt. Falls
+  // back to the plain pose goal if IK can't find a nearby solution.
+  bool used_joint_goal = false;
+  move_group_->clearPoseTargets();
+  moveit::core::RobotStatePtr current = move_group_->getCurrentState(1.0);
+  const auto *jmg =
+      move_group_->getRobotModel()->getJointModelGroup(move_group_->getName());
+  if (current && jmg) {
+    moveit::core::RobotState goal_state(*current);
+    const std::string ik_frame = move_group_->getEndEffectorLink();
+    if (goal_state.setFromIK(jmg, target_pose, ik_frame, 0.1)) {
+      move_group_->setJointValueTarget(goal_state);
+      used_joint_goal = true;
+    } else {
+      RCLCPP_WARN(node_->get_logger(),
+                  "plan_to_pose: IK for nearest joint goal failed; "
+                  "falling back to pose target");
+    }
+  }
+  if (!used_joint_goal) {
+    if (!move_group_->setPoseTarget(target_pose))
+      RCLCPP_WARN(node_->get_logger(), "setPoseTarget: out of bounds");
+  }
+
+  bool success =
       (move_group_->plan(plan_) == moveit::core::MoveItErrorCode::SUCCESS);
   if (!success)
     RCLCPP_ERROR(node_->get_logger(), "planPoseTarget: plan failed");

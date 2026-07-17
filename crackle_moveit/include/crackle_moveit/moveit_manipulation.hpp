@@ -82,6 +82,12 @@ public:
                                crackle_interfaces::srv::MoveRelative::Response::SharedPtr response);
     bool get_end_effector_pose_service(crackle_interfaces::srv::GetEndEffectorPose::Request::SharedPtr request,
                                        crackle_interfaces::srv::GetEndEffectorPose::Response::SharedPtr response);
+    // Log + return the current EEF pose formatted as a scan_poses.json entry
+    // (position in metres, rpy in DEGREES, link_base frame) so it can be pasted
+    // straight into search_poses.json / idle_scan_poses.json. Used by the "capture
+    // pose" UI button to build scan-pose lists by jogging the arm in MoveIt.
+    bool get_scan_pose_service(std_srvs::srv::Trigger::Request::SharedPtr request,
+                               std_srvs::srv::Trigger::Response::SharedPtr response);
     bool demo_trajectory_service(crackle_interfaces::srv::DemoTrajectory::Request::SharedPtr request,
                                  crackle_interfaces::srv::DemoTrajectory::Response::SharedPtr response);
     bool pick_up_object(crackle_interfaces::srv::PickupObject::Request::SharedPtr request,
@@ -169,6 +175,12 @@ private:
     // Lazily-constructed MTC solvers (need node_ / robot model).
     std::shared_ptr<moveit::task_constructor::solvers::PipelinePlanner> mtc_sampling_planner_;
     std::shared_ptr<moveit::task_constructor::solvers::CartesianPath> mtc_cartesian_planner_;
+    // Separate Cartesian planner for the pre-grasp approach. It requires a HIGH
+    // completion fraction so the final move onto the object is a genuine
+    // straight-line insertion from a standoff (fingers come in straight and don't
+    // knock the object). The shared mtc_cartesian_planner_ above is deliberately
+    // lenient (low min fraction) for the retreat, which can't be reused here.
+    std::shared_ptr<moveit::task_constructor::solvers::CartesianPath> mtc_approach_planner_;
     // Sample free placement spots on a named table collision object.
     // Filters out locations that would overlap any other scene object.
     std::vector<geometry_msgs::msg::Pose>
@@ -211,6 +223,7 @@ private:
     rclcpp::Service<crackle_interfaces::srv::GetEndEffectorPose>::SharedPtr get_end_effector_pose_service_;
     rclcpp::Service<crackle_interfaces::srv::DemoTrajectory>::SharedPtr demo_trajectory_service_;
     rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr dance_service_;
+    rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr get_scan_pose_service_;
     rclcpp::CallbackGroup::SharedPtr services_cb_group_;
     // Blocking gripper interface: waits until the claw firmware reports the
     // command finished. Uses its own (reentrant) callback group so the response
