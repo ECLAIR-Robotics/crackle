@@ -148,6 +148,7 @@ class CrackleFSM:
         async def scanning_thread(name: str, stop_event: asyncio.Event):
             while self._state == CrackleState.IDLE and not stop_event.is_set():
                 print("Scanning for commands...")
+                ui_client.set_state("idle")  # heartbeat so the pipeline UI can tell IDLE is alive, not stalled
                 await asyncio.sleep(5)  # Scanning delay
 
         def _read_chunk():
@@ -373,7 +374,9 @@ class CrackleFSM:
                 samples = self.record_output()
                 print("Recording complete.")
                 wav_bytes = self._samples_to_wav_bytes(samples)
+                ui_client.emit_stage("api:whisper_stt", "loading")
                 text = self.gpt_api.speech_to_text(wav_bytes)
+                ui_client.emit_stage("api:whisper_stt", "done", text=text)
                 print(f"Transcribed words: {text}")
                 self.current_command = text
                 ui_client.set_transcript(text)
