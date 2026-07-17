@@ -1,0 +1,676 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Crackle — Pipeline</title>
+<style>
+  :root {
+    /* Same palette as the whimsical face UI (index.html) — this is a
+       separate page/tab, not an edit to that file. */
+    --bg1: #1a1140;
+    --bg2: #2b1a5e;
+    --accent: #ffd45e;
+    --skin: #7cf5e0;
+    --panel: rgba(255,255,255,0.08);
+    --panel-brd: rgba(255,255,255,0.16);
+    --text: #eef2ff;
+    --muted: #b9b2e8;
+    --ok: #7cf5a0;
+    --err: #ff8f7a;
+    --idle: #b399ff; /* passive/idle accent — deliberately not the gold "active" accent */
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background:
+      radial-gradient(1200px 800px at 50% -10%, var(--bg2), transparent 60%),
+      linear-gradient(160deg, var(--bg1), #120a2e 90%);
+    padding: 24px;
+  }
+
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  header h1 { font-size: 18px; margin: 0; letter-spacing: .3px; }
+  header h1 span { color: var(--muted); font-weight: 400; }
+
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 999px;
+    background: var(--panel); border: 1px solid var(--panel-brd);
+    color: var(--muted); font-size: 12px; text-transform: capitalize;
+    transition: background .4s ease, border-color .4s ease, color .4s ease;
+  }
+  .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); transition: background .4s ease; }
+  .chip.live { color: var(--accent); border-color: rgba(255,212,94,.5); background: rgba(255,212,94,.12); }
+  .chip.live .dot { background: var(--accent); box-shadow: 0 0 0 3px rgba(255,212,94,.25); }
+
+  /* ---- crossfade between the three FSM views (idle / listening / task) ---- */
+  .view {
+    opacity: 0; transform: translateY(10px);
+    transition: opacity .4s ease, transform .4s ease;
+  }
+  .view.visible { opacity: 1; transform: translateY(0); }
+
+  /* ---- shared node-row layout: any horizontal sequence of connected nodes ---- */
+  .node-row {
+    display: flex; align-items: flex-start; flex-wrap: wrap;
+    justify-content: center; gap: 72px;
+    padding: 56px 32px 32px;
+  }
+  /* Nodes flex to fill available width instead of a fixed size, and shrink
+     back down / wrap onto new rows on narrow viewports. */
+  .node {
+    position: relative;
+    flex: 1 1 340px; min-width: 320px; max-width: 560px;
+    background: var(--panel); border: 1px solid var(--panel-brd);
+    border-radius: 18px; padding: 28px;
+    transition: border-color .4s ease, background .4s ease, box-shadow .4s ease, opacity .3s ease;
+  }
+  /* Connector arrow before every node except the first in a row. Execution
+     blocks are created on demand (zero, one, or several per turn — see
+     makeExecutionBlock()), so this automatically connects Plan straight to
+     End with no blocks, or chains Plan -> Exec -> Exec -> ... -> End with
+     several, with no JS bookkeeping needed for the arrow count either way. */
+  .node-row .node:not(:first-child)::before {
+    content: "\2192"; position: absolute; left: -44px; top: 50%;
+    transform: translateY(-50%); color: var(--muted); font-size: 26px;
+  }
+  .node.active {
+    border-color: rgba(255,212,94,.6); background: rgba(255,212,94,.10);
+    box-shadow: 0 0 0 1px rgba(255,212,94,.25), 0 8px 30px rgba(255,212,94,.08);
+  }
+  .node.done { border-color: rgba(124,245,160,.5); }
+  .node.error { border-color: rgba(255,143,122,.6); background: rgba(255,143,122,.08); }
+  .node.pending { border-style: dashed; opacity: .55; }
+
+  @keyframes nodeIn { from { opacity: 0; transform: translateY(14px) scale(.96); } to { opacity: 1; transform: none; } }
+  .node.entering { animation: nodeIn .5s cubic-bezier(.22,.8,.25,1); }
+
+  .node h3 {
+    margin: 0 0 18px; font-size: 14px; letter-spacing: .8px; text-transform: uppercase;
+    color: var(--muted); display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  }
+  .node .status-badge {
+    font-size: 12px; padding: 4px 12px; border-radius: 999px; text-transform: none;
+    background: var(--panel); border: 1px solid var(--panel-brd); color: var(--muted);
+    transition: color .3s ease, border-color .3s ease; white-space: nowrap;
+  }
+  .node.active .status-badge { color: var(--accent); border-color: rgba(255,212,94,.5); }
+  .node.done .status-badge { color: var(--ok); border-color: rgba(124,245,160,.4); }
+  .node.error .status-badge { color: var(--err); border-color: rgba(255,143,122,.4); }
+
+  .field { margin-bottom: 18px; }
+  .field:last-child { margin-bottom: 0; }
+  .field .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+  .field .v { font-size: 15px; line-height: 1.6; word-break: break-word; white-space: pre-wrap; transition: color .3s ease; }
+  .field .v.empty { color: var(--muted); font-style: italic; }
+
+  .satellites { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+  .sat {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 7px 14px; border-radius: 999px; font-size: 13px;
+    background: var(--panel); border: 1px solid var(--panel-brd); color: var(--muted);
+    transition: all .3s ease;
+  }
+  .sat .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); transition: background .3s ease; }
+  .sat.loading { color: var(--skin); border-color: rgba(124,245,224,.5); background: rgba(124,245,224,.12); }
+  .sat.loading .dot { background: var(--skin); animation: pulse 1s ease-in-out infinite; }
+  .sat.done { color: var(--ok); border-color: rgba(124,245,160,.35); }
+  .sat.done .dot { background: var(--ok); }
+
+  @keyframes pulse { 0%,100% { opacity: .4; transform: scale(.85); } 50% { opacity: 1; transform: scale(1.1); } }
+
+  /* ---- Execution node: sub-steps stacked vertically, each individually highlighted ---- */
+  .exec-steps { display: flex; flex-direction: column; gap: 14px; margin-top: 6px; }
+  .exec-step {
+    border: 1px solid var(--panel-brd); background: rgba(255,255,255,0.04);
+    border-radius: 12px; padding: 14px 16px;
+    transition: border-color .35s ease, background .35s ease, opacity .3s ease;
+  }
+  .exec-step.pending { border-style: dashed; opacity: .55; }
+  .exec-step.active { border-color: rgba(255,212,94,.6); background: rgba(255,212,94,.10); }
+  .exec-step.done { border-color: rgba(124,245,160,.5); }
+  .exec-step.error { border-color: rgba(255,143,122,.6); background: rgba(255,143,122,.08); }
+  .exec-step h4 {
+    margin: 0 0 8px; font-size: 13px; color: var(--muted); font-weight: 600;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  }
+  .exec-step .badge {
+    font-size: 11px; padding: 3px 10px; border-radius: 999px; white-space: nowrap;
+    background: var(--panel); border: 1px solid var(--panel-brd); color: var(--muted);
+    transition: color .3s ease, border-color .3s ease;
+  }
+  .exec-step.active .badge { color: var(--accent); border-color: rgba(255,212,94,.5); }
+  .exec-step.done .badge { color: var(--ok); border-color: rgba(124,245,160,.4); }
+  .exec-step.error .badge { color: var(--err); border-color: rgba(255,143,122,.4); }
+  .exec-step .text { font-size: 14px; line-height: 1.55; }
+  .exec-step .text.empty { color: var(--muted); font-style: italic; }
+  .exec-step .detail {
+    font-size: 12px; color: var(--muted); margin-top: 8px;
+    word-break: break-word; white-space: pre-wrap;
+  }
+
+  /* ---- IDLE view: one large, square, purple "passive" node with a pulsing
+     wake-listen indicator. Deliberately not styled with the gold .active
+     look used elsewhere — idle is a passive/background process, not an
+     in-progress one. ---- */
+  .idle-view { display: flex; justify-content: center; padding: 48px 24px; }
+  .idle-node {
+    width: 100%; max-width: 620px; aspect-ratio: 1 / 1;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center;
+    border-color: rgba(179,153,255,.5);
+    background: rgba(179,153,255,.08);
+  }
+  .idle-node h3 { justify-content: center; margin-bottom: 24px; }
+  .idle-node .status-badge {
+    color: var(--idle); border-color: rgba(179,153,255,.5); font-size: 14px; padding: 6px 16px;
+    transition: color .5s ease, border-color .5s ease;
+  }
+  .wake-pulse { position: relative; width: 160px; height: 160px; margin: 10px auto 24px; }
+  .wake-pulse-core {
+    position: absolute; inset: 62px; border-radius: 50%;
+    background: var(--idle); box-shadow: 0 0 20px rgba(179,153,255,.6);
+    animation: corebeat 1.8s ease-in-out infinite;
+    transition: background .5s ease, box-shadow .5s ease;
+  }
+  .wake-pulse-ring {
+    position: absolute; inset: 0; border-radius: 50%;
+    border: 2px solid var(--idle); opacity: 0;
+    animation: ringpulse 1.8s ease-out infinite;
+    transition: border-color .5s ease;
+  }
+  .wake-pulse-ring.ring-2 { animation-delay: .9s; }
+  @keyframes corebeat { 0%, 100% { transform: scale(.85); opacity: .8; } 50% { transform: scale(1.15); opacity: 1; } }
+  @keyframes ringpulse { 0% { transform: scale(.35); opacity: .6; } 100% { transform: scale(1.7); opacity: 0; } }
+  .wake-pulse.flash .wake-pulse-core {
+    animation-duration: .5s; background: var(--ok); box-shadow: 0 0 20px rgba(124,245,160,.85);
+  }
+  /* Once idle pings are arriving consistently (not just a single one-off
+     state="idle" post), the node glows green instead of the resting purple
+     — a live, confirmed-healthy connection rather than an unconfirmed one. */
+  .idle-node.healthy { border-color: rgba(124,245,160,.55); background: rgba(124,245,160,.08); }
+  .idle-node.healthy .status-badge { color: var(--ok); border-color: rgba(124,245,160,.5); }
+  .idle-node.healthy .wake-pulse-core { background: var(--ok); box-shadow: 0 0 20px rgba(124,245,160,.6); }
+  .idle-node.healthy .wake-pulse-ring { border-color: var(--ok); }
+  .idle-hint { font-size: 14px; color: var(--muted); }
+
+  #log-toggle { background: none; border: none; color: var(--muted); font-size: 11px; cursor: pointer; text-decoration: underline; margin-top: 24px; }
+  #log { display: none; margin-top: 12px; font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); max-height: 300px; overflow-y: auto; background: var(--panel); border: 1px solid var(--panel-brd); border-radius: 10px; padding: 10px; }
+  #log div { padding: 2px 0; border-bottom: 1px solid rgba(255,255,255,0.04); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Crackle — Pipeline <span>/ IDLE + LISTENING + TASK panel</span></h1>
+  <div id="fsm-chip" class="chip"><span class="dot"></span><span id="fsm-state-text">idle</span></div>
+</header>
+
+<!-- IDLE: a single large, passive node with a pulsing "listening for wake
+     word" indicator. Purple, not gold — this is a background process, not an
+     in-progress action. -->
+<div id="idle-view" class="view visible idle-view" style="display:flex">
+  <div id="idle-node" class="node idle-node">
+    <h3><span class="status-badge">listening for wake word</span></h3>
+    <div class="wake-pulse" id="wake-pulse">
+      <div class="wake-pulse-ring"></div>
+      <div class="wake-pulse-ring ring-2"></div>
+      <div class="wake-pulse-core"></div>
+    </div>
+    <div class="idle-hint">say the wake word ("Lleo")</div>
+  </div>
+</div>
+
+<!-- LISTENING: Input -> Whisper AI -> Output, mirroring the TASK row's visual language. -->
+<div id="listening-view" class="view node-row" style="display:none">
+  <div id="input-node" class="node">
+    <h3>Input <span id="input-status-badge" class="status-badge">idle</span></h3>
+    <div class="field">
+      <div class="k">captured audio</div>
+      <div id="input-summary" class="v empty">—</div>
+    </div>
+  </div>
+
+  <div id="whisper-node" class="node">
+    <h3>Whisper AI <span id="whisper-status-badge" class="status-badge">idle</span></h3>
+    <div class="field">
+      <div class="k">model</div>
+      <div class="v">whisper-1</div>
+    </div>
+  </div>
+
+  <div id="output-node" class="node">
+    <h3>Output <span id="output-status-badge" class="status-badge">idle</span></h3>
+    <div class="field">
+      <div class="k">prompt</div>
+      <div id="output-prompt" class="v empty">—</div>
+    </div>
+  </div>
+</div>
+
+<!-- TASK: Plan -> [Execution] -> End, unchanged from P0/P2. -->
+<div id="task-view" class="view node-row" style="display:none">
+  <div id="plan-node" class="node">
+    <div class="satellites">
+      <span id="plan-llm-sat" class="sat"><span class="dot"></span>OpenAI (LLM)</span>
+    </div>
+    <h3>Plan <span id="plan-status-badge" class="status-badge">idle</span></h3>
+    <div class="field">
+      <div class="k">prompt</div>
+      <div id="plan-prompt" class="v empty">—</div>
+    </div>
+    <div class="field">
+      <div class="k">preamble</div>
+      <div id="plan-preamble" class="v empty">—</div>
+    </div>
+    <!-- No FACE offshoot here: set_emotion is only ever called after
+         make_final_response (at End), never at submit_plan time — see
+         PIPELINE_UI_ARCHITECTURE.md §2.5. -->
+    <div class="satellites" style="margin-top:20px;margin-bottom:0;">
+      <span id="plan-voice-sat" class="sat"><span class="dot"></span>VOICE</span>
+    </div>
+  </div>
+
+  <!-- One Execution block per submit_plan call. The LLM can replan after any
+       step (submit_plan -> step 1, step 2 -> submit_plan -> new step 1, ...),
+       so this is a dynamically-populated track, not a single static node —
+       see makeExecutionBlock() below. -->
+  <div id="execution-track" style="display:contents"></div>
+
+  <div id="end-node" class="node">
+    <h3>End <span id="end-status-badge" class="status-badge">idle</span></h3>
+    <div class="field">
+      <div class="k">dialogue</div>
+      <div id="end-dialogue" class="v empty">—</div>
+    </div>
+    <div class="field">
+      <div class="k">emotion</div>
+      <div id="end-emotion" class="v empty">—</div>
+    </div>
+    <div class="field">
+      <div class="k">continue_talking</div>
+      <div id="end-continue" class="v empty">—</div>
+    </div>
+    <div class="satellites" style="margin-top:20px;margin-bottom:0;">
+      <span id="end-voice-sat" class="sat"><span class="dot"></span>VOICE</span>
+      <span id="end-face-sat" class="sat"><span class="dot"></span>FACE</span>
+    </div>
+  </div>
+</div>
+
+<button id="log-toggle">show raw event log</button>
+<div id="log"></div>
+
+<script>
+// ---- persistent DOM refs (created once; classes/text are mutated in place
+// so CSS transitions on state changes actually animate) ----
+const idleView = document.getElementById('idle-view');
+const listeningView = document.getElementById('listening-view');
+const taskView = document.getElementById('task-view');
+const views = { idle: idleView, listening: listeningView, task: taskView };
+
+const wakePulse = document.getElementById('wake-pulse');
+const idleNode = document.getElementById('idle-node');
+
+const inputNode = document.getElementById('input-node');
+const inputStatusBadge = document.getElementById('input-status-badge');
+const inputSummaryEl = document.getElementById('input-summary');
+const whisperNode = document.getElementById('whisper-node');
+const whisperStatusBadge = document.getElementById('whisper-status-badge');
+const outputNode = document.getElementById('output-node');
+const outputStatusBadge = document.getElementById('output-status-badge');
+const outputPromptEl = document.getElementById('output-prompt');
+
+const planNode = document.getElementById('plan-node');
+const planStatusBadge = document.getElementById('plan-status-badge');
+const planPromptEl = document.getElementById('plan-prompt');
+const planPreambleEl = document.getElementById('plan-preamble');
+const planLlmSat = document.getElementById('plan-llm-sat');
+const planVoiceSat = document.getElementById('plan-voice-sat');
+
+const executionTrack = document.getElementById('execution-track');
+
+const endNode = document.getElementById('end-node');
+const endStatusBadge = document.getElementById('end-status-badge');
+const endDialogueEl = document.getElementById('end-dialogue');
+const endEmotionEl = document.getElementById('end-emotion');
+const endContinueEl = document.getElementById('end-continue');
+const endVoiceSat = document.getElementById('end-voice-sat');
+const endFaceSat = document.getElementById('end-face-sat');
+
+const logEl = document.getElementById('log');
+
+document.getElementById('log-toggle').addEventListener('click', () => {
+  const showing = logEl.style.display === 'block';
+  logEl.style.display = showing ? 'none' : 'block';
+  document.getElementById('log-toggle').textContent = showing ? 'show raw event log' : 'hide raw event log';
+});
+
+// ---- turn state ----
+let turnId = null;
+let currentViewKey = 'idle';
+// One entry per submit_plan call this turn (the LLM can replan after any
+// step: submit_plan -> step 1, step 2 -> submit_plan -> new step 1, ...).
+// Each block owns its own step rows/status, scoped independently so a
+// replan's "step 1" never collides with the previous plan's "step 1".
+let execBlocks = [];
+let currentExecBlock = null; // the block new tool:* events bind into
+
+function logLine(ev) {
+  const div = document.createElement('div');
+  const t = new Date((ev.ts || Date.now() / 1000) * 1000).toLocaleTimeString();
+  div.textContent = `[${t}] ${ev.stage} · ${ev.status}` + (ev.step_index != null ? ` (step ${ev.step_index})` : '');
+  logEl.prepend(div);
+  while (logEl.children.length > 200) logEl.removeChild(logEl.lastChild);
+}
+
+function setText(el, value) {
+  if (value === null || value === undefined || value === '') {
+    el.textContent = '—';
+    el.classList.add('empty');
+  } else {
+    el.textContent = value;
+    el.classList.remove('empty');
+  }
+}
+
+function statusClass(status) {
+  if (status === 'start' || status === 'loading') return 'active';
+  if (status === 'done') return 'done';
+  if (status === 'error') return 'error';
+  return null; // "data" and anything else — leave whatever's there
+}
+
+function setNodeStatus(nodeEl, badgeEl, status) {
+  nodeEl.classList.remove('active', 'done', 'error');
+  const cls = statusClass(status);
+  if (cls) nodeEl.classList.add(cls);
+  badgeEl.textContent = status;
+}
+
+function setSat(el, status) {
+  el.classList.remove('loading', 'done');
+  if (status === 'loading') el.classList.add('loading');
+  else if (status === 'done') el.classList.add('done');
+}
+
+// ---- crossfade between the three FSM views ----
+function switchView(target) {
+  if (target === currentViewKey) return;
+  const show = views[target];
+  const hide = views[currentViewKey];
+  hide.classList.remove('visible');
+  hide.style.display = 'none';
+  show.style.display = 'flex';
+  void show.offsetWidth; // force reflow so the transition below actually plays
+  requestAnimationFrame(() => show.classList.add('visible'));
+  currentViewKey = target;
+}
+
+function flashWakePulse() {
+  wakePulse.classList.add('flash');
+  setTimeout(() => wakePulse.classList.remove('flash'), 600);
+}
+
+// Glows the idle node green once we're *consistently* getting state="idle"
+// pings (i.e. more than a single one-off post) — a live, confirmed-healthy
+// connection, as opposed to the resting purple "we saw idle once" state.
+const IDLE_HEALTHY_STREAK = 2;   // pings needed before calling it "consistent"
+const IDLE_HEALTHY_TIMEOUT = 8000; // ms of silence before reverting to purple
+let idlePingStreak = 0;
+let idleHealthyTimer = null;
+
+function markIdlePing() {
+  idlePingStreak += 1;
+  if (idlePingStreak >= IDLE_HEALTHY_STREAK) idleNode.classList.add('healthy');
+  clearTimeout(idleHealthyTimer);
+  idleHealthyTimer = setTimeout(() => {
+    idlePingStreak = 0;
+    idleNode.classList.remove('healthy');
+  }, IDLE_HEALTHY_TIMEOUT);
+}
+
+function resetIdlePings() {
+  idlePingStreak = 0;
+  clearTimeout(idleHealthyTimer);
+  idleNode.classList.remove('healthy');
+}
+
+function clearListeningFields() {
+  setNodeStatus(inputNode, inputStatusBadge, 'idle');
+  setText(inputSummaryEl, null);
+  setNodeStatus(whisperNode, whisperStatusBadge, 'idle');
+  setNodeStatus(outputNode, outputStatusBadge, 'idle');
+  setText(outputPromptEl, null);
+}
+
+function clearTaskFields() {
+  execBlocks.forEach((b) => b.el.remove());
+  execBlocks = [];
+  currentExecBlock = null;
+  executionTrack.innerHTML = '';
+
+  setNodeStatus(planNode, planStatusBadge, 'idle');
+  setText(planPromptEl, null);
+  setText(planPreambleEl, null);
+  setSat(planLlmSat, 'idle');
+  setSat(planVoiceSat, 'idle');
+
+  setNodeStatus(endNode, endStatusBadge, 'idle');
+  setText(endDialogueEl, null);
+  setText(endEmotionEl, null);
+  setText(endContinueEl, null);
+  setSat(endVoiceSat, 'idle');
+  setSat(endFaceSat, 'idle');
+}
+
+// Every submit_plan call gets its own Execution block, appended after
+// whichever came before it — so a replan after a failed step reads as
+// Plan -> Execution (failed step in red) -> Execution — replan 2 -> End,
+// not as the old plan's steps being silently overwritten in place.
+function makeExecutionBlock() {
+  const el = document.createElement('div');
+  el.className = 'node pending entering';
+  const title = execBlocks.length === 0 ? 'Execution' : `Execution — replan ${execBlocks.length + 1}`;
+  el.innerHTML = `
+    <h3>${title} <span class="status-badge">pending</span></h3>
+    <div class="exec-steps"></div>
+  `;
+  el.addEventListener('animationend', () => el.classList.remove('entering'), { once: true });
+  executionTrack.appendChild(el);
+
+  const block = {
+    el,
+    badgeEl: el.querySelector('.status-badge'),
+    stepsEl: el.querySelector('.exec-steps'),
+    stepRows: new Map(),   // step_index -> <div class="exec-step">, scoped to THIS plan
+    stepsMeta: new Map(),  // step_index -> {text, status}, scoped to THIS plan
+  };
+  execBlocks.push(block);
+  currentExecBlock = block;
+  return block;
+}
+
+function makeStepRow(block, index) {
+  const row = document.createElement('div');
+  row.className = 'exec-step pending';
+  row.innerHTML = `
+    <h4>Step ${index + 1} <span class="badge">pending</span></h4>
+    <div class="text empty">—</div>
+    <div class="detail" style="display:none"></div>
+  `;
+  block.stepsEl.appendChild(row);
+  block.stepRows.set(index, row);
+  return row;
+}
+
+// Fires on every submit_plan resolution (llm_plan status="data") — including
+// replans after a failed step, not just the turn's first plan. Always starts
+// a fresh Execution block via makeExecutionBlock() rather than reusing one,
+// so step_index is scoped to "position within *this* plan," never collides
+// with an earlier plan's step_index, and stale status from a previous plan
+// can never leak onto a same-indexed row in the new one.
+function populateSteps(stepTexts) {
+  if (!stepTexts.length) return;
+  const block = makeExecutionBlock();
+  stepTexts.forEach((text, i) => {
+    const row = makeStepRow(block, i);
+    const textEl = row.querySelector('.text');
+    textEl.textContent = text;
+    textEl.classList.remove('empty');
+    block.stepsMeta.set(i, { text, status: 'pending' });
+  });
+  refreshExecutionSummary(block);
+}
+
+// Real tool-call events (stage="tool:<name>", tagged with step_index) bind
+// onto the matching sub-step row of the MOST RECENT plan (currentExecBlock)
+// positionally, highlighting just that one row — a failed step turns red via
+// the existing .exec-step.error styling. If the model calls more tools than
+// were declared, a new row is appended on the fly rather than dropped.
+function updateStepNode(index, stage, status, payload) {
+  if (!currentExecBlock) {
+    // A tool call arrived with no known plan — shouldn't happen (submit_plan
+    // always precedes its own tool calls), but don't silently drop the event.
+    makeExecutionBlock();
+  }
+  const block = currentExecBlock;
+  const row = block.stepRows.get(index) || makeStepRow(block, index);
+  row.classList.remove('pending', 'active', 'done', 'error');
+  row.classList.add(statusClass(status) || 'pending');
+  row.querySelector('.badge').textContent = `${stage.replace(/^tool:/, '')} · ${status}`;
+  if (payload && Object.keys(payload).length) {
+    const detail = row.querySelector('.detail');
+    detail.style.display = 'block';
+    detail.textContent = JSON.stringify(payload);
+  }
+  const prev = block.stepsMeta.get(index) || {};
+  block.stepsMeta.set(index, { text: prev.text, status });
+  refreshExecutionSummary(block);
+}
+
+// Rolls one block's sub-step statuses up into that block's own border/badge.
+function refreshExecutionSummary(block) {
+  const statuses = Array.from(block.stepsMeta.values()).map((s) => s.status);
+  block.el.classList.remove('active', 'done', 'error', 'pending');
+  let cls = 'pending', label = 'pending';
+  if (statuses.some((s) => s === 'error')) {
+    cls = 'error'; label = 'error';
+  } else if (statuses.some((s) => s === 'start' || s === 'loading')) {
+    cls = 'active'; label = 'running';
+  } else if (statuses.length && statuses.every((s) => s === 'done')) {
+    cls = 'done'; label = 'done';
+  }
+  block.el.classList.add(cls);
+  block.badgeEl.textContent = label;
+}
+
+function handlePipelineEvent(ev) {
+  logLine(ev);
+
+  // A TASK turn begins exactly once per get_command() call: the "llm_plan"
+  // stage's "start" status (see _llm.py). Anchor the reset/switch to that
+  // specific event rather than "any pipeline event carrying a turn_id we
+  // haven't seen" — other stages can also carry a turn_id (or, per the
+  // contract, sometimes none at all) without meaning a task just started;
+  // api:whisper_stt during LISTENING is exactly that case, and the old,
+  // looser check was switching to the TASK view on it by accident.
+  if (ev.stage === 'llm_plan' && ev.status === 'start') {
+    turnId = ev.turn_id || turnId;
+    clearTaskFields();
+    switchView('task');
+  }
+
+  const payload = ev.payload || {};
+  const node = payload.node; // "plan" | "end" — disambiguates the shared VOICE/FACE stages
+
+  if (ev.stage === 'llm_plan') {
+    setNodeStatus(planNode, planStatusBadge, ev.status);
+    if (ev.status === 'start') setText(planPromptEl, payload.prompt);
+    if (ev.status === 'data') {
+      setText(planPreambleEl, payload.preamble);
+      populateSteps(payload.steps || []);
+    }
+    if (ev.status === 'done') {
+      setNodeStatus(endNode, endStatusBadge, 'done');
+      setText(endDialogueEl, payload.dialogue);
+      setText(endEmotionEl, payload.emotion);
+      setText(endContinueEl, payload.continue_talking === undefined ? null : String(payload.continue_talking));
+    }
+  } else if (ev.stage === 'api:openai_responses') {
+    setSat(planLlmSat, ev.status);
+  } else if (ev.stage === 'api:elevenlabs_tts') {
+    if (node === 'plan') setSat(planVoiceSat, ev.status);
+    if (node === 'end') setSat(endVoiceSat, ev.status);
+  } else if (ev.stage === 'face') {
+    // Only "end" ever fires today — see the comment on the Plan node above.
+    if (node === 'end') setSat(endFaceSat, 'done');
+  } else if (ev.stage === 'api:whisper_stt') {
+    // LISTENING mini-pipeline: audio capture (Input) is inferred to have
+    // finished the moment Whisper starts, since main.py always finishes
+    // record_output() before calling speech_to_text() — there's no
+    // dedicated "recording finished" event today (see PIPELINE_API_CONTRACT.md §5).
+    if (ev.status === 'loading') {
+      setNodeStatus(inputNode, inputStatusBadge, 'done');
+      setNodeStatus(whisperNode, whisperStatusBadge, 'start');
+    } else if (ev.status === 'done') {
+      setNodeStatus(whisperNode, whisperStatusBadge, 'done');
+      setNodeStatus(outputNode, outputStatusBadge, 'done');
+      setText(outputPromptEl, payload.text);
+    } else if (ev.status === 'error') {
+      setNodeStatus(whisperNode, whisperStatusBadge, 'error');
+    }
+  } else if (ev.stage && ev.stage.startsWith('tool:') && ev.step_index !== undefined && ev.step_index !== null) {
+    // P2 scope (execution detail) — rendered here as soon as events exist,
+    // even though nothing emits them yet outside mock_driver.py / test_fe.sh.
+    updateStepNode(ev.step_index, ev.stage, ev.status, payload);
+  }
+}
+
+function handleStateEvent(state) {
+  const chip = document.getElementById('fsm-chip');
+  const text = document.getElementById('fsm-state-text');
+  text.textContent = state.state || 'idle';
+  // TASK is reported as "thinking" today — see PIPELINE_UI_ARCHITECTURE.md §2.2.
+  chip.classList.toggle('live', state.state === 'thinking');
+
+  const target = state.state === 'thinking' ? 'task' : (state.state === 'listening' ? 'listening' : 'idle');
+
+  if (state.state === 'idle') {
+    // Unconditional reset point: whatever got us here (a finished turn, an
+    // aborted one, a duplicate/stale turn_id, any other edge case in the
+    // view-transition logic below), IDLE means no request is in flight, so
+    // it's the one place we can reliably guarantee nothing carries over into
+    // the next request — regardless of which view we were previously on.
+    clearListeningFields();
+    clearTaskFields();
+    turnId = null;
+  }
+
+  if (target !== currentViewKey) {
+    if (target === 'listening') {
+      clearListeningFields();
+      setNodeStatus(inputNode, inputStatusBadge, 'start'); // capture begins the instant we enter LISTENING
+    }
+    if (currentViewKey === 'task' && target !== 'task') clearTaskFields(); // leaving a finished/aborted turn
+    switchView(target);
+  }
+
+  if (state.state === 'idle') markIdlePing(); else resetIdlePings();
+  if (state.wakeword) flashWakePulse();
+}
+
+const es = new EventSource('/events');
+es.onmessage = (e) => {
+  try { handleStateEvent(JSON.parse(e.data)); } catch (err) { /* ignore malformed frame */ }
+};
+es.addEventListener('pipeline', (e) => {
+  try { handlePipelineEvent(JSON.parse(e.data)); } catch (err) { console.error(err, e.data); }
+});
+// EventSource auto-reconnects; nothing else to do.
+</script>
+
+</body>
+</html>

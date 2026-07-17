@@ -133,6 +133,10 @@ class CrackleFSM:
         # Background thread that turns the arm to face the user after the wake
         # word, so listening/processing can start without waiting on the motion.
         self._look_thread: threading.Thread | None = None
+        # Heartbeat thread that pings the pipeline UI every few seconds while
+        # IDLE, so it can tell "alive and idle" apart from "stalled" (started
+        # in handle_idle).
+        self._ping_thread: threading.Thread | None = None
 
         #Stores the current command/prompt
         self.current_command = ""
@@ -202,6 +206,16 @@ class CrackleFSM:
             self._scan_thread = None
             print("[idle-scan] disabled via config (idle_scanning_enabled=false) — "
                   "listening only.")
+
+        # Same real-thread constraint as the scan sweep above — this must not be
+        # an asyncio task. Shares scan_stop_event so it stops at the same moment
+        # everything else does (wake word / keyboard / leaving IDLE).
+        self._ping_thread = threading.Thread(
+            target=self._run_idle_ping_loop,
+            args=(scan_stop_event,),
+            daemon=True,
+        )
+        self._ping_thread.start()
 
         def _read_chunk():
             raw = self._parec_proc.stdout.read(self._mic_chunk * 2)  # *2 for int16 bytes
@@ -396,6 +410,18 @@ class CrackleFSM:
                     self._process_scene_capture, image_b64
                 )
 
+    def _run_idle_ping_loop(self, stop_event: "threading.Event"):
+        """Heartbeat so the pipeline UI can tell IDLE is alive, not stalled.
+
+        A real thread, not an asyncio task — same reason as the scan sweep
+        above: the wake-word listener's loop never awaits, so it would starve
+        a coroutine here and the ping might never fire on schedule.
+        """
+        while self._state == CrackleState.IDLE and not stop_event.is_set():
+            ui_client.set_state("idle")
+            if stop_event.wait(5.0):
+                break
+
     def _drain_mic_buffer(self):
         """Non-blocking drain of any mic audio that accumulated in the pipe buffer.
         Also feeds silence to the wake word model to flush its sliding-window state,
@@ -556,7 +582,9 @@ class CrackleFSM:
                 samples = self.record_output()
                 print("Recording complete.")
                 wav_bytes = self._samples_to_wav_bytes(samples)
+                ui_client.emit_stage("api:whisper_stt", "loading")
                 text = self.gpt_api.speech_to_text(wav_bytes)
+                ui_client.emit_stage("api:whisper_stt", "done", text=text)
                 print(f"Transcribed words: {text}")
                 self.current_command = text
                 ui_client.set_transcript(text)
