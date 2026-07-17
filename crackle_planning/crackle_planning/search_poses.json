@@ -1,5 +1,7 @@
 {
-  "search_poses": [
+  "_comment": "Two scan-pose sets the LLM chooses between when looking for objects. Same schema as before: position in metres (link_base frame), rpy in DEGREES. Tune these with the face UI 'Capture Pose' button — jog the arm to a good viewpoint and paste the captured entry into the right set. 'table_scan_poses': viewpoints looking down at the tabletop (for things resting on the table, e.g. a cup or a red box). 'distance_scan_poses': viewpoints looking farther out / up (for things across the room, e.g. when the user asks 'what is that over there'). The old 'search_poses' key is still honored as a fallback for 'table'.",
+
+  "table_scan_poses": [
     {
       "position": {"x": -0.0188, "y": -0.0692, "z": 0.537},
       "rpy": {"r": 172.0, "p": 22.6, "y": 52.6}
@@ -7,7 +9,19 @@
     {
       "position": {"x": 0.0274, "y": -0.003, "z": 0.498},
       "rpy": {"r": 150.0, "p": 16.7, "y": 63.3}
-    }   
-    
+    }
+  ],
+
+  "distance_scan_poses": [
+    {
+      "_note": "PLACEHOLDER — tune with the Capture Pose button. Aim the camera outward/up to see across the room.",
+      "position": {"x": 0.25, "y": -0.15, "z": 0.55},
+      "rpy": {"r": 120.0, "p": 0.0, "y": 40.0}
+    },
+    {
+      "_note": "PLACEHOLDER — tune with the Capture Pose button.",
+      "position": {"x": 0.25, "y": 0.15, "z": 0.55},
+      "rpy": {"r": 120.0, "p": 0.0, "y": -40.0}
+    }
   ]
 }

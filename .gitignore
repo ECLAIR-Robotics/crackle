@@ -171,3 +171,6 @@ cython_debug/
 
 log/
 install/
+
+# Frames captured during idle workspace scanning
+crackle_planning/crackle_planning/idle_scans/

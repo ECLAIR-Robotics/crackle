@@ -1,0 +1,26 @@
+{
+  "_comment": "End-effector poses the arm sweeps through while IDLE to keep the planning scene populated. Populate 'idle_scan_poses' yourself. Each entry: position in metres (link_base frame), rpy in DEGREES. Same schema as search_poses.json.",
+  "_example_entry": {
+    "position": {"x": 0.0, "y": 0.0, "z": 0.5},
+    "rpy": {"r": 180.0, "p": 20.0, "y": 45.0}
+  },
+  "_source": "Placeholder poses from xarm_ros2/xarm_planner/test/test_xarm_planner_api_pose.cpp (orientation quaternion x=1,y=0,z=0,w=0 == rpy 180,0,0). Replace with real scan poses tuned for the workspace.",
+  "idle_scan_poses": [
+    {
+      "position": {"x": 0.3, "y": -0.1, "z": 0.4},
+      "rpy": {"r": 180.0, "p": 0.0, "y": 0.0}
+    },
+    {
+      "position": {"x": 0.3, "y": 0.1, "z": 0.4},
+      "rpy": {"r": 180.0, "p": 0.0, "y": 0.0}
+    },
+    {
+      "position": {"x": 0.3, "y": 0.1, "z": 0.4},
+      "rpy": {"r": 180.0, "p": 0.0, "y": 0.0}
+    },
+    {
+      "position": {"x": 0.3, "y": -0.1, "z": 0.4},
+      "rpy": {"r": 180.0, "p": 0.0, "y": 0.0}
+    }
+  ]
+}

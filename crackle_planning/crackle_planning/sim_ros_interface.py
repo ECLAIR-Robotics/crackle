@@ -103,6 +103,11 @@ class SimulatedRosInterface:
         )
         return names
 
+    def get_latest_color_image_jpeg_b64(self) -> Optional[str]:
+        """No camera in simulation — idle scanning skips GPT-vision when None."""
+        self._log("get_latest_color_image_jpeg_b64", {}, True, None, "no sim camera")
+        return None
+
     def call_scan_service(self) -> bool:
         """Re-populate the scene with any initial objects not currently held."""
         if self._should_fail("call_scan_service"):
@@ -136,13 +141,20 @@ class SimulatedRosInterface:
         self._log("call_find_objects", {"names": names}, bool(found), found, note)
         return found
 
-    def move_to_pose(self, pose) -> bool:
+    def move_to_pose(self, pose, abort_event=None) -> bool:
         """Simulate an arm motion to the given pose."""
+        if abort_event is not None and abort_event.is_set():
+            self._log("move_to_pose", {"pose": repr(pose)}, False, False, "aborted before execution")
+            return False
         if self._should_fail("move_to_pose"):
             self._log("move_to_pose", {"pose": repr(pose)}, False, False, "injected failure")
             return False
         self._log("move_to_pose", {"pose": repr(pose)}, True, True, "arm moved to pose")
         return True
+
+    def stop_motion(self) -> None:
+        """No-op in simulation — there is no executing trajectory to abort."""
+        self._log("stop_motion", {}, True, None, "no-op (sim)")
 
     def call_pickup_service(self, object_name: str):
         """Pick up the named object: remove it from the scene and mark it as held."""

@@ -3,6 +3,7 @@ import json
 from ament_index_python import get_package_share_directory
 from launch import LaunchDescription
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 import xacro
 import os
 from launch.substitutions import LaunchConfiguration
@@ -55,13 +56,16 @@ def generate_launch_description():
     )
 
     # Serves /claw/set_gripper to the CRACKLE_CLAW gripper firmware over serial and
-    # publishes the rack joint positions on /joint_states. Runs harmlessly (warns
-    # and retries) when the ESP32 is not connected, e.g. in simulation.
+    # publishes the rack joint positions on /joint_states. When 'simulated' is
+    # true it does not touch the serial port / ESP32 at all — it fakes the
+    # gripper (racks still animate, service still acks), so the sim stack has no
+    # hardware dependency.
     claw_node = Node(
         package='claw_degree_publisher',
         executable='claw_degree_publisher',
         name='claw_degree_publisher',
         output='screen',
+        parameters=[{'simulated': ParameterValue(use_simulated_robot, value_type=bool)}],
     )
 
     audio_localization_node = Node(

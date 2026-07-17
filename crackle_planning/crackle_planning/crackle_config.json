@@ -1,0 +1,18 @@
+{
+  "_comment": "Runtime feature flags for Crackle. Edited by hand. Re-read from disk each time the value is used, so most changes take effect without a restart (idle scanning is (re)checked each time the arm enters IDLE; look-at mode is checked on every wake word).",
+
+  "_idle_scanning_enabled_help": "true  -> arm sweeps its workspace while idle to pre-populate the planning scene. false -> arm stays put and only listens for the wake word.",
+  "idle_scanning_enabled": false,
+
+  "_look_at_mode_help": "How the arm decides where to look after the wake word. 'audio' -> turn toward the audio-localization vector (falls back to doing nothing if no direction is available). 'fixed' -> always turn toward 'fixed_look_direction'.",
+  "look_at_mode": "fixed",
+
+  "_fixed_look_direction_help": "Point in the link_base frame (metres) the arm looks toward when look_at_mode == 'fixed'. Roughly where a user usually stands.",
+  "fixed_look_direction": {"x": 0.2501, "y": 0.047, "z": 0.504},
+
+  "_handover_help": "Geometry for hand_object_to_person (link_base frame). 'radius': EEF distance from base for the initial present pose (m). 'extend': extra distance pushed outward for the final offer pose (m). 'height': EEF height (m). 'rpy' (degrees): gripper orientation — yaw is auto-aimed toward the user with this yaw added as an offset; tune r/p for your gripper so the object is presented upright.",
+  "handover": {"radius": 0.35, "extend": 0.12, "height": 0.45, "rpy": {"r": 180.0, "p": 0.0, "y": 0.0}},
+
+  "_greeting_help": "Geometry for fist_bump / high_five (link_base frame). 'radius': EEF distance from base for the reach (m). 'jab': forward nudge distance for the fist bump (m). 'bump_height'/'five_height': EEF heights for the bump vs the high five (m). 'rpy' (degrees): gripper orientation — yaw is auto-aimed toward the user with this yaw added as an offset; tune r/p for your gripper.",
+  "greeting": {"radius": 0.34, "jab": 0.07, "bump_height": 0.35, "five_height": 0.5, "rpy": {"r": 180.0, "p": 0.0, "y": 0.0}}
+}

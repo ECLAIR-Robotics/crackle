@@ -89,13 +89,17 @@ def parse_class_to_tools(cls, exclude=None):
                 raw = getattr(param.annotation, "__name__", str(param.annotation))
                 type_name = _PYTHON_TYPE_MAP.get(raw, "string")
 
+            # OpenAI strict mode requires EVERY property to appear in `required`.
+            # A param that has a Python default is still listed as required, but
+            # made nullable so the model may omit it by passing null (which maps
+            # back to the default at call time). Emitting it as a plain optional
+            # property is rejected: "'required' ... must include every key".
+            has_default = param.default != inspect.Parameter.empty
             properties[param_name] = {
-                "type": type_name,
+                "type": [type_name, "null"] if has_default else type_name,
                 "description": f"The {param_name} parameter.",
             }
-
-            if param.default == inspect.Parameter.empty:
-                required.append(param_name)
+            required.append(param_name)
 
         tools.append({
             "type": "function",

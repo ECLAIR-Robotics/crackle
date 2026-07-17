@@ -5,9 +5,22 @@ import re
 import queue as _queue
 import threading
 import traceback
-from typing import Optional
+from typing import List, Optional
 from elevenlabs import ElevenLabs
 from dataclasses import dataclass
+
+# Editable prompt that tells GPT-vision which graspable objects to look for while
+# the arm idly scans its workspace. Populated/tuned by hand — see the file.
+# Prefer the source tree so hand edits take effect and the colcon install space
+# (which doesn't ship this file) still finds it; fall back to the package dir.
+_GRASP_PROMPT_SRC = os.path.expanduser(
+    "~/crackle_ws/src/crackle/crackle_planning/crackle_planning/idle_scan_prompt.txt"
+)
+GRASP_PROMPT_FILE = (
+    _GRASP_PROMPT_SRC
+    if os.path.exists(_GRASP_PROMPT_SRC)
+    else os.path.join(os.path.dirname(__file__), "idle_scan_prompt.txt")
+)
 
 ROS_ENABLED = os.environ.get("ROS_ENABLED", "false").lower() == "true"
 if ROS_ENABLED:
@@ -84,12 +97,21 @@ _SUBMIT_PLAN_TOOL = {
 
 # PlannerAPI methods that are internal utilities, not robot actions the LLM should call.
 _PLANNER_API_EXCLUDE = {
+    # Internal utilities that return non-JSON data (NumPy vectors) — the LLM has
+    # no use for raw embeddings and the result can't be fed back as a tool output.
     "embedding_from_string",
     "recommendations_from_strings",
     "get_global_state_value",
+    # look_at_sound_direction takes a raw wake-word timestamp (internal); the LLM
+    # uses look_at_person instead.
     "look_at_sound_direction",
-    "set_emotion",
     "recognize_person",
+    # Internal idle-scan plumbing — not LLM-callable actions. move_to_scan_pose
+    # takes a geometry_msgs/Pose object and a threading.Event; load_idle_scan_poses
+    # returns Pose objects. Exposing them produced an invalid tool schema and
+    # would break at call time if the model ever invoked them.
+    "move_to_scan_pose",
+    "load_idle_scan_poses",
 }
 
 @dataclass
@@ -128,11 +150,39 @@ class GptAPI:
             "make_final_response.\n\n"
             "GRIPPER STATE: The gripper can hold at most one object. You must call "
             "place() before picking up a new object. The gripper_occupied field in "
-            "your context tells you the current state.\n\n"
+            "your context tells you the current state. Use set_gripper_state('open'|"
+            "'close') for direct control; opening always releases whatever is held.\n\n"
+            "FINDING THINGS: look_for_objects(object_description, area) sweeps a set "
+            "of scan viewpoints to locate something. Pick the area by WHERE it is: "
+            "area='table' for things resting on the table (a cup, a red box — things "
+            "you'd pick up); area='distance' for things across the room (use this when "
+            "the user says something like 'what is that over there'). pick_up already "
+            "scans the table area on its own, so you usually don't need look_for_objects "
+            "before a pick — reach for it directly.\n\n"
+            "LOOKING AT THE USER: Call look_at_person to turn toward the user when it "
+            "feels natural (e.g. greeting them, or before handing something over). "
+            "target='audio' aims at where their voice last came from; target='fixed' "
+            "aims at the configured spot where a user usually stands.\n\n"
+            "HANDING OVER: When the user asks for the held object (e.g. 'give it to me', "
+            "'hand me that'), call hand_object_to_person (target='audio' or 'fixed'). It "
+            "presents the object toward them; then tell them to say 'open gripper' so you "
+            "release it. Only the actual open (set_gripper_state('open')/open_gripper) "
+            "marks you as no longer holding anything.\n\n"
             "SOCIAL INTERACTIONS: Respond warmly to greetings, compliments, and chat. "
             "Only call wave() or dance_dance() if the user explicitly asks you to wave or "
             "dance — never call them just because the tone is friendly. "
             "Use movie references naturally in conversation.\n\n"
+            "PLAYFUL MOVES: You can be expressive when asked. gesture(name) plays a "
+            "short motion — 'wave', 'nod' (yes), 'shake_head' (no), 'bow', 'shrug', "
+            "'flex', 'celebrate'. draw_shape_in_air(shape) draws a 'circle', 'square', "
+            "'figure8', 'spiral', 'heart', or 'star'. point_at(target) points at "
+            "'audio'/'user' (toward the user's voice), 'fixed', or a named scene "
+            "object. fist_bump(target) and high_five(target) greet the user "
+            "(target='audio' or 'fixed'). Use these when the user asks for a trick, a "
+            "gesture, a bump/five, or to point something out.\n\n"
+            "EASTER EGG: If the user says 'fist my bump' (or a very close variant), "
+            "call fist_bump(target='audio'), then make_final_response with the dialogue "
+            "EXACTLY: \"Sure! Amaze Amaze Amaze Amaze\".\n\n"
             "CLARIFICATION: continue_talking=True means the microphone stays open for "
             "an immediate reply. Use it ONLY when you literally cannot act without a "
             "specific answer — e.g. 'pick that up' with no object named. NEVER use it "
@@ -219,6 +269,10 @@ class GptAPI:
             }
         try:
             args.pop("self", None)
+            # Optional params are exposed as nullable (strict-mode schema); when
+            # the model omits one by passing null, drop it so the method's own
+            # Python default applies instead of forcing None.
+            args = {k: v for k, v in args.items() if v is not None}
             result = method(**args)
         except Exception as exc:
             traceback.print_exc()
@@ -472,6 +526,82 @@ class GptAPI:
                 proc.stdin.write(chunk)
         proc.stdin.close()
         proc.wait()
+
+    def _load_grasp_prompt(self) -> str:
+        """Load the (hand-editable) GPT-vision grasp-detection prompt from disk.
+
+        Read fresh on every call so edits to idle_scan_prompt.txt take effect
+        without restarting the node. Falls back to a minimal default if missing.
+        """
+        try:
+            with open(GRASP_PROMPT_FILE, "r") as f:
+                return f.read().strip()
+        except FileNotFoundError:
+            print(f"[grasp-vision] prompt file not found: {GRASP_PROMPT_FILE}")
+            return (
+                "List every distinct graspable object in this image (cups, balls, "
+                "fruit, bottles, etc.) as a JSON array of short lowercase names. "
+                "Return only the JSON array."
+            )
+
+    @staticmethod
+    def _parse_object_list(text: str) -> List[str]:
+        """Parse a JSON array of object names out of an LLM reply, leniently.
+
+        Tolerates code fences or stray prose around the array. Falls back to an
+        empty list rather than raising so a malformed reply can't crash scanning.
+        """
+        if not text:
+            return []
+        start = text.find("[")
+        end = text.rfind("]")
+        if start != -1 and end != -1 and end > start:
+            text = text[start : end + 1]
+        try:
+            data = json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            print(f"[grasp-vision] could not parse object list from: {text!r}")
+            return []
+        if not isinstance(data, list):
+            return []
+        names = []
+        for item in data:
+            if isinstance(item, str) and item.strip():
+                names.append(item.strip())
+        return names
+
+    def detect_graspable_objects(self, image_b64: str) -> List[str]:
+        """Ask GPT-vision which graspable objects are visible in a JPEG image.
+
+        ``image_b64`` is base64-encoded JPEG bytes. Uses the same OpenAI client
+        and Responses API as the planner. Returns a list of short object names
+        (possibly empty). Never raises — a failed call yields an empty list.
+        """
+        if not image_b64:
+            return []
+        prompt = self._load_grasp_prompt()
+        data_uri = f"data:image/jpeg;base64,{image_b64}"
+        try:
+            response = self.client.responses.create(
+                model="gpt-4o-mini",
+                input=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "input_text", "text": prompt},
+                            {"type": "input_image", "image_url": data_uri},
+                        ],
+                    }
+                ],
+            )
+            text = (response.output_text or "").strip()
+        except Exception as exc:
+            traceback.print_exc()
+            print(f"[grasp-vision] detect_graspable_objects failed: {exc}")
+            return []
+        objects = self._parse_object_list(text)
+        print(f"[grasp-vision] detected: {objects}")
+        return objects
 
     def speech_to_text(self, audio_input, model="whisper-1"):
         """Transcribe audio via Whisper. Accepts a file path or raw WAV bytes."""

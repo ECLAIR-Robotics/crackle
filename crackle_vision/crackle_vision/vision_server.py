@@ -24,6 +24,19 @@ from ultralytics import YOLOE, YOLO
 from image_geometry import PinholeCameraModel
 import open3d as o3d
 import re
+from tf2_ros import Buffer, TransformListener
+from scipy.spatial.transform import Rotation
+from sensor_msgs_py import point_cloud2
+from std_msgs.msg import Header
+
+
+# Pixels to erode off the segmentation mask before back-projecting to a point
+# cloud. The RealSense's aligned depth "bleeds" across an object's silhouette:
+# the 1–few px ring at the mask border picks up mixed foreground/table depth and
+# back-projects into a skirt of points on the table that inflates the fitted
+# collision box. Eroding the mask by a few px drops that ring. Too large and we
+# start eating real object; ~4 px is a good balance at typical tabletop range.
+MASK_ERODE_PX = 4
 
 
 def sanitize_moveit_id(name: str) -> str:
@@ -59,6 +72,18 @@ class VisionServerNode(Node):
 
         self.camera_link = "camera_depth_optical_frame"
         self.link_base = "link_base"
+
+        # TF so we know which way is up (gravity) in the camera frame — needed to
+        # fit upright, table-resting object boxes regardless of the camera angle.
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
+        # Debug: the exact point cloud each object's collision box is fit to.
+        # Add this topic as a PointCloud2 in rviz (fixed frame = camera frame) to
+        # see what the approximation actually uses.
+        self.fit_cloud_pub = self.create_publisher(
+            PointCloud2, "vision/object_fit_cloud", 10
+        )
 
         self.class_names = []
         self.segments = []
@@ -176,6 +201,93 @@ class VisionServerNode(Node):
     def pcd_callback(self, msg):
         self.pcd = msg
 
+    def publish_fit_cloud(self, o3d_cloud):
+        """Publish the point cloud used to fit an object's collision box, so it
+        can be visualized in rviz against the resulting collision object."""
+        if o3d_cloud is None:
+            return
+        try:
+            pts = np.asarray(o3d_cloud.points, dtype=np.float32)
+            if pts.size == 0:
+                return
+            header = Header()
+            header.stamp = self.get_clock().now().to_msg()
+            header.frame_id = self.camera_link
+            msg = point_cloud2.create_cloud_xyz32(header, pts.tolist())
+            self.fit_cloud_pub.publish(msg)
+            self.get_logger().info(
+                f"Published {len(pts)} fit-cloud points to vision/object_fit_cloud"
+            )
+        except Exception as e:
+            self.get_logger().warn(f"Failed to publish fit cloud: {e}")
+
+    def gravity_up_in_camera(self):
+        """World/base +Z ('up') as a unit vector in the camera optical frame.
+
+        Used to fit upright object boxes. Returns None if the camera->link_base
+        transform isn't available yet, in which case shape fitting falls back to
+        the view-axis method.
+        """
+        try:
+            tf = self.tf_buffer.lookup_transform(
+                self.camera_link, self.link_base, rclpy.time.Time()
+            )
+        except Exception as e:
+            self.get_logger().warn(
+                f"gravity TF ({self.camera_link}<-{self.link_base}) unavailable: {e}"
+            )
+            return None
+        q = tf.transform.rotation
+        # This rotation maps link_base vectors into the camera frame; its third
+        # column is link_base's +Z (up) expressed in the camera frame.
+        rot = Rotation.from_quat([q.x, q.y, q.z, q.w]).as_matrix()
+        up = np.asarray(rot)[:, 2]
+        return up / (np.linalg.norm(up) + 1e-12)
+
+    def strip_support_plane(self, pcd, up):
+        """Remove the horizontal table surface from an object cloud.
+
+        Even after mask erosion, a thin skirt of tabletop points can survive
+        around the object base. RANSAC-fit the dominant plane; if it is roughly
+        horizontal (its normal aligns with gravity ``up``) drop only the inliers
+        sitting in the BOTTOM height band — the table level — so the skirt is
+        removed while the object's own surfaces, including a horizontal top face
+        seen top-down (which lives at HIGH height), are preserved. Returns the
+        cloud unchanged if ``up`` is unavailable or the plane isn't a table.
+        """
+        try:
+            n = len(pcd.points)
+            if up is None or n < 40:
+                return pcd
+            up = np.asarray(up, dtype=float)
+            up = up / (np.linalg.norm(up) + 1e-12)
+
+            plane_model, inliers = pcd.segment_plane(
+                distance_threshold=0.008, ransac_n=3, num_iterations=200
+            )
+            if len(inliers) < 0.15 * n:
+                return pcd  # no dominant plane — nothing table-like to strip
+
+            normal = np.asarray(plane_model[:3], dtype=float)
+            normal = normal / (np.linalg.norm(normal) + 1e-12)
+            if abs(float(np.dot(normal, up))) < 0.85:
+                return pcd  # a vertical/skew plane (e.g. an object face) — keep it
+
+            heights = np.asarray(pcd.points) @ up
+            bottom_band = np.percentile(heights, 25.0)
+            inlier_mask = np.zeros(n, dtype=bool)
+            inlier_mask[np.asarray(inliers)] = True
+            # Drop only the plane points at/below the bottom band (the table),
+            # never higher object surfaces that happen to be coplanar-ish.
+            drop = inlier_mask & (heights <= bottom_band)
+            kept = pcd.select_by_index(np.where(~drop)[0])
+            if len(kept.points) < 20:
+                return pcd
+            return kept
+        except Exception as e:
+            self.get_logger().warn(f"support-plane strip failed: {e}")
+            return pcd
+
     def depth_to_pcd(self, mask : np.array) -> o3d.geometry.PointCloud:
 
         # convert depth image to point cloud
@@ -188,7 +300,15 @@ class VisionServerNode(Node):
 
         depth_image = self.bridge.imgmsg_to_cv2(self.depth_image, desired_encoding="passthrough")
 
-        depth_image = cv2.bitwise_and(depth_image, depth_image, mask=mask.astype(np.uint8))
+        # Erode the mask to strip the silhouette border where aligned depth bleeds
+        # from the object onto the table behind it (see MASK_ERODE_PX). Those
+        # mixed-depth edge points otherwise form a skirt that oversizes the box.
+        mask_u8 = mask.astype(np.uint8)
+        if MASK_ERODE_PX > 0:
+            kernel = np.ones((3, 3), np.uint8)
+            mask_u8 = cv2.erode(mask_u8, kernel, iterations=MASK_ERODE_PX)
+
+        depth_image = cv2.bitwise_and(depth_image, depth_image, mask=mask_u8)
         points_arr = []
         inv_camera_matrix = np.linalg.inv(self.intrinsic_matrix)
         for row, col in np.ndindex(depth_image.shape):
@@ -260,6 +380,9 @@ class VisionServerNode(Node):
             largest_cluster_label = max(valid, key=lambda x: x[1])[0]
             indices = np.where(labels == largest_cluster_label)[0]
             largest_cluster = pcd.select_by_index(indices)
+            # Strip any residual tabletop skirt so the box fits the object.
+            largest_cluster = self.strip_support_plane(
+                largest_cluster, self.gravity_up_in_camera())
             # Serialize point cloud for multiprocessing (as numpy array)
             jobs.append(np.asarray(largest_cluster.points))
             job_names.append(cls_name)
@@ -271,7 +394,8 @@ class VisionServerNode(Node):
             pcd = o3d.geometry.PointCloud()
             pcd.points = o3d.utility.Vector3dVector(points)
             try:
-                shape_mesh, shape_type, quaternion = get_best_approx(pcd)
+                shape_mesh, shape_type, quaternion, fit_cloud = get_best_approx(pcd, up=self.gravity_up_in_camera())
+                self.publish_fit_cloud(fit_cloud)
                 return (shape_mesh, shape_type, quaternion)
             except Exception as e:
                 return None
@@ -390,9 +514,15 @@ class VisionServerNode(Node):
                         unique_labels, counts = np.unique(labels, return_counts=True)
                         largest_cluster_label = unique_labels[np.argmax(counts)]
                         largest_cluster = pcd.select_by_index(np.where(labels == largest_cluster_label)[0])
-                        pcd = largest_cluster 
+                        pcd = largest_cluster
 
-                        shape_mesh, shape_type, quaternion = get_best_approx(pcd)
+                        # Strip any residual tabletop skirt so the box fits the
+                        # object, not the surface it rests on.
+                        up_cam = self.gravity_up_in_camera()
+                        pcd = self.strip_support_plane(pcd, up_cam)
+
+                        shape_mesh, shape_type, quaternion, fit_cloud = get_best_approx(pcd, up=up_cam)
+                        self.publish_fit_cloud(fit_cloud)
                         if shape_type == SolidPrimitive.BOX:
                             self.get_logger().info(f"Object {name} approximated as a box")
                         elif shape_type == SolidPrimitive.SPHERE:
