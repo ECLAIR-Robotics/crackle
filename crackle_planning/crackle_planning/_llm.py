@@ -122,7 +122,6 @@ _PLANNER_API_EXCLUDE = {
 class GetCommandResponse:
     dialoge: str | None
     emotion: str | None
-    continue_talking: bool = False
     # Kept for backwards compatibility; always None in the new tool-calling flow.
     code: str | None = None
     # True when get_command already spoke the dialogue via streaming TTS.
@@ -187,12 +186,6 @@ class GptAPI:
             "EASTER EGG: If the user says 'fist my bump' (or a very close variant), "
             "call fist_bump(target='audio'), then make_final_response with the dialogue "
             "EXACTLY: \"Sure! Amaze Amaze Amaze Amaze\".\n\n"
-            "CLARIFICATION: continue_talking=True means the microphone stays open for "
-            "an immediate reply. Use it ONLY when you literally cannot act without a "
-            "specific answer — e.g. 'pick that up' with no object named. NEVER use it "
-            "just to ask a preference question or invite follow-up chat. If you want to "
-            "offer options or end with a question, set continue_talking=False and let "
-            "the user re-trigger you if they want to respond.\n\n"
             "RESPONSE STYLE: Short, warm, midwestern. Movie quotes when they fit."
         )
 
@@ -233,18 +226,8 @@ class GptAPI:
                             "'not_impressed', 'evil', 'flirty', 'aww', 'wtf'."
                         ),
                     },
-                    "continue_talking": {
-                        "type": "boolean",
-                        "description": (
-                            "Default FALSE. Set True ONLY when you cannot act at all "
-                            "without a specific clarifying answer — e.g. no object was "
-                            "named. NEVER set True just to ask a preference question or "
-                            "invite follow-up. Ending with a question is fine; set False "
-                            "and let the user re-trigger if they want to respond."
-                        ),
-                    },
                 },
-                "required": ["dialogue", "emotion", "continue_talking"],
+                "required": ["dialogue", "emotion"],
                 "additionalProperties": False,
             },
             "strict": True,
@@ -375,7 +358,6 @@ class GptAPI:
 
         dialogue_val: Optional[str] = None
         emotion_val: str = "happy"
-        continue_talking_val: bool = False
         tts_thread: Optional[threading.Thread] = None
         preamble_thread: Optional[threading.Thread] = None
 
@@ -460,12 +442,10 @@ class GptAPI:
                     args = json.loads(item.arguments or "{}")
                     dialogue_val = args.get("dialogue", "")
                     emotion_val = args.get("emotion", "happy")
-                    continue_talking_val = args.get("continue_talking", False)
                     done = True
                     ui_client.emit_stage(
                         "llm_plan", "done", turn_id=turn_id,
                         dialogue=dialogue_val, emotion=emotion_val,
-                        continue_talking=continue_talking_val,
                     )
                     ui_client.emit_stage("face", "data", turn_id=turn_id, node="end", emotion=emotion_val)
                     tool_results.append({
@@ -540,7 +520,6 @@ class GptAPI:
         return GetCommandResponse(
             dialoge=str(dialogue_val) if dialogue_val is not None else None,
             emotion=str(emotion_val) if emotion_val is not None else None,
-            continue_talking=bool(continue_talking_val),
             tts_handled=tts_thread is not None,
         )
 
