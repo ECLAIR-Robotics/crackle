@@ -150,7 +150,7 @@ class GptAPI:
             "call make_final_response directly — no planning needed. For tasks that require "
             "robot actions, first call submit_plan with a short spoken preamble and the full "
             "ordered sequence of steps, then execute them one at a time reading each result "
-            "before the next. If a step fails, adapt or explain. When done, call "
+            "before the next. If a step fails, submit a new plan. When done, call "
             "make_final_response.\n\n"
             "GRIPPER STATE: The gripper can hold at most one object. You must call "
             "place() before picking up a new object. The gripper_occupied field in "

@@ -8,7 +8,7 @@
   "look_at_mode": "fixed",
 
   "_fixed_look_direction_help": "Point in the link_base frame (metres) the arm looks toward when look_at_mode == 'fixed'. Roughly where a user usually stands.",
-  "fixed_look_direction": {"x": 0.2501, "y": 0.047, "z": 0.504},
+  "fixed_look_direction": {"x": 0.2290, "y": 0.0356, "z": 0.4616},
 
   "_handover_help": "Geometry for hand_object_to_person (link_base frame). 'radius': EEF distance from base for the initial present pose (m). 'extend': extra distance pushed outward for the final offer pose (m). 'height': EEF height (m). 'rpy' (degrees): gripper orientation — yaw is auto-aimed toward the user with this yaw added as an offset; tune r/p for your gripper so the object is presented upright.",
   "handover": {"radius": 0.35, "extend": 0.12, "height": 0.45, "rpy": {"r": 180.0, "p": 0.0, "y": 0.0}},

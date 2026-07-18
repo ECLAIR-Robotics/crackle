@@ -251,8 +251,14 @@ class CrackleFSM:
                     # (parec mic) and LLM processing don't need the arm, so they
                     # proceed in parallel; if the command needs the arm, that motion
                     # naturally serializes after the look on the manipulation node.
+                    # Don't turn the arm to face the user on wake word -- stay put
+                    # wherever the arm currently is. But still SNAPSHOT the user's
+                    # direction (no motion) so fist bump / high five / handover can
+                    # aim at where the user was when they spoke. To restore the
+                    # look-at-user motion, swap capture_sound_direction back to
+                    # look_at_sound_direction below.
                     self._look_thread = threading.Thread(
-                        target=self.planner_api.look_at_sound_direction,
+                        target=self.planner_api.capture_sound_direction,
                         args=(wake_wall_time,),
                         daemon=True,
                     )

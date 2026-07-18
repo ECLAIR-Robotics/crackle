@@ -77,6 +77,13 @@ class RosInterface:
             50
         )  # 50 sample window that consists of a timestamp and a Vector
 
+        # Snapshot of the user's audio direction captured at wake-word time (see
+        # capture_user_direction). The reach-toward-user actions (fist bump, high
+        # five, handover) prefer this over the continuously-updated latest sample,
+        # so they aim at where the user was when they spoke rather than wherever
+        # the newest (possibly stale/ambient) vector points. None until captured.
+        self.captured_user_direction: Optional[Vector3Stamped] = None
+
         self.__multi_callback_group = ReentrantCallbackGroup()
 
         self.__audio_direction_subscriber = node.create_subscription(
@@ -373,6 +380,29 @@ class RosInterface:
             time.sleep(0.01)  # 10ms poll while executor keeps spinning
         # Fallback: return the freshest we saw (may be slightly earlier)
         return best
+
+    def capture_user_direction(self, wake_word_time: Optional[float] = None) -> bool:
+        """Snapshot the user's audio direction (WITHOUT moving the arm).
+
+        Called on wake word so later reach-toward-user actions (fist bump, high
+        five, handover) aim at where the user was when they spoke. Waits briefly
+        for a direction sample at/after ``wake_word_time`` (or takes the latest
+        when None) and stores it in ``captured_user_direction``. Returns True if a
+        direction was captured.
+        """
+        if wake_word_time is not None:
+            entry = self.wait_for_direction_after(wake_word_time, timeout=0.5)
+        else:
+            entry = self.latest_audio_direction.latest()
+        if entry is None:
+            self._node.get_logger().info("capture_user_direction: no audio direction available.")
+            return False
+        self.captured_user_direction = entry.direction
+        self._node.get_logger().info(
+            f"Captured user direction: x={entry.direction.vector.x:.3f}, "
+            f"y={entry.direction.vector.y:.3f}"
+        )
+        return True
 
     def _compute_look_point(self, mode: str, wake_word_time: Optional[float]):
         """Resolve the (x, y, z) point in link_base to look toward, or None.
@@ -689,8 +719,9 @@ class RosInterface:
         """Return a unit (x, y) pointing toward the user, or None.
 
         "fixed" uses the configured fixed_look_direction; anything else uses the
-        latest audio-localization vector. Shared by the reach-toward-user actions
-        (handover, fist bump, high five).
+        audio direction snapshotted at wake word (``captured_user_direction``),
+        falling back to the latest audio-localization vector. Shared by the
+        reach-toward-user actions (handover, fist bump, high five).
         """
         flags = load_config()
         resolved = mode if mode is not None else flags.get("look_at_mode", "audio")
@@ -698,10 +729,14 @@ class RosInterface:
             fd = flags.get("fixed_look_direction", {}) or {}
             dx, dy = float(fd.get("x", 0.3)), float(fd.get("y", 0.0))
         else:
-            entry = self.latest_audio_direction.latest()
-            if entry is None:
-                return None
-            dx, dy = entry.direction.vector.x, entry.direction.vector.y
+            # Prefer the wake-word snapshot; fall back to the latest live sample.
+            direction = self.captured_user_direction
+            if direction is None:
+                entry = self.latest_audio_direction.latest()
+                if entry is None:
+                    return None
+                direction = entry.direction
+            dx, dy = direction.vector.x, direction.vector.y
         mag = (dx * dx + dy * dy) ** 0.5
         if mag < 1e-6:
             return None

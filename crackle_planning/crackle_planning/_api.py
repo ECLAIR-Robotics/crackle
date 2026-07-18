@@ -492,6 +492,13 @@ class PlannerAPI:
         if self.ros_interface is not None:
             self.ros_interface.look_at_person(wake_word_time)
 
+    def capture_sound_direction(self, wake_word_time: float):
+        """Snapshot the user's direction at wake word WITHOUT moving the arm, so
+        later reach-toward-user actions (fist bump, high five, handover) aim at
+        where the user was when they spoke."""
+        if self.ros_interface is not None:
+            self.ros_interface.capture_user_direction(wake_word_time)
+
     def place(self):
         """Place the currently held object down and release the gripper."""
         if self.ros_interface is not None:
