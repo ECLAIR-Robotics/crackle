@@ -289,10 +289,6 @@
       <div class="k">emotion</div>
       <div id="end-emotion" class="v empty">—</div>
     </div>
-    <div class="field">
-      <div class="k">continue_talking</div>
-      <div id="end-continue" class="v empty">—</div>
-    </div>
     <div class="satellites" style="margin-top:20px;margin-bottom:0;">
       <span id="end-voice-sat" class="sat"><span class="dot"></span>VOICE</span>
       <span id="end-face-sat" class="sat"><span class="dot"></span>FACE</span>
@@ -336,7 +332,6 @@ const endNode = document.getElementById('end-node');
 const endStatusBadge = document.getElementById('end-status-badge');
 const endDialogueEl = document.getElementById('end-dialogue');
 const endEmotionEl = document.getElementById('end-emotion');
-const endContinueEl = document.getElementById('end-continue');
 const endVoiceSat = document.getElementById('end-voice-sat');
 const endFaceSat = document.getElementById('end-face-sat');
 
@@ -461,7 +456,6 @@ function clearTaskFields() {
   setNodeStatus(endNode, endStatusBadge, 'idle');
   setText(endDialogueEl, null);
   setText(endEmotionEl, null);
-  setText(endContinueEl, null);
   setSat(endVoiceSat, 'idle');
   setSat(endFaceSat, 'idle');
 }
@@ -597,7 +591,6 @@ function handlePipelineEvent(ev) {
       setNodeStatus(endNode, endStatusBadge, 'done');
       setText(endDialogueEl, payload.dialogue);
       setText(endEmotionEl, payload.emotion);
-      setText(endContinueEl, payload.continue_talking === undefined ? null : String(payload.continue_talking));
     }
   } else if (ev.stage === 'api:openai_responses') {
     setSat(planLlmSat, ev.status);
