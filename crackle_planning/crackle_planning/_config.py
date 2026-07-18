@@ -35,6 +35,18 @@ DEFAULTS = {
         "height": 0.45,
         "rpy": {"r": 180.0, "p": 0.0, "y": 0.0},
     },
+    # Fixed pose the arm moves to for "hold this for me" (hold_object_from_user),
+    # in the link_base frame. x/y/z: EEF position (m). rpy (degrees): gripper
+    # orientation — this is an ABSOLUTE pose (not auto-aimed at the user), so
+    # tune all of x/y/z/r/p/y so the OPEN gripper is presented where the user can
+    # comfortably place an object into it. The gripper opens on arrival; the user
+    # then says "close gripper" to grasp what they handed over.
+    "hold_pose": {
+        "x": 0.30,
+        "y": 0.0,
+        "z": 0.40,
+        "rpy": {"r": 180.0, "p": 0.0, "y": 0.0},
+    },
     # Geometry of the fist_bump / high_five greeting reaches (link_base frame).
     # radius: EEF distance from base for the reach. jab: forward nudge for the
     # fist bump. bump_height / five_height: EEF heights. rpy (degrees): gripper

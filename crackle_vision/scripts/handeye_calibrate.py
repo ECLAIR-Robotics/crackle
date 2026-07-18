@@ -57,6 +57,13 @@ try:
 except Exception:
     HAVE_EXTRINSICS = False
 
+try:
+    from scipy.optimize import least_squares
+    from scipy.spatial.transform import Rotation as _Rot
+    HAVE_SCIPY = True
+except Exception:
+    HAVE_SCIPY = False
+
 # ----------------------------- configuration -------------------------------
 BASE_FRAME  = 'link_base'
 HAND_FRAME  = 'gripper_base'          # parent of the camera joint in the xacro
@@ -70,6 +77,18 @@ MARKER_LEN = 0.0225 * 74.0 / 165.0    # ~0.01009 m, measured from board.png
 ARUCO_DICT = cv2.aruco.DICT_ARUCO_ORIGINAL
 LEGACY_PATTERN = True
 MIN_CORNERS = 8                        # min charuco corners to accept a sample
+
+# --- observability / anchoring -------------------------------------------
+# Camera translation ALONG its optical axis is only observable if the poses
+# view the board from genuinely different DIRECTIONS. This is the minimum
+# optical-axis angular spread (deg) below which along-axis translation is
+# untrustworthy and should be anchored instead. Orbit the board to beat it.
+MIN_OPTICAL_AXIS_SPREAD_DEG = 25.0
+# If set (metres, in link_base), the board's height is pinned to this value to
+# resolve the along-axis translation when view diversity is poor. The board
+# rests on the table; measure the table-top height relative to the robot base
+# (e.g. base plate 30 mm above the table -> -0.030). None = don't anchor.
+TABLE_Z = None
 
 XACRO = os.path.expanduser(
     '~/crackle_ws/src/crackle/crackle_description/urdf/crackle_gripper.urdf.xacro')
@@ -250,10 +269,16 @@ class HandEye(Node):
         self.overlays.append(overlay)
         idx = len(self.T_base_hand)
         cv2.imwrite(os.path.join(SAVE_DIR, f'sample_{idx:02d}.png'), overlay)
+        div = self._view_diversity() if idx >= 2 else 0.0
         print(f'  + sample {idx} captured (charuco corners={n}). '
-              f'board dist={np.linalg.norm(T_cb[:3,3]):.3f} m')
+              f'board dist={np.linalg.norm(T_cb[:3,3]):.3f} m  '
+              f'view-diversity={div:.1f} deg')
+        if idx >= 2 and div < MIN_OPTICAL_AXIS_SPREAD_DEG:
+            print(f'    tip: TILT the camera to view the board from a NEW '
+                  f'direction (aim for >{MIN_OPTICAL_AXIS_SPREAD_DEG:.0f} deg) '
+                  f'so translation becomes observable.')
         if idx >= 3:
-            print('    (>=3 samples: you can press s to solve; 10-15 recommended)')
+            print('    (>=3 samples: press s to solve; 12-15 varied poses ideal)')
 
     def undo(self):
         if self.T_base_hand:
@@ -261,6 +286,62 @@ class HandEye(Node):
             print(f'  - removed last sample, {len(self.T_base_hand)} left')
         else:
             print('  nothing to undo')
+
+    # -- board pose in base for a candidate color extrinsic X (hand->cam) --
+    def _board_in_base(self, X):
+        return [self.T_base_hand[i] @ X @ self.T_cam_board[i]
+                for i in range(len(self.T_base_hand))]
+
+    def _view_diversity(self):
+        """Angular spread (deg) of the camera optical axis across poses, using
+        a nominal extrinsic. Along-axis translation is only observable when
+        this is large."""
+        axes = []
+        for A in self.T_base_hand:
+            # optical axis ~ gripper -Z-ish; use hand Z rotated by nominal yaw.
+            axes.append((A[:3, :3] @ np.array([0, 0, 1.0])))
+        axes = np.array(axes)
+        c = axes.mean(0); c /= (np.linalg.norm(c) + 1e-9)
+        angs = np.degrees(np.arccos(np.clip(axes @ c, -1, 1)))
+        return float(angs.max())
+
+    def _pose_ba(self, X0):
+        """Refine hand->cam X and the fixed board pose by minimizing pose
+        disagreement across views (robust pose-graph hand-eye). Returns X."""
+        if not HAVE_SCIPY:
+            return X0
+        Pm = np.mean(self._board_in_base(X0), axis=0)
+
+        def uX(p):
+            return make_T(_Rot.from_rotvec(p[0:3]).as_matrix(), p[3:6])
+
+        def res(p):
+            X = uX(p[0:6]); Tb = uX(p[6:12]); r = []
+            for P in self._board_in_base(X):
+                r += list(_Rot.from_matrix(P[:3, :3].T @ Tb[:3, :3]).as_rotvec())
+                r += list(P[:3, 3] - Tb[:3, 3])
+            return r
+        p0 = np.hstack([_Rot.from_matrix(X0[:3, :3]).as_rotvec(), X0[:3, 3],
+                        _Rot.from_matrix(Pm[:3, :3]).as_rotvec(), Pm[:3, 3]])
+        try:
+            s = least_squares(res, p0, method='lm', max_nfev=40000)
+            return uX(s.x[0:6])
+        except Exception as e:
+            print(f'  BA failed ({e}); using closed-form'); return X0
+
+    def _anchor_along_axis(self, X, table_z):
+        """Slide X along the camera optical axis so the reconstructed board
+        sits at height table_z in base. Fixes the unobservable DOF."""
+        optical = X[:3, :3] @ np.array([0, 0, 1.0])
+        z0 = np.mean([P[:3, 3][2] for P in self._board_in_base(X)])
+        Xs = X.copy(); Xs[:3, 3] = X[:3, 3] + 0.05 * optical
+        z1 = np.mean([P[:3, 3][2] for P in self._board_in_base(Xs)])
+        slope = (z1 - z0) / 0.05
+        if abs(slope) < 1e-6:
+            return X
+        s = (table_z - z0) / slope
+        Xa = X.copy(); Xa[:3, 3] = X[:3, 3] + s * optical
+        return Xa
 
     def solve(self, quiet=False):
         n = len(self.T_base_hand)
@@ -271,53 +352,56 @@ class HandEye(Node):
         R_t2c = [T[:3, :3] for T in self.T_cam_board]
         t_t2c = [T[:3, 3] for T in self.T_cam_board]
 
-        methods = {
-            'TSAI': cv2.CALIB_HAND_EYE_TSAI,
-            'PARK': cv2.CALIB_HAND_EYE_PARK,
-            'HORAUD': cv2.CALIB_HAND_EYE_HORAUD,
-            'DANIILIDIS': cv2.CALIB_HAND_EYE_DANIILIDIS,
-        }
-        results = {}
-        for name, m in methods.items():
-            try:
-                R, t = cv2.calibrateHandEye(R_g2b, t_g2b, R_t2c, t_t2c, method=m)
-                results[name] = make_T(R, t.reshape(3))
-            except Exception as e:
-                print(f'  {name} failed: {e}')
+        # closed-form init (PARK: robust rotation), then nonlinear pose-BA
+        Rp, tp = cv2.calibrateHandEye(R_g2b, t_g2b, R_t2c, t_t2c,
+                                      method=cv2.CALIB_HAND_EYE_PARK)
+        X_cf = make_T(Rp, tp.reshape(3))
+        X_color = self._pose_ba(X_cf)
 
-        if not results:
-            print('  ! all methods failed'); return None
+        # --- diagnostics that tell you if the result is trustworthy ---
+        Ps = self._board_in_base(X_color)
+        board_t = np.array([P[:3, 3] for P in Ps])
+        normals = np.array([P[:3, :3] @ np.array([0, 0, 1.0]) for P in Ps])
+        nmean = normals.mean(0); nmean /= np.linalg.norm(nmean)
+        tilt = np.degrees(np.arccos(abs(nmean[2])))
+        tilt_std = np.degrees(np.std(
+            [np.arccos(abs(x)) for x in normals @ nmean]))
+        spread_mm = 1000 * np.std(board_t, 0)
+        view_div = self._view_diversity()
+        self._residual_report(X_color)
+        print(f'  board reconstruction: cross-view spread (mm) '
+              f'x{spread_mm[0]:.0f} y{spread_mm[1]:.0f} z{spread_mm[2]:.0f}, '
+              f'height z={board_t[:,2].mean():.3f} m')
+        print(f'  REAL board tilt vs base-Z: {tilt:.2f} deg '
+              f'(consistency std {tilt_std:.2f} deg -> '
+              f'{"a genuine physical tilt, not a camera error" if tilt_std<2 else "noisy"})')
+        print(f'  optical-axis view diversity: {view_div:.1f} deg '
+              f'(need >{MIN_OPTICAL_AXIS_SPREAD_DEG:.0f} to trust along-axis translation)')
 
-        if not quiet:
-            print('\n  gripper_base -> camera_color_optical (per method):')
-            for name, T in results.items():
-                xyz = T[:3, 3]
-                rpy = mat_to_rpy(T[:3, :3])
-                print(f'    {name:11s} xyz=[{xyz[0]:+.4f} {xyz[1]:+.4f} {xyz[2]:+.4f}]'
-                      f'  rpy=[{rpy[0]:+.4f} {rpy[1]:+.4f} {rpy[2]:+.4f}]')
+        anchored = False
+        if TABLE_Z is not None:
+            X_color = self._anchor_along_axis(X_color, TABLE_Z)
+            anchored = True
+            print(f'  ANCHORED board height to TABLE_Z={TABLE_Z:+.3f} m')
+        elif view_div < MIN_OPTICAL_AXIS_SPREAD_DEG:
+            print('  !! WARNING: view diversity too low -> along-axis (depth) '
+                  'translation is UNRELIABLE. Either recollect while ORBITING '
+                  'the board (tilt the camera so it views from different '
+                  'directions), or set TABLE_Z to anchor the board height.')
 
-        # Consistency check: spread of translations across methods
-        ts = np.array([T[:3, 3] for T in results.values()])
-        spread = float(np.max(np.linalg.norm(ts - ts.mean(axis=0), axis=1)))
-        self._residual_report(results.get('PARK', list(results.values())[0]))
-
-        T_color = results.get('DANIILIDIS', results.get('PARK'))
         # shift into DEPTH optical frame
         if self.depth_to_color is not None:
             d2c = self.depth_to_color
-            extr_note = 'applied live depth_to_color extrinsic'
+            extr_note = 'live depth_to_color extrinsic'
         else:
             d2c = make_T(np.eye(3), DEFAULT_DEPTH_TO_COLOR_T)
-            extr_note = ('used FALLBACK D435i depth_to_color extrinsic '
-                         '(live topic unavailable)')
-        T_color_depth = inv_T(d2c)  # p_depth from p_color
-        T_depth = T_color @ T_color_depth
+            extr_note = 'FALLBACK D435i depth_to_color extrinsic'
+        T_depth = X_color @ inv_T(d2c)
 
         xyz = T_depth[:3, 3]
         rpy = mat_to_rpy(T_depth[:3, :3])
         print('\n' + '=' * 66)
-        print(f'  RESULT  ({extr_note})')
-        print(f'  method inter-agreement (translation spread): {spread*1000:.1f} mm')
+        print(f'  RESULT  ({extr_note}{", anchored" if anchored else ""})')
         print('  gripper_base -> camera_depth_optical_frame  (xacro joint):')
         print(f'\n    <origin xyz="{xyz[0]:.5f} {xyz[1]:.5f} {xyz[2]:.5f}" '
               f'rpy="{rpy[0]:.5f} {rpy[1]:.5f} {rpy[2]:.5f}"/>\n')

@@ -695,6 +695,35 @@ class PlannerAPI:
             ),
         }
 
+    def hold_object_from_user(self):
+        """Hold an object the user wants to hand you. Call this when the user
+        says something like 'hold this for me', 'can you hold this', or 'take
+        this'. The arm moves to the configured hold pose (crackle_config.json
+        'hold_pose') and OPENS the gripper so they can place the object into it.
+        It does NOT close the gripper — after calling this, tell the user to say
+        'close gripper', which you handle by calling set_gripper_state('close').
+        Refuses if you're already holding something (place it first)."""
+        if self.ros_interface is None:
+            return {"success": False, "message": "ROS interface unavailable."}
+        if self.gripper_occupied:
+            return {
+                "success": False,
+                "message": "I'm already holding something — let me place it first.",
+            }
+        ok = self.ros_interface.go_to_hold_pose()
+        if not ok:
+            return {
+                "success": False,
+                "message": "I couldn't reach the hold position.",
+            }
+        return {
+            "success": True,
+            "message": (
+                "Ready — go ahead and set it in my gripper, then say 'close "
+                "gripper' and I'll hold onto it."
+            ),
+        }
+
     def fist_bump(self, target: str):
         """Give the user a fist bump. Makes a fist, reaches toward target='audio'
         (where the user's voice last came from) or target='fixed' (the configured

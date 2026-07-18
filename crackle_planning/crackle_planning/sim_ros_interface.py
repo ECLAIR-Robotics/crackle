@@ -206,6 +206,17 @@ class SimulatedRosInterface:
         self._emotion = emotion
         self._log("set_emotion", {"emotion": emotion}, True, None, f"emotion → '{emotion}'")
 
+    def go_to_hold_pose(self) -> bool:
+        """Simulate moving to the hold pose and opening the gripper to receive
+        an object ("hold this for me")."""
+        if self._should_fail("go_to_hold_pose"):
+            self._log("go_to_hold_pose", {}, False, False, "injected failure")
+            return False
+        self._gripper_closed = False
+        self._log("go_to_hold_pose", {}, True, True,
+                  "moved to hold pose, gripper open to receive object")
+        return True
+
     def close_gripper(self) -> None:
         """Close the simulated gripper."""
         self._gripper_closed = True

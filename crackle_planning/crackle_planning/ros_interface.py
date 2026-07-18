@@ -715,6 +715,39 @@ class RosInterface:
             return False
         return True
 
+    def go_to_hold_pose(self) -> bool:
+        """Move the arm to the configured ``hold_pose`` and open the gripper so
+        the user can place an object into it ("hold this for me").
+
+        Reads the absolute pose (position + rpy) from crackle_config.json's
+        ``hold_pose`` in the link_base frame — no auto-aiming at the user. Opens
+        the jaws first (nothing should already be held), then moves. Returns True
+        only if the reach succeeded; the user then says "close gripper" to grasp.
+        """
+        import math
+
+        flags = load_config()
+        hp = flags.get("hold_pose", {}) or {}
+        x = float(hp.get("x", 0.30))
+        y = float(hp.get("y", 0.0))
+        z = float(hp.get("z", 0.40))
+        rpy = hp.get("rpy", {}) or {}
+        roll = math.radians(float(rpy.get("r", 180.0)))
+        pitch = math.radians(float(rpy.get("p", 0.0)))
+        yaw = math.radians(float(rpy.get("y", 0.0)))
+
+        # Open the jaws so there's room to receive the object before we move.
+        self._set_gripper(False)
+
+        pose = self._pose_from_xyz_rpy(x, y, z, roll, pitch, yaw)
+        self._node.get_logger().info(
+            f"go_to_hold_pose: presenting open gripper at ({x:.2f}, {y:.2f}, {z:.2f})"
+        )
+        if not self.move_to_pose(pose):
+            self._node.get_logger().warn("go_to_hold_pose: reach failed.")
+            return False
+        return True
+
     def _user_direction_xy(self, mode: Optional[str] = None):
         """Return a unit (x, y) pointing toward the user, or None.
 
