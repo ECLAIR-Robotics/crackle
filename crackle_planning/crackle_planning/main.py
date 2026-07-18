@@ -480,12 +480,6 @@ class CrackleFSM:
         else:
             print("[ERROR] response dialogue was none")
 
-        if response.continue_talking:
-            print("Continuing conversation — returning to LISTENING state")
-            self._state = CrackleState.LISTENING
-            ui_client.set_state("listening")
-            return
-
         print("TASK COMPLETED")
         self._state = CrackleState.IDLE
         ui_client.set_state("idle")

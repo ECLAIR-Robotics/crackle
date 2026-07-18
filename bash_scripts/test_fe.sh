@@ -76,7 +76,7 @@ curl -s $BASE/pipeline -d "{\"turn_id\":\"$T\",\"stage\":\"api:openai_responses\
 sleep 1
 curl -s $BASE/pipeline -d "{\"turn_id\":\"$T\",\"stage\":\"api:openai_responses\",\"status\":\"done\"}"
 sleep 1
-curl -s $BASE/pipeline -d "{\"turn_id\":\"$T\",\"stage\":\"llm_plan\",\"status\":\"done\",\"payload\":{\"dialogue\":\"All set — took two tries on the mug, but it's on the table and I gave ya a wave!\",\"emotion\":\"happy\",\"continue_talking\":false}}"
+curl -s $BASE/pipeline -d "{\"turn_id\":\"$T\",\"stage\":\"llm_plan\",\"status\":\"done\",\"payload\":{\"dialogue\":\"All set — took two tries on the mug, but it's on the table and I gave ya a wave!\",\"emotion\":\"happy\"}}"
 sleep 1
 # Only "end" ever gets a face event — see pipeline.html's comment on the Plan node.
 curl -s $BASE/pipeline -d "{\"turn_id\":\"$T\",\"stage\":\"face\",\"status\":\"data\",\"payload\":{\"node\":\"end\",\"emotion\":\"happy\"}}"
