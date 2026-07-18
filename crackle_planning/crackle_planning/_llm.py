@@ -5,6 +5,8 @@ import re
 import queue as _queue
 import threading
 import traceback
+import uuid
+from typing import Optional
 from typing import List, Optional
 from elevenlabs import ElevenLabs
 from dataclasses import dataclass
@@ -27,10 +29,12 @@ if ROS_ENABLED:
     from crackle_planning.parse import parse_class_to_tools
     from crackle_planning._keys import openai_key
     from crackle_planning._api import PlannerAPI
+    from crackle_planning.face_ui import ui_client
 else:
     from parse import parse_class_to_tools
     from _keys import openai_key
     from _api import PlannerAPI
+    from face_ui import ui_client
 
 def _extract_dialogue_prefix(partial_json: str) -> tuple:
     """Extract how much of the 'dialogue' field has arrived in a partial JSON string.
@@ -354,6 +358,16 @@ class GptAPI:
 
         tools = self._tools
 
+        # One id per turn — see PIPELINE_UI_ARCHITECTURE.md §4. Lets the
+        # pipeline/debug view (face_ui/pipeline.html) group this turn's
+        # events and tell it apart from the next one.
+        turn_id = uuid.uuid4().hex[:8]
+        ui_client.emit_stage("llm_plan", "start", turn_id=turn_id, prompt=prompt)
+        # Position within the *current* plan — reset to 0 on every submit_plan
+        # (including replans), so a replan's step_index never collides with
+        # the previous plan's.
+        step_index = 0
+
         state_context = f"[Robot state] gripper_occupied={planner_api.gripper_occupied}"
         user_content = f"{state_context}\n\nUser: {prompt}"
         self.input_items.append({"role": "user", "content": user_content})
@@ -373,6 +387,7 @@ class GptAPI:
             dialogue_so_far = ""
             tts_sent_up_to = 0
 
+            ui_client.emit_stage("api:openai_responses", "loading", turn_id=turn_id)
             with self.client.responses.stream(
                 model="gpt-4o-mini",
                 tools=tools,
@@ -399,6 +414,7 @@ class GptAPI:
                             if call_names.get(cid) == "make_final_response":
                                 # Start TTS worker on first dialogue delta, after any preamble.
                                 if tts_thread is None:
+                                    ui_client.emit_stage("api:elevenlabs_tts", "loading", turn_id=turn_id, node="end")
                                     tts_thread = threading.Thread(
                                         target=self._tts_sentence_worker,
                                         args=(sentence_queue,),
@@ -422,6 +438,8 @@ class GptAPI:
 
                 response = stream.get_final_response()
 
+            ui_client.emit_stage("api:openai_responses", "done", turn_id=turn_id)
+
             # Flush any trailing dialogue that didn't end with a sentence boundary.
             if tts_thread is not None:
                 remaining = dialogue_so_far[tts_sent_up_to:].strip()
@@ -444,6 +462,12 @@ class GptAPI:
                     emotion_val = args.get("emotion", "happy")
                     continue_talking_val = args.get("continue_talking", False)
                     done = True
+                    ui_client.emit_stage(
+                        "llm_plan", "done", turn_id=turn_id,
+                        dialogue=dialogue_val, emotion=emotion_val,
+                        continue_talking=continue_talking_val,
+                    )
+                    ui_client.emit_stage("face", "data", turn_id=turn_id, node="end", emotion=emotion_val)
                     tool_results.append({
                         "type": "function_call_output",
                         "call_id": item.call_id,
@@ -455,10 +479,15 @@ class GptAPI:
                     preamble = args.get("preamble", "")
                     plan_steps = args.get("steps", [])
                     print(f"[plan] {plan_steps}")
+                    ui_client.emit_stage(
+                        "llm_plan", "data", turn_id=turn_id,
+                        preamble=preamble, steps=plan_steps,
+                    )
+                    step_index = 0
                     if preamble:
                         preamble_thread = threading.Thread(
-                            target=self.speak_text_eleven_labs,
-                            args=(preamble,),
+                            target=self._speak_and_track,
+                            args=(preamble, "plan", turn_id),
                             daemon=True,
                         )
                         preamble_thread.start()
@@ -471,8 +500,17 @@ class GptAPI:
                 else:
                     args = json.loads(item.arguments or "{}")
                     print(f"[tool] calling {item.name}({args})")
+                    ui_client.emit_stage(
+                        f"tool:{item.name}", "start", turn_id=turn_id,
+                        step_index=step_index, args=args,
+                    )
                     result = self._execute_tool(planner_api, item.name, args)
                     print(f"[tool] result: {result}")
+                    ui_client.emit_stage(
+                        f"tool:{item.name}", "done" if result.get("success") else "error",
+                        turn_id=turn_id, step_index=step_index, **result,
+                    )
+                    step_index += 1
                     tool_results.append({
                         "type": "function_call_output",
                         "call_id": item.call_id,
@@ -491,6 +529,7 @@ class GptAPI:
         # Block until TTS finishes so the caller can drain the mic buffer safely.
         if tts_thread is not None:
             tts_thread.join()
+            ui_client.emit_stage("api:elevenlabs_tts", "done", turn_id=turn_id, node="end")
 
         assistant_msg = {
             "role": "assistant",
@@ -504,6 +543,20 @@ class GptAPI:
             continue_talking=bool(continue_talking_val),
             tts_handled=tts_thread is not None,
         )
+
+    def _speak_and_track(self, text: str, node: str, turn_id: str):
+        """Wrap ``speak_text_eleven_labs`` with pipeline-view VOICE-node events.
+
+        Used for the ``submit_plan`` preamble (node="plan"); the main
+        dialogue's TTS is streamed sentence-by-sentence by
+        ``_tts_sentence_worker`` instead and is bracketed separately in
+        ``get_command`` since it doesn't go through this single-call path.
+        """
+        ui_client.emit_stage("api:elevenlabs_tts", "loading", turn_id=turn_id, node=node)
+        try:
+            self.speak_text_eleven_labs(text)
+        finally:
+            ui_client.emit_stage("api:elevenlabs_tts", "done", turn_id=turn_id, node=node)
 
     def speak_text_eleven_labs(self, text: str):
         """Stream TTS audio directly to speakers via paplay — no file I/O, low latency."""
